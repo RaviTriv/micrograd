@@ -1,14 +1,22 @@
 #pragma once
 
-#include <vector>
-#include <memory>
 #include <functional>
+#include <memory>
+#include <vector>
 
 class Tensor : public std::enable_shared_from_this<Tensor> {
 public:
   Tensor(std::vector<size_t> shape);
-  ~Tensor();
+  ~Tensor() = default;
+
+  const std::vector<size_t> &shape() const;
+  size_t size() const;
+  double &at(const std::vector<size_t> &indices);
+  double at(const std::vector<size_t> &indices) const;
+
 private:
+  void compute_strides();
+
   std::vector<double> data_;
   std::vector<double> grad_;
   std::vector<size_t> shape_;
