@@ -15,4 +15,10 @@ add_compile_options(
     -Wshadow -Wconversion -Wsign-conversion
 )
 
+add_library(micrograd
+    src/tensor.cpp
+)
+
+target_include_directories(micrograd PUBLIC include)
 add_executable(main src/main.cpp)
+target_link_libraries(main PRIVATE micrograd)
