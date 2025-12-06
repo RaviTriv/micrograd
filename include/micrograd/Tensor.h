@@ -7,6 +7,7 @@
 class Tensor : public std::enable_shared_from_this<Tensor> {
 public:
   Tensor(std::vector<size_t> shape);
+  Tensor(std::vector<size_t> shape, std::vector<double> data);
   ~Tensor() = default;
 
   const std::vector<size_t> &shape() const;
@@ -24,4 +25,6 @@ private:
 
   std::vector<std::shared_ptr<Tensor>> children_;
   std::function<void()> backward_fn_;
+
+  size_t flat_index(const std::vector<size_t> &indices) const;
 };

@@ -6,7 +6,9 @@ A small autograd engine
 ### Tensor
 ```C++
 // Create a 4x4 tensor
-Tensor t({4,4});
+Tensor t({4,4})
+// Create a 2x2 tensor
+Tensor t({2,2}, {0.0,1.0,2.0,3.0})
 
 // Set and Get values
 t.at({2,2}) = 23.00;
