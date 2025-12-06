@@ -10,10 +10,23 @@ public:
   Tensor(std::vector<size_t> shape, std::vector<double> data);
   ~Tensor() = default;
 
+  std::shared_ptr<Tensor> add(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> sub(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> mul(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> div(const std::shared_ptr<Tensor> &b);
+
+  std::shared_ptr<Tensor> add(double scalar);
+  std::shared_ptr<Tensor> sub(double scalar);
+  std::shared_ptr<Tensor> mul(double scalar);
+  std::shared_ptr<Tensor> div(double scalar);
+  std::shared_ptr<Tensor> pow(double exponent);
+
   const std::vector<size_t> &shape() const;
   size_t size() const;
   double &at(const std::vector<size_t> &indices);
   double at(const std::vector<size_t> &indices) const;
+  double &grad_at(const std::vector<size_t> &indices);
+  double grad_at(const std::vector<size_t> &indices) const;
 
 private:
   void compute_strides();

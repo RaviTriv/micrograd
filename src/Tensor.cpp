@@ -33,6 +33,70 @@ void Tensor::compute_strides() {
   }
 }
 
+std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
+  if (shape_ != b->shape_) {
+    throw std::invalid_argument("Tensor shapes do not match");
+  }
+
+  auto result = std::make_shared<Tensor>(shape_);
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = data_[i] + b->data_[i];
+  }
+
+  result->children_ = {shared_from_this(), b};
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::sub(const std::shared_ptr<Tensor> &b) {
+  if (shape_ != b->shape_) {
+    throw std::invalid_argument("Tensor shapes do not match");
+  }
+
+  auto result = std::make_shared<Tensor>(shape_);
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = data_[i] - b->data_[i];
+  }
+
+  result->children_ = {shared_from_this(), b};
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::mul(const std::shared_ptr<Tensor> &b) {
+  if (shape_ != b->shape_) {
+    throw std::invalid_argument("Tensor shapes do not match");
+  }
+
+  auto result = std::make_shared<Tensor>(shape_);
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = data_[i] * b->data_[i];
+  }
+
+  result->children_ = {shared_from_this(), b};
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
+  if (shape_ != b->shape_) {
+    throw std::invalid_argument("Tensor shapes do not match");
+  }
+
+  auto result = std::make_shared<Tensor>(shape_);
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = data_[i] / b->data_[i];
+  }
+
+  result->children_ = {shared_from_this(), b};
+
+  return result;
+}
+
 const std::vector<size_t> &Tensor::shape() const { return shape_; }
 
 size_t Tensor::size() const { return data_.size(); }
@@ -45,7 +109,15 @@ double Tensor::at(const std::vector<size_t> &indices) const {
   return data_[flat_index(indices)];
 }
 
-size_t Tensor::flat_index(const std::vector<size_t> &indices) const{
+double &Tensor::grad_at(const std::vector<size_t> &indices) {
+  return grad_[flat_index(indices)];
+}
+
+double Tensor::grad_at(const std::vector<size_t> &indices) const {
+  return grad_[flat_index(indices)];
+}
+
+size_t Tensor::flat_index(const std::vector<size_t> &indices) const {
   size_t idx = 0;
   for (size_t i = 0; i < indices.size(); i++) {
     idx += indices[i] * strides_[i];
