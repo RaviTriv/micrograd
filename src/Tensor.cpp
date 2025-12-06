@@ -1,6 +1,8 @@
 #include "micrograd/Tensor.h"
 #include <cmath>
 #include <cstddef>
+#include <functional>
+#include <memory>
 
 Tensor::Tensor(std::vector<size_t> shape) : shape_(shape) {
   size_t total = 1;
@@ -45,8 +47,15 @@ std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
     result->data_[i] = data_[i] + b->data_[i];
   }
 
-  result->children_ = {shared_from_this(), b};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr, b};
 
+  result->backward_fn_ = [result, self_ptr, b]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[i];
+      b->grad_[i] += result->grad_[i];
+    }
+  };
   return result;
 }
 
@@ -61,7 +70,15 @@ std::shared_ptr<Tensor> Tensor::sub(const std::shared_ptr<Tensor> &b) {
     result->data_[i] = data_[i] - b->data_[i];
   }
 
-  result->children_ = {shared_from_this(), b};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr, b};
+
+  result->backward_fn_ = [result, self_ptr, b]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[i];
+      b->grad_[i] -= result->grad_[i];
+    }
+  };
 
   return result;
 }
@@ -77,7 +94,15 @@ std::shared_ptr<Tensor> Tensor::mul(const std::shared_ptr<Tensor> &b) {
     result->data_[i] = data_[i] * b->data_[i];
   }
 
-  result->children_ = {shared_from_this(), b};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr, b};
+
+  result->backward_fn_ = [result, self_ptr, b]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[i] * b->data_[i];
+      b->grad_[i] += result->grad_[i] * self_ptr->data_[i];
+    }
+  };
 
   return result;
 }
@@ -93,7 +118,16 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
     result->data_[i] = data_[i] / b->data_[i];
   }
 
-  result->children_ = {shared_from_this(), b};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr, b};
+
+  result->backward_fn_ = [result, self_ptr, b]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[i] / b->data_[i];
+      b->grad_[i] -=
+          result->grad_[i] * self_ptr->data_[i] / (b->data_[i] * b->data_[i]);
+    }
+  };
 
   return result;
 }
@@ -200,6 +234,12 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   result->children_ = {shared_from_this(), b};
 
   return result;
+}
+
+void Tensor::zero_grad() {
+  for (size_t i = 0; i < grad_.size(); i++) {
+    grad_[i] = 0.0;
+  }
 }
 
 const std::vector<size_t> &Tensor::shape() const { return shape_; }
