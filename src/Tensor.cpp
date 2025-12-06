@@ -158,6 +158,50 @@ std::shared_ptr<Tensor> Tensor::pow(double exponent) {
   return result;
 }
 
+std::shared_ptr<Tensor> Tensor::sum() {
+  auto result = std::make_shared<Tensor>(std::vector<size_t>{1});
+
+  double total = 0.0;
+  for (size_t i = 0; i < data_.size(); i++) {
+    total += data_[i];
+  }
+  result->data_[0] = total;
+
+  result->children_ = {shared_from_this()};
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
+  if (shape_.size() != 2 || b->shape_.size() != 2) {
+    throw std::invalid_argument("Tensors must be 2D for matmul");
+  }
+
+  if (shape_[1] != b->shape_[0]) {
+    throw std::invalid_argument("Inner dimensions must match for matmul");
+  }
+
+  size_t m = shape_[0];
+  size_t k = shape_[1];
+  size_t n = b->shape_[1];
+
+  auto result = std::make_shared<Tensor>(std::vector<size_t>{m, n});
+
+  for (size_t i = 0; i < m; i++) {
+    for (size_t j = 0; j < n; j++) {
+      double sum = 0.0;
+      for (size_t p = 0; p < k; p++) {
+        sum += at({i, p}) * b->at({p, j});
+      }
+      result->at({i, j}) = sum;
+    }
+  }
+
+  result->children_ = {shared_from_this(), b};
+
+  return result;
+}
+
 const std::vector<size_t> &Tensor::shape() const { return shape_; }
 
 size_t Tensor::size() const { return data_.size(); }

@@ -26,6 +26,9 @@ t3 = t->mul(2.0)
 // Exponent
 auto t3 = t->pow(3.0);
 
+// Matrix Multiplication
+auto t3 = t->matmul(t2);
+
 // Set and Get values
 t.at({2,2}) = 23.00;
 t.at({2, 2}) // 23.00

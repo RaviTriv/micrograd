@@ -30,5 +30,15 @@ int main() {
   t2 = t->pow(3.0);
   std::cout << "POW SCALAR: " << t2->at({1, 1}) << std::endl;
 
+  auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 3},
+                                    std::vector<double>{1, 2, 3, 4, 5, 6});
+
+  auto b = std::make_shared<Tensor>(std::vector<size_t>{3, 2},
+                                    std::vector<double>{7, 8, 9, 10, 11, 12});
+
+  auto c = a->matmul(b);
+
+  std::cout << c->at({0, 0}) << std::endl;
+
   return 0;
 }
