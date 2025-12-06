@@ -18,5 +18,17 @@ int main() {
   std::cout << "MUL: " << t5->at({1, 1}) << std::endl;
   std::cout << "DIV: " << t6->at({1, 1}) << std::endl;
 
+  t3 = t->add(2.0);
+  t4 = t->sub(2.0);
+  t5 = t->mul(2.0);
+  t6 = t->div(2.0);
+  std::cout << "ADD SCALAR: " << t3->at({1, 1}) << std::endl;
+  std::cout << "SUB SCALAR: " << t4->at({1, 1}) << std::endl;
+  std::cout << "MUL SCALAR: " << t5->at({1, 1}) << std::endl;
+  std::cout << "DIV SCALAR: " << t6->at({1, 1}) << std::endl;
+
+  t2 = t->pow(3.0);
+  std::cout << "POW SCALAR: " << t2->at({1, 1}) << std::endl;
+
   return 0;
 }

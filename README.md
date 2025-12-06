@@ -13,12 +13,18 @@ auto t2 = std::make_shared<Tensor>(std::vector<size_t>{2, 2},
 
 // Add
 auto t3 = t->add(t2);
+t3 = t->add(2.0);
 // Subtract
-auto t4 = t->sub(t2);
+auto t3 = t->sub(t2);
+t4 = t->sub(2.0);
 // Multiply
-auto t5 = t->mul(t2);
+auto t3 = t->mul(t2);
+t3 = t->mul(2.0);
 // Divide
-auto t6 = t->div(t2);
+auto t3 = t->div(t2);
+t3 = t->mul(2.0)
+// Exponent
+auto t3 = t->pow(3.0);
 
 // Set and Get values
 t.at({2,2}) = 23.00;

@@ -1,4 +1,5 @@
 #include "micrograd/Tensor.h"
+#include <cmath>
 #include <cstddef>
 
 Tensor::Tensor(std::vector<size_t> shape) : shape_(shape) {
@@ -93,6 +94,66 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
   }
 
   result->children_ = {shared_from_this(), b};
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::add(double scalar) {
+  auto result = std::make_shared<Tensor>(shape_);
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = data_[i] + scalar;
+  }
+
+  result->children_ = {shared_from_this()};
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::sub(double scalar) {
+  auto result = std::make_shared<Tensor>(shape_);
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = data_[i] - scalar;
+  }
+
+  result->children_ = {shared_from_this()};
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::mul(double scalar) {
+  auto result = std::make_shared<Tensor>(shape_);
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = data_[i] * scalar;
+  }
+
+  result->children_ = {shared_from_this()};
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::div(double scalar) {
+  auto result = std::make_shared<Tensor>(shape_);
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = data_[i] / scalar;
+  }
+
+  result->children_ = {shared_from_this()};
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::pow(double exponent) {
+  auto result = std::make_shared<Tensor>(shape_);
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = std::pow(data_[i], exponent);
+  }
+
+  result->children_ = {shared_from_this()};
 
   return result;
 }
