@@ -27,6 +27,10 @@ public:
   std::shared_ptr<Tensor> sum();
   std::shared_ptr<Tensor> matmul(const std::shared_ptr<Tensor> &b);
 
+  std::shared_ptr<Tensor> relu();
+  std::shared_ptr<Tensor> sigmoid();
+  std::shared_ptr<Tensor> tanh();
+
   void backward();
   void zero_grad();
 

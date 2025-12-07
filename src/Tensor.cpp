@@ -2,9 +2,13 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <iomanip>
 #include <memory>
+#include <sstream>
+#include <string>
 #include <unordered_set>
 
+std::string format_scalar(const std::string &op, double scalar);
 Tensor::Tensor(std::vector<size_t> shape) : shape_(shape) {
   size_t total = 1;
   for (auto dim : shape_) {
@@ -139,7 +143,7 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::add(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "+";
+  result->op_ = format_scalar("+", scalar);
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] + scalar;
@@ -159,7 +163,7 @@ std::shared_ptr<Tensor> Tensor::add(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::sub(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "-";
+  result->op_ = format_scalar("-", scalar);
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] - scalar;
@@ -179,7 +183,7 @@ std::shared_ptr<Tensor> Tensor::sub(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::mul(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "*";
+  result->op_ = format_scalar("*", scalar);
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] * scalar;
@@ -199,7 +203,7 @@ std::shared_ptr<Tensor> Tensor::mul(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::div(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "/";
+  result->op_ = format_scalar("/", scalar);
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] / scalar;
@@ -219,7 +223,7 @@ std::shared_ptr<Tensor> Tensor::div(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::pow(double exponent) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "^";
+  result->op_ = format_scalar("^", exponent);
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = std::pow(data_[i], exponent);
@@ -240,6 +244,7 @@ std::shared_ptr<Tensor> Tensor::pow(double exponent) {
 
 std::shared_ptr<Tensor> Tensor::sum() {
   auto result = std::make_shared<Tensor>(std::vector<size_t>{1});
+  result->op_ = "sum";
 
   double total = 0.0;
   for (size_t i = 0; i < data_.size(); i++) {
@@ -273,6 +278,7 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   size_t n = b->shape_[1];
 
   auto result = std::make_shared<Tensor>(std::vector<size_t>{m, n});
+  result->op_ = "@";
 
   for (size_t i = 0; i < m; i++) {
     for (size_t j = 0; j < n; j++) {
@@ -302,6 +308,70 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
           b->grad_at({i, j}) += self_ptr->at({p, i}) * result->grad_at({p, j});
         }
       }
+    }
+  };
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::relu() {
+  auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "relu";
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = data_[i] > 0 ? data_[i] : 0;
+  }
+
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] +=
+          result->grad_[i] * (self_ptr->data_[i] > 0 ? 1.0 : 0.0);
+    }
+  };
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::sigmoid() {
+  auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "sigmoid";
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = 1.0 / (1.0 + std::exp(-data_[i]));
+  }
+
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      double sigmoid_val = result->data_[i];
+      self_ptr->grad_[i] +=
+          result->grad_[i] * sigmoid_val * (1.0 - sigmoid_val);
+    }
+  };
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::tanh() {
+  auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "tanh";
+
+  for (size_t i = 0; i < data_.size(); i++) {
+    result->data_[i] = std::tanh(data_[i]);
+  }
+
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      double tanh_val = result->data_[i];
+      self_ptr->grad_[i] += result->grad_[i] * (1.0 - tanh_val * tanh_val);
     }
   };
 
@@ -340,6 +410,12 @@ void Tensor::zero_grad() {
   for (size_t i = 0; i < grad_.size(); i++) {
     grad_[i] = 0.0;
   }
+}
+
+std::string format_scalar(const std::string &op, double scalar) {
+  std::ostringstream oss;
+  oss << op << " " << std::fixed << std::setprecision(2) << scalar;
+  return oss.str();
 }
 
 const std::vector<size_t> &Tensor::shape() const { return shape_; }
