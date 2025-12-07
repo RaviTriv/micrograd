@@ -43,6 +43,7 @@ std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
   }
 
   auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "+";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] + b->data_[i];
@@ -66,6 +67,7 @@ std::shared_ptr<Tensor> Tensor::sub(const std::shared_ptr<Tensor> &b) {
   }
 
   auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "-";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] - b->data_[i];
@@ -90,6 +92,7 @@ std::shared_ptr<Tensor> Tensor::mul(const std::shared_ptr<Tensor> &b) {
   }
 
   auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "*";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] * b->data_[i];
@@ -114,6 +117,7 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
   }
 
   auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "/";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] / b->data_[i];
@@ -135,6 +139,7 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::add(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "+";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] + scalar;
@@ -147,6 +152,7 @@ std::shared_ptr<Tensor> Tensor::add(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::sub(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "-";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] - scalar;
@@ -159,6 +165,7 @@ std::shared_ptr<Tensor> Tensor::sub(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::mul(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "*";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] * scalar;
@@ -171,6 +178,7 @@ std::shared_ptr<Tensor> Tensor::mul(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::div(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "/";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] / scalar;
@@ -183,6 +191,7 @@ std::shared_ptr<Tensor> Tensor::div(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::pow(double exponent) {
   auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "^";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = std::pow(data_[i], exponent);

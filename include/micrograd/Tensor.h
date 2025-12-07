@@ -2,9 +2,12 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 class Tensor : public std::enable_shared_from_this<Tensor> {
+  friend std::string to_dot(const std::shared_ptr<Tensor> &tensor);
+
 public:
   Tensor(std::vector<size_t> shape);
   Tensor(std::vector<size_t> shape, std::vector<double> data);
@@ -26,7 +29,7 @@ public:
 
   void backward();
   void zero_grad();
-  
+
   const std::vector<size_t> &shape() const;
   size_t size() const;
   double &at(const std::vector<size_t> &indices);
@@ -46,4 +49,6 @@ private:
   std::function<void()> backward_fn_;
 
   size_t flat_index(const std::vector<size_t> &indices) const;
+
+  std::string op_;
 };

@@ -16,7 +16,8 @@ add_compile_options(
 )
 
 add_library(micrograd
-    src/tensor.cpp
+    src/Tensor.cpp
+    src/Utils.cpp
 )
 
 target_include_directories(micrograd PUBLIC include)
