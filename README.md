@@ -1,5 +1,7 @@
 # micrograd
-A small autograd engine
+A simple automatic differentiation engine
+
+![Computational Graph](./images/graph.png)
 
 ## API
 

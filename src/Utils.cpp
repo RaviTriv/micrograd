@@ -16,10 +16,10 @@ std::string to_dot(const std::shared_ptr<Tensor> &tensor) {
           return;
         visited.insert(node.get());
 
-        ss << "  \"" << node.get() << "\" [label=\"data " << node->data_[0];
+        ss << "  \"" << node.get() << "\" [label=\"data: " << node->data_[0];
         if (node->data_.size() > 1)
           ss << "...";
-        ss << " | grad " << node->grad_[0];
+        ss << " | grad: " << node->grad_[0];
         if (node->grad_.size() > 1)
           ss << "...";
         ss << "\", shape=record];\n";
