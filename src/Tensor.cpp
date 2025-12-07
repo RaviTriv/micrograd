@@ -145,7 +145,14 @@ std::shared_ptr<Tensor> Tensor::add(double scalar) {
     result->data_[i] = data_[i] + scalar;
   }
 
-  result->children_ = {shared_from_this()};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[i];
+    }
+  };
 
   return result;
 }
@@ -158,7 +165,14 @@ std::shared_ptr<Tensor> Tensor::sub(double scalar) {
     result->data_[i] = data_[i] - scalar;
   }
 
-  result->children_ = {shared_from_this()};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[i];
+    }
+  };
 
   return result;
 }
@@ -171,7 +185,14 @@ std::shared_ptr<Tensor> Tensor::mul(double scalar) {
     result->data_[i] = data_[i] * scalar;
   }
 
-  result->children_ = {shared_from_this()};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr, scalar]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[i] * scalar;
+    }
+  };
 
   return result;
 }
@@ -184,7 +205,14 @@ std::shared_ptr<Tensor> Tensor::div(double scalar) {
     result->data_[i] = data_[i] / scalar;
   }
 
-  result->children_ = {shared_from_this()};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr, scalar]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[i] / scalar;
+    }
+  };
 
   return result;
 }
@@ -197,7 +225,15 @@ std::shared_ptr<Tensor> Tensor::pow(double exponent) {
     result->data_[i] = std::pow(data_[i], exponent);
   }
 
-  result->children_ = {shared_from_this()};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr, exponent]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[i] * exponent *
+                            std::pow(self_ptr->data_[i], exponent - 1);
+    }
+  };
 
   return result;
 }
@@ -211,7 +247,14 @@ std::shared_ptr<Tensor> Tensor::sum() {
   }
   result->data_[0] = total;
 
-  result->children_ = {shared_from_this()};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[0];
+    }
+  };
 
   return result;
 }
@@ -241,7 +284,26 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
     }
   }
 
-  result->children_ = {shared_from_this(), b};
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr, b};
+
+  result->backward_fn_ = [result, self_ptr, b, m, k, n]() {
+    for (size_t i = 0; i < m; i++) {
+      for (size_t j = 0; j < k; j++) {
+        for (size_t p = 0; p < n; p++) {
+          self_ptr->grad_at({i, j}) += result->grad_at({i, p}) * b->at({j, p});
+        }
+      }
+    }
+
+    for (size_t i = 0; i < k; i++) {
+      for (size_t j = 0; j < n; j++) {
+        for (size_t p = 0; p < m; p++) {
+          b->grad_at({i, j}) += self_ptr->at({p, i}) * result->grad_at({p, j});
+        }
+      }
+    }
+  };
 
   return result;
 }
