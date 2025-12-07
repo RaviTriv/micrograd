@@ -24,6 +24,7 @@ public:
   std::shared_ptr<Tensor> sum();
   std::shared_ptr<Tensor> matmul(const std::shared_ptr<Tensor> &b);
 
+  void backward();
   void zero_grad();
   
   const std::vector<size_t> &shape() const;
