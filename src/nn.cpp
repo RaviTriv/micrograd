@@ -1,5 +1,17 @@
 #include "micrograd/nn.h"
+#include <memory>
 #include <random>
+
+std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
+                                 const std::shared_ptr<Tensor> &target) {
+  auto diff = prediction->sub(target);
+  auto squared = diff->pow(2.0);
+
+  auto sum = squared->sum();
+  auto mean = sum->div(static_cast<double>(prediction->size()));
+
+  return mean;
+}
 
 Linear::Linear(size_t in_features, size_t out_features) {
   std::random_device rd;
