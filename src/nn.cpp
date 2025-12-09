@@ -1,4 +1,5 @@
 #include "micrograd/nn.h"
+#include <fstream>
 #include <memory>
 #include <random>
 
@@ -53,4 +54,52 @@ void SGD::step() {
       p->data()[i] -= learning_rate_ * p->grad()[i];
     }
   }
+}
+
+void save_model(const std::string &path, Linear &l1, Linear &l2) {
+  std::ofstream file(path, std::ios::binary);
+
+  if (!file.is_open()) {
+    throw std::runtime_error("Could not open file for saving: " + path);
+  }
+
+  auto &w1 = l1.weights()->data();
+  auto &b1 = l1.bias()->data();
+  auto &w2 = l2.weights()->data();
+  auto &b2 = l2.bias()->data();
+
+  file.write(reinterpret_cast<char *>(w1.data()),
+             static_cast<std::streamsize>(w1.size() * sizeof(double)));
+  file.write(reinterpret_cast<char *>(b1.data()),
+             static_cast<std::streamsize>(b1.size() * sizeof(double)));
+  file.write(reinterpret_cast<char *>(w2.data()),
+             static_cast<std::streamsize>(w2.size() * sizeof(double)));
+  file.write(reinterpret_cast<char *>(b2.data()),
+             static_cast<std::streamsize>(b2.size() * sizeof(double)));
+
+  file.close();
+}
+
+void load_model(const std::string &path, Linear &l1, Linear &l2) {
+  std::ifstream file(path, std::ios::binary);
+
+  if (!file.is_open()) {
+    throw std::runtime_error("Could not open file for loading: " + path);
+  }
+
+  auto &w1 = l1.weights()->data();
+  auto &b1 = l1.bias()->data();
+  auto &w2 = l2.weights()->data();
+  auto &b2 = l2.bias()->data();
+
+  file.read(reinterpret_cast<char *>(w1.data()),
+            static_cast<std::streamsize>(w1.size() * sizeof(double)));
+  file.read(reinterpret_cast<char *>(b1.data()),
+            static_cast<std::streamsize>(b1.size() * sizeof(double)));
+  file.read(reinterpret_cast<char *>(w2.data()),
+            static_cast<std::streamsize>(w2.size() * sizeof(double)));
+  file.read(reinterpret_cast<char *>(b2.data()),
+            static_cast<std::streamsize>(b2.size() * sizeof(double)));
+
+  file.close();
 }

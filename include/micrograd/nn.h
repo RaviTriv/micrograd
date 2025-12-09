@@ -29,3 +29,6 @@ private:
   std::vector<std::shared_ptr<Tensor>> parameters_;
   double learning_rate_;
 };
+
+void save_model(const std::string &path, Linear &l1, Linear &l2);
+void load_model(const std::string &path, Linear &l1, Linear &l2);
