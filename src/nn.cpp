@@ -37,3 +37,20 @@ std::shared_ptr<Tensor> Linear::forward(const std::shared_ptr<Tensor> &input) {
 
 std::shared_ptr<Tensor> Linear::weights() { return weights_; }
 std::shared_ptr<Tensor> Linear::bias() { return bias_; }
+
+SGD::SGD(std::vector<std::shared_ptr<Tensor>> parameters, double learning_rate)
+    : parameters_(parameters), learning_rate_(learning_rate) {}
+
+void SGD::zero_grad() {
+  for (auto &p : parameters_) {
+    p->zero_grad();
+  }
+}
+
+void SGD::step() {
+  for (auto &p : parameters_) {
+    for (size_t i = 0; i < p->size(); i++) {
+      p->data()[i] -= learning_rate_ * p->grad()[i];
+    }
+  }
+}

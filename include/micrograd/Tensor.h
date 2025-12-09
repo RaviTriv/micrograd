@@ -40,6 +40,8 @@ public:
   double at(const std::vector<size_t> &indices) const;
   double &grad_at(const std::vector<size_t> &indices);
   double grad_at(const std::vector<size_t> &indices) const;
+  std::vector<double> &data();
+  std::vector<double> &grad();
 
 private:
   void compute_strides();

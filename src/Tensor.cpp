@@ -445,3 +445,7 @@ size_t Tensor::flat_index(const std::vector<size_t> &indices) const {
   }
   return idx;
 }
+
+std::vector<double> &Tensor::data() { return data_; }
+
+std::vector<double> &Tensor::grad() { return grad_; }

@@ -17,3 +17,15 @@ private:
   std::shared_ptr<Tensor> weights_;
   std::shared_ptr<Tensor> bias_;
 };
+
+class SGD {
+public:
+  SGD(std::vector<std::shared_ptr<Tensor>> parameters, double learning_rate);
+
+  void step();
+  void zero_grad();
+
+private:
+  std::vector<std::shared_ptr<Tensor>> parameters_;
+  double learning_rate_;
+};
