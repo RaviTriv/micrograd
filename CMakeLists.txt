@@ -19,6 +19,7 @@ add_library(micrograd
     src/Tensor.cpp
     src/Utils.cpp
     src/nn.cpp
+    src/mnist.cpp
 )
 
 target_include_directories(micrograd PUBLIC include)
