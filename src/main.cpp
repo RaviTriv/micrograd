@@ -1,55 +1,115 @@
 #include <iostream>
 
-#include "micrograd/mnist.h"
-#include "micrograd/nn.h"
+#ifdef MICROGRAD_METAL_ENABLED
+#define NS_PRIVATE_IMPLEMENTATION
+#define MTL_PRIVATE_IMPLEMENTATION
+#include <Foundation/Foundation.hpp>
+#include <Metal/Metal.hpp>
+#endif
 
 int main() {
+#ifdef MICROGRAD_METAL_ENABLED
+  MTL::Device *device = MTL::CreateSystemDefaultDevice();
+  std::cout << "Accelerator: " << device->name()->utf8String() << std::endl;
 
-  auto train = load_mnist("data/train-images-idx3-ubyte",
-                          "data/train-labels-idx1-ubyte", 10000);
+  NS::Error *error = nullptr;
+  NS::String *source =
+      NS::String::string("#include <metal_stdlib>\n"
+                         "using namespace metal;\n"
+                         "\n"
+                         "kernel void matmul(\n"
+                         "    device const float* A [[buffer(0)]],\n"
+                         "    device const float* B [[buffer(1)]],\n"
+                         "    device float* C [[buffer(2)]],\n"
+                         "    constant uint& M [[buffer(3)]],\n"
+                         "    constant uint& K [[buffer(4)]],\n"
+                         "    constant uint& N [[buffer(5)]],\n"
+                         "    uint2 gid [[thread_position_in_grid]])\n"
+                         "{\n"
+                         "    // gid.y = row, gid.x = col\n"
+                         "    if (gid.y >= M || gid.x >= N) return;\n"
+                         "    float sum = 0.0f;\n"
+                         "    for (uint k = 0; k < K; k++) {\n"
+                         "        sum += A[gid.y * K + k] * B[k * N + gid.x];\n"
+                         "    }\n"
+                         "    C[gid.y * N + gid.x] = sum;\n"
+                         "}\n",
+                         NS::UTF8StringEncoding);
 
-  Linear l1(784, 128);
-  Linear l2(128, 10);
+  MTL::Library *library = device->newLibrary(source, nullptr, &error);
+  MTL::Function *fn = library->newFunction(
+      NS::String::string("matmul", NS::UTF8StringEncoding));
+  MTL::ComputePipelineState *pipeline =
+      device->newComputePipelineState(fn, &error);
+  fn->release();
 
-  SGD optimizer({l1.weights(), l1.bias(), l2.weights(), l2.bias()}, 0.01);
+  uint32_t M = 2, K = 2, N = 2;
 
-  for (int epoch = 0; epoch < 10; epoch++) {
-    double total_loss = 0.0;
-    int correct = 0;
+  // Create buffers
+  MTL::Buffer *bufA =
+      device->newBuffer(M * K * sizeof(float), MTL::ResourceStorageModeShared);
+  MTL::Buffer *bufB =
+      device->newBuffer(K * N * sizeof(float), MTL::ResourceStorageModeShared);
+  MTL::Buffer *bufC =
+      device->newBuffer(M * N * sizeof(float), MTL::ResourceStorageModeShared);
+  MTL::Buffer *bufM =
+      device->newBuffer(sizeof(uint32_t), MTL::ResourceStorageModeShared);
+  MTL::Buffer *bufK =
+      device->newBuffer(sizeof(uint32_t), MTL::ResourceStorageModeShared);
+  MTL::Buffer *bufN =
+      device->newBuffer(sizeof(uint32_t), MTL::ResourceStorageModeShared);
 
-    for (size_t i = 0; i < train.images.size(); i++) {
-      auto x = l1.forward(train.images[i])->relu();
-      auto out = l2.forward(x);
-      auto loss = mse_loss(out, train.labels[i]);
+  float *A = static_cast<float *>(bufA->contents());
+  float *B = static_cast<float *>(bufB->contents());
+  A[0] = 1;
+  A[1] = 0;
+  A[2] = 2;
+  A[3] = 4;
 
-      size_t pred = 0;
-      size_t actual = 0;
+  B[0] = 6;
+  B[1] = 8;
+  B[2] = 4;
+  B[3] = 3;
 
-      for (size_t j = 0; j < 10; j++) {
-        if (out->at({0, j}) > out->at({0, pred})) {
-          pred = j;
-        }
-        if (train.labels[i]->at({0, j}) > 0.5) {
-          actual = j;
-        }
-      }
-      if (pred == actual) {
-        correct++;
-      }
+  *static_cast<uint32_t *>(bufM->contents()) = M;
+  *static_cast<uint32_t *>(bufK->contents()) = K;
+  *static_cast<uint32_t *>(bufN->contents()) = N;
 
-      optimizer.zero_grad();
-      loss->backward();
-      optimizer.step();
+  MTL::CommandQueue *queue = device->newCommandQueue();
+  MTL::CommandBuffer *cmdBuf = queue->commandBuffer();
+  MTL::ComputeCommandEncoder *encoder = cmdBuf->computeCommandEncoder();
 
-      total_loss += loss->at({0});
-    }
-    double avrg_loss = total_loss / train.images.size();
-    double accuracy = 100.0 * correct / train.images.size();
-    std::cout << "Epoch " << epoch + 1 << ": Loss = " << avrg_loss
-              << ", Accuracy = " << accuracy << "%" << std::endl;
-  }
+  encoder->setComputePipelineState(pipeline);
+  encoder->setBuffer(bufA, 0, 0);
+  encoder->setBuffer(bufB, 0, 1);
+  encoder->setBuffer(bufC, 0, 2);
+  encoder->setBuffer(bufM, 0, 3);
+  encoder->setBuffer(bufK, 0, 4);
+  encoder->setBuffer(bufN, 0, 5);
 
-  save_model("models/mnist.bin", l1, l2);
+  MTL::Size gridSize(N, M, 1);
+  MTL::Size threadGroupSize(N, M, 1);
+  encoder->dispatchThreads(gridSize, threadGroupSize);
 
+  encoder->endEncoding();
+  cmdBuf->commit();
+  cmdBuf->waitUntilCompleted();
+
+  float *C = static_cast<float *>(bufC->contents());
+  std::cout << "  [" << C[0] << ", " << C[1] << "]" << std::endl;
+  std::cout << "  [" << C[2] << ", " << C[3] << "]" << std::endl;
+
+ 
+  bufA->release();
+  bufB->release();
+  bufC->release();
+  bufM->release();
+  bufK->release();
+  bufN->release();
+  pipeline->release();
+  library->release();
+  queue->release();
+  device->release();
+#endif
   return 0;
 }

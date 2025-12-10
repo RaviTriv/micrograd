@@ -15,6 +15,13 @@ add_compile_options(
     -Wshadow -Wconversion -Wsign-conversion
 )
 
+if(APPLE)
+    option(ENABLE_METAL "Metal GPU acceleration" ON)
+    if(ENABLE_METAL)
+        add_compile_definitions(MICROGRAD_METAL_ENABLED)
+    endif()
+endif()
+
 add_library(micrograd
     src/Tensor.cpp
     src/Utils.cpp
@@ -23,5 +30,14 @@ add_library(micrograd
 )
 
 target_include_directories(micrograd PUBLIC include)
+
+if(APPLE AND ENABLE_METAL)
+    target_include_directories(micrograd PUBLIC external/metal-cpp)
+    target_link_libraries(micrograd PUBLIC
+        "-framework Metal"
+        "-framework Foundation"
+    )
+endif()
+
 add_executable(main src/main.cpp)
 target_link_libraries(main PRIVATE micrograd)
