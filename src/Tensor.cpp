@@ -277,6 +277,13 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
     throw std::invalid_argument("Inner dimensions must match for matmul");
   }
 
+#ifdef MICROGRAD_METAL_ENABLED
+  if (backend_ == micrograd::Backend::Metal &&
+      b->backend_ == micrograd::Backend::Metal) {
+    return matmul_metal(b);
+  }
+#endif
+
   size_t m = shape_[0];
   size_t k = shape_[1];
   size_t n = b->shape_[1];
@@ -455,7 +462,7 @@ std::vector<double> &Tensor::data() { return data_; }
 std::vector<double> &Tensor::grad() { return grad_; }
 
 void Tensor::to(micrograd::Backend b) {
-  if (backend_ == b){
+  if (backend_ == b) {
     return;
   }
 
@@ -503,5 +510,77 @@ void Tensor::to(micrograd::Backend b) {
   (void)b;
 #endif
 }
+
+#ifdef MICROGRAD_METAL_ENABLED
+std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
+  size_t m = shape_[0];
+  size_t k = shape_[1];
+  size_t n = b->shape_[1];
+
+  auto result = std::make_shared<Tensor>(std::vector<size_t>{m, n});
+  result->op_ = "@";
+  result->to(micrograd::Backend::Metal);
+
+  auto &ctx = MetalContext::instance();
+
+  auto bufM = ctx.createBuffer(sizeof(uint32_t));
+  auto bufK = ctx.createBuffer(sizeof(uint32_t));
+  auto bufN = ctx.createBuffer(sizeof(uint32_t));
+  *static_cast<uint32_t *>(bufM->contents()) = static_cast<uint32_t>(m);
+  *static_cast<uint32_t *>(bufK->contents()) = static_cast<uint32_t>(k);
+  *static_cast<uint32_t *>(bufN->contents()) = static_cast<uint32_t>(n);
+
+  auto pipeline = ctx.getPipeline("matmul");
+  auto cmdBuf = ctx.commandQueue()->commandBuffer();
+  auto encoder = cmdBuf->computeCommandEncoder();
+
+  encoder->setComputePipelineState(pipeline);
+  encoder->setBuffer(gpu_data_, 0, 0);
+  encoder->setBuffer(b->gpu_data_, 0, 1);
+  encoder->setBuffer(result->gpu_data_, 0, 2);
+  encoder->setBuffer(bufM, 0, 3);
+  encoder->setBuffer(bufK, 0, 4);
+  encoder->setBuffer(bufN, 0, 5);
+
+  MTL::Size gridSize(n, m, 1);
+  MTL::Size threadGroupSize(std::min(n, size_t(16)), std::min(m, size_t(16)),
+                            1);
+  encoder->dispatchThreads(gridSize, threadGroupSize);
+
+  encoder->endEncoding();
+  cmdBuf->commit();
+  cmdBuf->waitUntilCompleted();
+
+  ctx.releaseBuffer(bufM);
+  ctx.releaseBuffer(bufK);
+  ctx.releaseBuffer(bufN);
+
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr, b};
+
+  result->backward_fn_ = [result, self_ptr, b, m, k, n]() {
+    self_ptr->to(micrograd::Backend::CPU);
+    b->to(micrograd::Backend::CPU);
+    result->to(micrograd::Backend::CPU);
+
+    for (size_t i = 0; i < m; i++) {
+      for (size_t j = 0; j < k; j++) {
+        for (size_t p = 0; p < n; p++) {
+          self_ptr->grad_at({i, j}) += result->grad_at({i, p}) * b->at({j, p});
+        }
+      }
+    }
+    for (size_t i = 0; i < k; i++) {
+      for (size_t j = 0; j < n; j++) {
+        for (size_t p = 0; p < m; p++) {
+          b->grad_at({i, j}) += self_ptr->at({p, i}) * result->grad_at({p, j});
+        }
+      }
+    }
+  };
+
+  return result;
+}
+#endif
 
 micrograd::Backend Tensor::backend() const { return backend_; }
