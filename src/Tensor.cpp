@@ -8,6 +8,10 @@
 #include <string>
 #include <unordered_set>
 
+#ifdef MICROGRAD_METAL_ENABLED
+#include "micrograd/metal/MetalContext.h"
+#endif
+
 std::string format_scalar(const std::string &op, double scalar);
 Tensor::Tensor(std::vector<size_t> shape) : shape_(shape) {
   size_t total = 1;
@@ -449,3 +453,55 @@ size_t Tensor::flat_index(const std::vector<size_t> &indices) const {
 std::vector<double> &Tensor::data() { return data_; }
 
 std::vector<double> &Tensor::grad() { return grad_; }
+
+void Tensor::to(micrograd::Backend b) {
+  if (backend_ == b){
+    return;
+  }
+
+#ifdef MICROGRAD_METAL_ENABLED
+  if (b == micrograd::Backend::Metal) {
+    auto &ctx = MetalContext::instance();
+    if (!ctx.isAvailable()) {
+      ctx.initialize();
+    }
+
+    gpu_data_ = ctx.createBuffer(size() * sizeof(float));
+    gpu_grad_ = ctx.createBuffer(size() * sizeof(float));
+
+    float *gpu_ptr = static_cast<float *>(gpu_data_->contents());
+    for (size_t i = 0; i < size(); i++) {
+      gpu_ptr[i] = static_cast<float>(data_[i]);
+    }
+
+    float *grad_ptr = static_cast<float *>(gpu_grad_->contents());
+    for (size_t i = 0; i < size(); i++) {
+      grad_ptr[i] = 0.0f;
+    }
+
+    backend_ = micrograd::Backend::Metal;
+  } else {
+    float *gpu_ptr = static_cast<float *>(gpu_data_->contents());
+    for (size_t i = 0; i < size(); i++) {
+      data_[i] = static_cast<double>(gpu_ptr[i]);
+    }
+
+    float *grad_ptr = static_cast<float *>(gpu_grad_->contents());
+    for (size_t i = 0; i < size(); i++) {
+      grad_[i] = static_cast<double>(grad_ptr[i]);
+    }
+
+    auto &ctx = MetalContext::instance();
+    ctx.releaseBuffer(gpu_data_);
+    ctx.releaseBuffer(gpu_grad_);
+    gpu_data_ = nullptr;
+    gpu_grad_ = nullptr;
+
+    backend_ = micrograd::Backend::CPU;
+  }
+#else
+  (void)b;
+#endif
+}
+
+micrograd::Backend Tensor::backend() const { return backend_; }

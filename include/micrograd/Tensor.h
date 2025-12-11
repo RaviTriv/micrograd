@@ -5,6 +5,10 @@
 #include <string>
 #include <vector>
 
+#include "micrograd/Backend.h"
+#ifdef MICROGRAD_METAL_ENABLED
+#include "micrograd/metal/MetalContext.h"
+#endif
 class Tensor : public std::enable_shared_from_this<Tensor> {
   friend std::string to_dot(const std::shared_ptr<Tensor> &tensor);
 
@@ -42,6 +46,8 @@ public:
   double grad_at(const std::vector<size_t> &indices) const;
   std::vector<double> &data();
   std::vector<double> &grad();
+  void to(micrograd::Backend backend);
+  micrograd::Backend backend() const;
 
 private:
   void compute_strides();
@@ -57,4 +63,11 @@ private:
   size_t flat_index(const std::vector<size_t> &indices) const;
 
   std::string op_;
+
+  micrograd::Backend backend_ = micrograd::Backend::CPU;
+
+#ifdef MICROGRAD_METAL_ENABLED
+  MTL::Buffer *gpu_data_ = nullptr;
+  MTL::Buffer *gpu_grad_ = nullptr;
+#endif
 };
