@@ -28,6 +28,7 @@ add_library(micrograd
     src/nn.cpp
     src/mnist.cpp
     src/metal/MetalContext.cpp
+    src/metal/Kernels.cpp
 )
 
 target_include_directories(micrograd PUBLIC include)
