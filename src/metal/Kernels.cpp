@@ -32,7 +32,7 @@ const char *KERNEL_SOURCE = R"(
     constant uint& K [[buffer(4)]],
     constant uint& N [[buffer(5)]],
     uint2 gid [[thread_position_in_grid]])
-  ){
+  {
     if (gid.y >= M || gid.x >= N){ 
         return;
     }       
