@@ -1,5 +1,5 @@
 # micrograd
-A simple automatic differentiation engine
+A small automatic differentiation engine
 
 ![Computational Graph](./images/graph.png)
 
@@ -39,3 +39,7 @@ t.at({2, 2}) // 23.00
 t.size() // 16
 t.shape() // {4,4}
 ```
+
+## Tests
+Tests compare values computed from Pytorch to verify correctness
+`cd build && cmake .. -DBUILD_TESTS=ON && make micrograd_tests && ctest --output-on-failure`

@@ -43,3 +43,21 @@ endif()
 
 add_executable(main src/main.cpp)
 target_link_libraries(main PRIVATE micrograd)
+
+option(BUILD_TESTS "Unit tests" ON)
+if(BUILD_TESTS)
+    include(FetchContent)
+    FetchContent_Declare(googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.14.0
+    )
+
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    enable_testing()
+    add_executable(micrograd_tests test/tensor_test.cpp)
+    target_link_libraries(micrograd_tests PRIVATE micrograd GTest::gtest_main)
+    include(GoogleTest)
+    gtest_discover_tests(micrograd_tests)
+endif()
