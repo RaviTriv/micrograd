@@ -1,45 +1,53 @@
 # micrograd
-A small automatic differentiation engine
+A small automatic differentiation engine.
 
 ![Computational Graph](./images/graph.png)
 
-## API
+## Features
+- Backpropogation
+- Tensor class
+- Neural Net Training API
+- Accelerator Support
 
-### Tensor
-```C++
-// Create a 2x2 tensor
-auto t = std::make_shared<Tensor>(std::vector<size_t>{2, 2},
-                                  std::vector<double>{1.0, 2.0, 3.0, 4.0});
-auto t2 = std::make_shared<Tensor>(std::vector<size_t>{2, 2},
-                                   std::vector<double>{5.0, 6.0, 7.0, 8.0});
+## Build & Run
+```bash
+mkdir build && cd build
+cmake ..
+make
+./main
+```
 
-// Add
-auto t3 = t->add(t2);
-t3 = t->add(2.0);
-// Subtract
-auto t3 = t->sub(t2);
-t4 = t->sub(2.0);
-// Multiply
-auto t3 = t->mul(t2);
-t3 = t->mul(2.0);
-// Divide
-auto t3 = t->div(t2);
-t3 = t->mul(2.0)
-// Exponent
-auto t3 = t->pow(3.0);
+## Example
+```c++
+#include "micrograd/Tensor.h"
+#include <iostream>
 
-// Matrix Multiplication
-auto t3 = t->matmul(t2);
+int main() {
+  auto a = std::make_shared<Tensor>(
+    std::vector<size_t>{2, 2},
+    std::vector<double>{1, 2, 3, 4});
 
-// Set and Get values
-t.at({2,2}) = 23.00;
-t.at({2, 2}) // 23.00
+  auto b = std::make_shared<Tensor>(
+    std::vector<size_t>{2, 2},
+    std::vector<double>{5, 6, 7, 8});
 
-// Accessors
-t.size() // 16
-t.shape() // {4,4}
+  auto c = a->matmul(b);
+  auto loss = c->sum();
+
+  loss->backward();
+
+  for (auto& v : c->data()){
+    std::cout << v << " "; // 19 22 43 50
+  }
+  
+  for (auto& v : a->grad()){
+    std::cout << v << " "; // 11 15 11 15
+  }
+}
 ```
 
 ## Tests
-Tests compare values computed from Pytorch to verify correctness
-`cd build && cmake .. -DBUILD_TESTS=ON && make micrograd_tests && ctest --output-on-failure`
+Tests compare values computed from Pytorch to verify correctness.
+```bash
+cd build && cmake .. -DBUILD_TESTS=ON && make micrograd_tests && ctest --output-on-failure
+```
