@@ -6,19 +6,20 @@
 int main() {
 
   auto train = load_mnist("data/train-images-idx3-ubyte",
-                          "data/train-labels-idx1-ubyte", 10000);
+                          "data/train-labels-idx1-ubyte", 60000);
 
-  Linear l1(784, 128);
-  Linear l2(128, 10);
+  Linear l1(196, 100);
+  Linear l2(100, 10);
 
   SGD optimizer({l1.weights(), l1.bias(), l2.weights(), l2.bias()}, 0.01);
 
-  for (int epoch = 0; epoch < 10; epoch++) {
+  for (int epoch = 0; epoch < 30; epoch++) {
     double total_loss = 0.0;
     int correct = 0;
 
     for (size_t i = 0; i < train.images.size(); i++) {
-      auto x = l1.forward(train.images[i])->relu();
+      auto pooled = avg_pool_2x2(train.images[i]);
+      auto x = l1.forward(pooled)->relu();
       auto out = l2.forward(x);
       auto loss = mse_loss(out, train.labels[i]);
 
