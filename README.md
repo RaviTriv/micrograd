@@ -17,6 +17,12 @@ make
 ./main
 ```
 
+## MNIST Demo
+See [here](https://ravtrive.com/micrograd-demo) for demo of micrograd trained MNIST Model used for inference of drawn digits.
+![Digit 5](./images/mnist_demo_5.png)
+![Digit 7](./images/mnist_demo_7.png)
+![Digit 9](./images/mnist_demo_9.png)
+
 ## Example
 ```c++
 #include "micrograd/Tensor.h"
