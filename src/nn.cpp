@@ -14,6 +14,26 @@ std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
   return mean;
 }
 
+std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input) {
+  std::vector<double> pooled(196);
+
+  for (int py = 0; py < 14; py++) {
+    for (int px = 0; px < 14; px++) {
+      double sum = 0.0;
+      for (int dy = 0; dy < 2; dy++) {
+        for (int dx = 0; dx < 2; dx++) {
+          int y = py * 2 + dy;
+          int x = px * 2 + dx;
+          sum += input->at({0, static_cast<size_t>(y * 28 + x)});
+        }
+      }
+      pooled[static_cast<size_t>(py * 14 + px)] = sum / 4.0;
+    }
+  }
+
+  return std::make_shared<Tensor>(std::vector<size_t>{1, 196}, pooled);
+}
+
 Linear::Linear(size_t in_features, size_t out_features) {
   std::random_device rd;
   std::mt19937 gen(rd());

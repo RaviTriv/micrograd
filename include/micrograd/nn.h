@@ -5,7 +5,7 @@
 
 std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
                                  const std::shared_ptr<Tensor> &target);
-
+std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input);
 class Linear {
 public:
   Linear(size_t in_features, size_t out_features);
