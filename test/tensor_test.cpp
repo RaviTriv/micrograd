@@ -69,7 +69,7 @@ TEST(TensorTest, Div) {
   EXPECT_NEAR(b->grad()[0], -0.16, 1e-9);
 }
 
-TEST(TensorTest, Pow){
+TEST(TensorTest, Pow) {
   auto a = scalar(4);
   auto b = a->pow(3.0);
 
@@ -77,4 +77,30 @@ TEST(TensorTest, Pow){
 
   EXPECT_NEAR(b->data()[0], 64, 1e-9);
   EXPECT_NEAR(a->grad()[0], 48, 1e-9);
+}
+
+TEST(TensorTest, Quadratic) {
+  auto x = scalar(2);
+  auto b = x->pow(2.0);
+  auto c = b->mul(2.0);
+  auto d = x->mul(3.0);
+  auto e = d->add(5.0);
+  auto y = c->add(e);
+
+  y->backward();
+
+  EXPECT_NEAR(y->data()[0], 19, 1e-9);
+  EXPECT_NEAR(x->grad()[0], 11, 1e-9);
+}
+
+TEST(TensorTest, ChainRule) {
+  auto x = scalar(3);
+  auto a = x->pow(3.0);
+  auto b = a->add(1.0);
+  auto y = b->pow(2.0);
+
+  y->backward();
+
+  EXPECT_NEAR(y->data()[0], 784, 1e-9);
+  EXPECT_NEAR(x->grad()[0], 1512, 1e-9);
 }
