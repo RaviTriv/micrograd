@@ -178,5 +178,41 @@ kernel void pow_op(
     }
     C[gid] = pow(A[gid], exponent);
 }
+
+kernel void relu(
+    device const float* A [[buffer(0)]],
+    device float* C [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    C[gid] = max(0.0f, A[gid]);
+}
+
+kernel void sigmoid(
+    device const float* A [[buffer(0)]],
+    device float* C [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    C[gid] = 1.0f / (1.0f + exp(-A[gid]));
+}
+
+kernel void tanh_op(
+    device const float* A [[buffer(0)]],
+    device float* C [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    C[gid] = tanh(A[gid]);
+}
 )";
 }

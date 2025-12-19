@@ -79,5 +79,8 @@ private:
   std::shared_ptr<Tensor> div_scalar_metal(double scalar);
   std::shared_ptr<Tensor> pow_metal(double exponent);
   std::shared_ptr<Tensor> matmul_metal(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> relu_metal();
+  std::shared_ptr<Tensor> sigmoid_metal();
+  std::shared_ptr<Tensor> tanh_metal();
 #endif
 };

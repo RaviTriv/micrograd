@@ -384,6 +384,12 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
 }
 
 std::shared_ptr<Tensor> Tensor::relu() {
+#ifdef MICROGRAD_METAL_ENABLED
+  if (backend_ == micrograd::Backend::Metal) {
+    return relu_metal();
+  }
+#endif
+
   auto result = std::make_shared<Tensor>(shape_);
   result->op_ = "relu";
 
@@ -405,6 +411,12 @@ std::shared_ptr<Tensor> Tensor::relu() {
 }
 
 std::shared_ptr<Tensor> Tensor::sigmoid() {
+#ifdef MICROGRAD_METAL_ENABLED
+  if (backend_ == micrograd::Backend::Metal) {
+    return sigmoid_metal();
+  }
+#endif
+
   auto result = std::make_shared<Tensor>(shape_);
   result->op_ = "sigmoid";
 
@@ -427,6 +439,12 @@ std::shared_ptr<Tensor> Tensor::sigmoid() {
 }
 
 std::shared_ptr<Tensor> Tensor::tanh() {
+#ifdef MICROGRAD_METAL_ENABLED
+  if (backend_ == micrograd::Backend::Metal) {
+    return tanh_metal();
+  }
+#endif
+
   auto result = std::make_shared<Tensor>(shape_);
   result->op_ = "tanh";
 
@@ -985,6 +1003,139 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[i] * exponent *
                             std::pow(self_ptr->data_[i], exponent - 1);
+    }
+  };
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::relu_metal() {
+  auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "relu";
+  result->to(micrograd::Backend::Metal);
+
+  auto &ctx = MetalContext::instance();
+  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
+  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+
+  auto pipeline = ctx.getPipeline("relu");
+  auto cmdBuf = ctx.commandQueue()->commandBuffer();
+  auto encoder = cmdBuf->computeCommandEncoder();
+
+  encoder->setComputePipelineState(pipeline);
+  encoder->setBuffer(gpu_data_, 0, 0);
+  encoder->setBuffer(result->gpu_data_, 0, 1);
+  encoder->setBuffer(bufSize, 0, 2);
+
+  MTL::Size gridSize(size(), 1, 1);
+  MTL::Size threadGroupSize(std::min(size(), size_t(256)), 1, 1);
+  encoder->dispatchThreads(gridSize, threadGroupSize);
+
+  encoder->endEncoding();
+  cmdBuf->commit();
+  cmdBuf->waitUntilCompleted();
+
+  ctx.releaseBuffer(bufSize);
+
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    self_ptr->to(micrograd::Backend::CPU);
+    result->to(micrograd::Backend::CPU);
+
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] +=
+          result->grad_[i] * (self_ptr->data_[i] > 0 ? 1.0 : 0.0);
+    }
+  };
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
+  auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "sigmoid";
+  result->to(micrograd::Backend::Metal);
+
+  auto &ctx = MetalContext::instance();
+  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
+  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+
+  auto pipeline = ctx.getPipeline("sigmoid");
+  auto cmdBuf = ctx.commandQueue()->commandBuffer();
+  auto encoder = cmdBuf->computeCommandEncoder();
+
+  encoder->setComputePipelineState(pipeline);
+  encoder->setBuffer(gpu_data_, 0, 0);
+  encoder->setBuffer(result->gpu_data_, 0, 1);
+  encoder->setBuffer(bufSize, 0, 2);
+
+  MTL::Size gridSize(size(), 1, 1);
+  MTL::Size threadGroupSize(std::min(size(), size_t(256)), 1, 1);
+  encoder->dispatchThreads(gridSize, threadGroupSize);
+
+  encoder->endEncoding();
+  cmdBuf->commit();
+  cmdBuf->waitUntilCompleted();
+
+  ctx.releaseBuffer(bufSize);
+
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    self_ptr->to(micrograd::Backend::CPU);
+    result->to(micrograd::Backend::CPU);
+
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      double sigmoid_val = result->data_[i];
+      self_ptr->grad_[i] +=
+          result->grad_[i] * sigmoid_val * (1.0 - sigmoid_val);
+    }
+  };
+
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::tanh_metal() {
+  auto result = std::make_shared<Tensor>(shape_);
+  result->op_ = "tanh";
+  result->to(micrograd::Backend::Metal);
+
+  auto &ctx = MetalContext::instance();
+  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
+  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+
+  auto pipeline = ctx.getPipeline("tanh_op");
+  auto cmdBuf = ctx.commandQueue()->commandBuffer();
+  auto encoder = cmdBuf->computeCommandEncoder();
+
+  encoder->setComputePipelineState(pipeline);
+  encoder->setBuffer(gpu_data_, 0, 0);
+  encoder->setBuffer(result->gpu_data_, 0, 1);
+  encoder->setBuffer(bufSize, 0, 2);
+
+  MTL::Size gridSize(size(), 1, 1);
+  MTL::Size threadGroupSize(std::min(size(), size_t(256)), 1, 1);
+  encoder->dispatchThreads(gridSize, threadGroupSize);
+
+  encoder->endEncoding();
+  cmdBuf->commit();
+  cmdBuf->waitUntilCompleted();
+
+  ctx.releaseBuffer(bufSize);
+
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    self_ptr->to(micrograd::Backend::CPU);
+    result->to(micrograd::Backend::CPU);
+
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      double tanh_val = result->data_[i];
+      self_ptr->grad_[i] += result->grad_[i] * (1.0 - tanh_val * tanh_val);
     }
   };
 
