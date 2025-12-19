@@ -69,6 +69,15 @@ private:
 #ifdef MICROGRAD_METAL_ENABLED
   MTL::Buffer *gpu_data_ = nullptr;
   MTL::Buffer *gpu_grad_ = nullptr;
+  std::shared_ptr<Tensor> add_metal(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> sub_metal(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> mul_metal(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> div_metal(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> add_scalar_metal(double scalar);
+  std::shared_ptr<Tensor> sub_scalar_metal(double scalar);
+  std::shared_ptr<Tensor> mul_scalar_metal(double scalar);
+  std::shared_ptr<Tensor> div_scalar_metal(double scalar);
+  std::shared_ptr<Tensor> pow_metal(double exponent);
   std::shared_ptr<Tensor> matmul_metal(const std::shared_ptr<Tensor> &b);
 #endif
 };
