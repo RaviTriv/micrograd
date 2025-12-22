@@ -240,5 +240,107 @@ kernel void sum_reduce(
         output[tgid] = shared[0];
     }
 }
+
+
+kernel void mul_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* a_data [[buffer(1)]],
+    device const float* b_data [[buffer(2)]],
+    device float* grad_a [[buffer(3)]],
+    device float* grad_b [[buffer(4)]],
+    constant uint& size [[buffer(5)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_a[gid] = grad_out[gid] * b_data[gid];
+    grad_b[gid] = grad_out[gid] * a_data[gid];
+}
+
+kernel void div_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* a_data [[buffer(1)]],
+    device const float* b_data [[buffer(2)]],
+    device float* grad_a [[buffer(3)]],
+    device float* grad_b [[buffer(4)]],
+    constant uint& size [[buffer(5)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_a[gid] = grad_out[gid] / b_data[gid];
+    grad_b[gid] = -grad_out[gid] * a_data[gid] / (b_data[gid] * b_data[gid]);
+}
+
+kernel void pow_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* x_data [[buffer(1)]],
+    device float* grad_x [[buffer(2)]],
+    constant float& exponent [[buffer(3)]],
+    constant uint& size [[buffer(4)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_x[gid] = grad_out[gid] * exponent * pow(x_data[gid], exponent - 1.0f);
+}
+
+kernel void relu_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* x_data [[buffer(1)]],
+    device float* grad_x [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_x[gid] = (x_data[gid] > 0.0f) ? grad_out[gid] : 0.0f;
+}
+
+// sigmoid backward: grad = grad_out * sigmoid(x) * (1 - sigmoid(x))
+// Since we already computed sigmoid(x) in forward pass, we use the output
+kernel void sigmoid_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* sigmoid_out [[buffer(1)]],
+    device float* grad_x [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    float s = sigmoid_out[gid];
+    grad_x[gid] = grad_out[gid] * s * (1.0f - s);
+}
+
+kernel void tanh_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* tanh_out [[buffer(1)]],
+    device float* grad_x [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    float t = tanh_out[gid];
+    grad_x[gid] = grad_out[gid] * (1.0f - t * t);
+}
+
+kernel void broadcast_scalar(
+    device float* output [[buffer(0)]],
+    constant float& scalar [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    output[gid] = scalar;
+}
 )";
 }
