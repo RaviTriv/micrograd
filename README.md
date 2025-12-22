@@ -56,6 +56,8 @@ int main() {
 Accelerators can be leveraged to parallelize ops making execution a lot faster!
 Ops are dispatched to compute shaders and launch a gpu thread per element to execute in parallel.
 
+![Flamegraph](./images/flamegraph.png)
+
 ### Execution Pipeline
 
 ### Parallel Reduction
@@ -68,5 +70,3 @@ Tests compare values computed from Pytorch to verify correctness.
 ```bash
 cd build && cmake .. -DBUILD_TESTS=ON && make micrograd_tests && ctest --output-on-failure
 ```
-
-![Flamegraph](./images/flamegraph.png)
