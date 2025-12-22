@@ -20,8 +20,8 @@ std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("add");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -40,8 +40,6 @@ std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   encoder->endEncoding();
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
-
-  ctx.releaseBuffer(bufSize);
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
@@ -66,8 +64,8 @@ std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("sub");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -86,8 +84,6 @@ std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
   encoder->endEncoding();
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
-
-  ctx.releaseBuffer(bufSize);
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
@@ -112,8 +108,8 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("mul");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -133,8 +129,6 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
 
-  ctx.releaseBuffer(bufSize);
-
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
 
@@ -143,17 +137,16 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
     size_t n = self_ptr->size();
 
     result->to(micrograd::Backend::CPU);
-    auto gradOutBuf = ctx.createBuffer(n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf->contents());
+    ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
+    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
-    auto gradABuf = ctx.createBuffer(n * sizeof(float));
-    auto gradBBuf = ctx.createBuffer(n * sizeof(float));
-
-    auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-    *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(n);
+    ScopedBuffer gradABuf(ctx, n * sizeof(float));
+    ScopedBuffer gradBBuf(ctx, n * sizeof(float));
+    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+    bufSize.set(static_cast<uint32_t>(n));
 
     auto pipeline = ctx.getPipeline("mul_backward");
     auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -175,8 +168,8 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
     cmdBuf->commit();
     cmdBuf->waitUntilCompleted();
 
-    float *gradAPtr = static_cast<float *>(gradABuf->contents());
-    float *gradBPtr = static_cast<float *>(gradBBuf->contents());
+    float *gradAPtr = static_cast<float *>(gradABuf.get()->contents());
+    float *gradBPtr = static_cast<float *>(gradBBuf.get()->contents());
     float *gpuGradAPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     float *gpuGradBPtr = static_cast<float *>(b->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
@@ -185,11 +178,6 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
       b->grad_[i] += static_cast<double>(gradBPtr[i]);
       gpuGradBPtr[i] += gradBPtr[i];
     }
-
-    ctx.releaseBuffer(gradOutBuf);
-    ctx.releaseBuffer(gradABuf);
-    ctx.releaseBuffer(gradBBuf);
-    ctx.releaseBuffer(bufSize);
   };
 
   return result;
@@ -201,8 +189,8 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("div_op");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -222,8 +210,6 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
 
-  ctx.releaseBuffer(bufSize);
-
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
 
@@ -232,17 +218,16 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
     size_t n = self_ptr->size();
 
     result->to(micrograd::Backend::CPU);
-    auto gradOutBuf = ctx.createBuffer(n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf->contents());
+    ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
+    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
-    auto gradABuf = ctx.createBuffer(n * sizeof(float));
-    auto gradBBuf = ctx.createBuffer(n * sizeof(float));
-
-    auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-    *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(n);
+    ScopedBuffer gradABuf(ctx, n * sizeof(float));
+    ScopedBuffer gradBBuf(ctx, n * sizeof(float));
+    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+    bufSize.set(static_cast<uint32_t>(n));
 
     auto pipeline = ctx.getPipeline("div_backward");
     auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -264,8 +249,8 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
     cmdBuf->commit();
     cmdBuf->waitUntilCompleted();
 
-    float *gradAPtr = static_cast<float *>(gradABuf->contents());
-    float *gradBPtr = static_cast<float *>(gradBBuf->contents());
+    float *gradAPtr = static_cast<float *>(gradABuf.get()->contents());
+    float *gradBPtr = static_cast<float *>(gradBBuf.get()->contents());
     float *gpuGradAPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     float *gpuGradBPtr = static_cast<float *>(b->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
@@ -274,11 +259,6 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
       b->grad_[i] += static_cast<double>(gradBPtr[i]);
       gpuGradBPtr[i] += gradBPtr[i];
     }
-
-    ctx.releaseBuffer(gradOutBuf);
-    ctx.releaseBuffer(gradABuf);
-    ctx.releaseBuffer(gradBBuf);
-    ctx.releaseBuffer(bufSize);
   };
 
   return result;
@@ -290,10 +270,10 @@ std::shared_ptr<Tensor> Tensor::add_scalar_metal(double scalar) {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufScalar = ctx.createBuffer(sizeof(float));
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<float *>(bufScalar->contents()) = static_cast<float>(scalar);
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufScalar(ctx, sizeof(float));
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufScalar.set(static_cast<float>(scalar));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("add_scalar");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -312,9 +292,6 @@ std::shared_ptr<Tensor> Tensor::add_scalar_metal(double scalar) {
   encoder->endEncoding();
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
-
-  ctx.releaseBuffer(bufScalar);
-  ctx.releaseBuffer(bufSize);
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -337,10 +314,10 @@ std::shared_ptr<Tensor> Tensor::sub_scalar_metal(double scalar) {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufScalar = ctx.createBuffer(sizeof(float));
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<float *>(bufScalar->contents()) = static_cast<float>(scalar);
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufScalar(ctx, sizeof(float));
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufScalar.set(static_cast<float>(scalar));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("sub_scalar");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -359,9 +336,6 @@ std::shared_ptr<Tensor> Tensor::sub_scalar_metal(double scalar) {
   encoder->endEncoding();
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
-
-  ctx.releaseBuffer(bufScalar);
-  ctx.releaseBuffer(bufSize);
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -384,10 +358,10 @@ std::shared_ptr<Tensor> Tensor::mul_scalar_metal(double scalar) {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufScalar = ctx.createBuffer(sizeof(float));
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<float *>(bufScalar->contents()) = static_cast<float>(scalar);
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufScalar(ctx, sizeof(float));
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufScalar.set(static_cast<float>(scalar));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("mul_scalar");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -406,9 +380,6 @@ std::shared_ptr<Tensor> Tensor::mul_scalar_metal(double scalar) {
   encoder->endEncoding();
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
-
-  ctx.releaseBuffer(bufScalar);
-  ctx.releaseBuffer(bufSize);
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -431,10 +402,10 @@ std::shared_ptr<Tensor> Tensor::div_scalar_metal(double scalar) {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufScalar = ctx.createBuffer(sizeof(float));
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<float *>(bufScalar->contents()) = static_cast<float>(scalar);
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufScalar(ctx, sizeof(float));
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufScalar.set(static_cast<float>(scalar));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("div_scalar");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -453,9 +424,6 @@ std::shared_ptr<Tensor> Tensor::div_scalar_metal(double scalar) {
   encoder->endEncoding();
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
-
-  ctx.releaseBuffer(bufScalar);
-  ctx.releaseBuffer(bufSize);
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -478,10 +446,10 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufExp = ctx.createBuffer(sizeof(float));
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<float *>(bufExp->contents()) = static_cast<float>(exponent);
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufExp(ctx, sizeof(float));
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufExp.set(static_cast<float>(exponent));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("pow_op");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -501,9 +469,6 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
 
-  ctx.releaseBuffer(bufExp);
-  ctx.releaseBuffer(bufSize);
-
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
@@ -512,18 +477,17 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
     size_t n = self_ptr->size();
 
     result->to(micrograd::Backend::CPU);
-    auto gradOutBuf = ctx.createBuffer(n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf->contents());
+    ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
+    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
-    auto gradXBuf = ctx.createBuffer(n * sizeof(float));
-
-    auto bufExp = ctx.createBuffer(sizeof(float));
-    auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-    *static_cast<float *>(bufExp->contents()) = static_cast<float>(exponent);
-    *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(n);
+    ScopedBuffer gradXBuf(ctx, n * sizeof(float));
+    ScopedBuffer bufExp(ctx, sizeof(float));
+    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+    bufExp.set(static_cast<float>(exponent));
+    bufSize.set(static_cast<uint32_t>(n));
 
     auto pipeline = ctx.getPipeline("pow_backward");
     auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -544,17 +508,12 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
     cmdBuf->commit();
     cmdBuf->waitUntilCompleted();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf->contents());
+    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
     float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];
     }
-
-    ctx.releaseBuffer(gradOutBuf);
-    ctx.releaseBuffer(gradXBuf);
-    ctx.releaseBuffer(bufExp);
-    ctx.releaseBuffer(bufSize);
   };
 
   return result;
@@ -566,8 +525,8 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("relu");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -586,8 +545,6 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
 
-  ctx.releaseBuffer(bufSize);
-
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
@@ -596,16 +553,15 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
     size_t n = self_ptr->size();
 
     result->to(micrograd::Backend::CPU);
-    auto gradOutBuf = ctx.createBuffer(n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf->contents());
+    ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
+    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
-    auto gradXBuf = ctx.createBuffer(n * sizeof(float));
-
-    auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-    *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(n);
+    ScopedBuffer gradXBuf(ctx, n * sizeof(float));
+    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+    bufSize.set(static_cast<uint32_t>(n));
 
     auto pipeline = ctx.getPipeline("relu_backward");
     auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -625,16 +581,12 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
     cmdBuf->commit();
     cmdBuf->waitUntilCompleted();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf->contents());
+    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
     float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];
     }
-
-    ctx.releaseBuffer(gradOutBuf);
-    ctx.releaseBuffer(gradXBuf);
-    ctx.releaseBuffer(bufSize);
   };
 
   return result;
@@ -646,8 +598,8 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("sigmoid");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -666,8 +618,6 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
 
-  ctx.releaseBuffer(bufSize);
-
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
@@ -676,16 +626,15 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
     size_t n = self_ptr->size();
 
     result->to(micrograd::Backend::CPU);
-    auto gradOutBuf = ctx.createBuffer(n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf->contents());
+    ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
+    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
-    auto gradXBuf = ctx.createBuffer(n * sizeof(float));
-
-    auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-    *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(n);
+    ScopedBuffer gradXBuf(ctx, n * sizeof(float));
+    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+    bufSize.set(static_cast<uint32_t>(n));
 
     auto pipeline = ctx.getPipeline("sigmoid_backward");
     auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -705,16 +654,12 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
     cmdBuf->commit();
     cmdBuf->waitUntilCompleted();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf->contents());
+    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
     float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];
     }
-
-    ctx.releaseBuffer(gradOutBuf);
-    ctx.releaseBuffer(gradXBuf);
-    ctx.releaseBuffer(bufSize);
   };
 
   return result;
@@ -726,8 +671,8 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
-  auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(size());
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufSize.set(static_cast<uint32_t>(size()));
 
   auto pipeline = ctx.getPipeline("tanh_op");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -746,8 +691,6 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
 
-  ctx.releaseBuffer(bufSize);
-
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
@@ -756,16 +699,15 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
     size_t n = self_ptr->size();
 
     result->to(micrograd::Backend::CPU);
-    auto gradOutBuf = ctx.createBuffer(n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf->contents());
+    ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
+    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
-    auto gradXBuf = ctx.createBuffer(n * sizeof(float));
-
-    auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-    *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(n);
+    ScopedBuffer gradXBuf(ctx, n * sizeof(float));
+    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+    bufSize.set(static_cast<uint32_t>(n));
 
     auto pipeline = ctx.getPipeline("tanh_backward");
     auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -785,16 +727,12 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
     cmdBuf->commit();
     cmdBuf->waitUntilCompleted();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf->contents());
+    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
     float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];
     }
-
-    ctx.releaseBuffer(gradOutBuf);
-    ctx.releaseBuffer(gradXBuf);
-    ctx.releaseBuffer(bufSize);
   };
 
   return result;
@@ -811,12 +749,12 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
 
   auto &ctx = MetalContext::instance();
 
-  auto bufM = ctx.createBuffer(sizeof(uint32_t));
-  auto bufK = ctx.createBuffer(sizeof(uint32_t));
-  auto bufN = ctx.createBuffer(sizeof(uint32_t));
-  *static_cast<uint32_t *>(bufM->contents()) = static_cast<uint32_t>(m);
-  *static_cast<uint32_t *>(bufK->contents()) = static_cast<uint32_t>(k);
-  *static_cast<uint32_t *>(bufN->contents()) = static_cast<uint32_t>(n);
+  ScopedBuffer bufM(ctx, sizeof(uint32_t));
+  ScopedBuffer bufK(ctx, sizeof(uint32_t));
+  ScopedBuffer bufN(ctx, sizeof(uint32_t));
+  bufM.set(static_cast<uint32_t>(m));
+  bufK.set(static_cast<uint32_t>(k));
+  bufN.set(static_cast<uint32_t>(n));
 
   auto pipeline = ctx.getPipeline("matmul");
   auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -839,10 +777,6 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
   cmdBuf->commit();
   cmdBuf->waitUntilCompleted();
 
-  ctx.releaseBuffer(bufM);
-  ctx.releaseBuffer(bufK);
-  ctx.releaseBuffer(bufN);
-
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
 
@@ -851,29 +785,29 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
 
     result->to(micrograd::Backend::CPU);
 
-    auto gradCBuf = ctx.createBuffer(m * n * sizeof(float));
-    float *gradCPtr = static_cast<float *>(gradCBuf->contents());
+    ScopedBuffer gradCBuf(ctx, m * n * sizeof(float));
+    float *gradCPtr = static_cast<float *>(gradCBuf.get()->contents());
     for (size_t i = 0; i < m * n; i++) {
       gradCPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
-    auto gradABuf = ctx.createBuffer(m * k * sizeof(float));
+    ScopedBuffer gradABuf(ctx, m * k * sizeof(float));
     {
-      auto bufM = ctx.createBuffer(sizeof(uint32_t));
-      auto bufK = ctx.createBuffer(sizeof(uint32_t));
-      auto bufN = ctx.createBuffer(sizeof(uint32_t));
-      *static_cast<uint32_t *>(bufM->contents()) = static_cast<uint32_t>(m);
-      *static_cast<uint32_t *>(bufK->contents()) = static_cast<uint32_t>(n);
-      *static_cast<uint32_t *>(bufN->contents()) = static_cast<uint32_t>(k);
+      ScopedBuffer bufM(ctx, sizeof(uint32_t));
+      ScopedBuffer bufK(ctx, sizeof(uint32_t));
+      ScopedBuffer bufN(ctx, sizeof(uint32_t));
+      bufM.set(static_cast<uint32_t>(m));
+      bufK.set(static_cast<uint32_t>(n));
+      bufN.set(static_cast<uint32_t>(k));
 
       auto pipeline = ctx.getPipeline("matmul_nt");
       auto cmdBuf = ctx.commandQueue()->commandBuffer();
       auto encoder = cmdBuf->computeCommandEncoder();
 
       encoder->setComputePipelineState(pipeline);
-      encoder->setBuffer(gradCBuf, 0, 0);  // A = dC
-      encoder->setBuffer(b->gpu_data_, 0, 1);  // B = B
-      encoder->setBuffer(gradABuf, 0, 2);  // C = dA
+      encoder->setBuffer(gradCBuf, 0, 0);  
+      encoder->setBuffer(b->gpu_data_, 0, 1);  
+      encoder->setBuffer(gradABuf, 0, 2);
       encoder->setBuffer(bufM, 0, 3);
       encoder->setBuffer(bufK, 0, 4);
       encoder->setBuffer(bufN, 0, 5);
@@ -885,29 +819,25 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
       encoder->endEncoding();
       cmdBuf->commit();
       cmdBuf->waitUntilCompleted();
-
-      ctx.releaseBuffer(bufM);
-      ctx.releaseBuffer(bufK);
-      ctx.releaseBuffer(bufN);
     }
 
-    auto gradBBuf = ctx.createBuffer(k * n * sizeof(float));
+    ScopedBuffer gradBBuf(ctx, k * n * sizeof(float));
     {
-      auto bufM = ctx.createBuffer(sizeof(uint32_t));
-      auto bufK = ctx.createBuffer(sizeof(uint32_t));
-      auto bufN = ctx.createBuffer(sizeof(uint32_t));
-      *static_cast<uint32_t *>(bufM->contents()) = static_cast<uint32_t>(m);
-      *static_cast<uint32_t *>(bufK->contents()) = static_cast<uint32_t>(k);
-      *static_cast<uint32_t *>(bufN->contents()) = static_cast<uint32_t>(n);
+      ScopedBuffer bufM(ctx, sizeof(uint32_t));
+      ScopedBuffer bufK(ctx, sizeof(uint32_t));
+      ScopedBuffer bufN(ctx, sizeof(uint32_t));
+      bufM.set(static_cast<uint32_t>(m));
+      bufK.set(static_cast<uint32_t>(k));
+      bufN.set(static_cast<uint32_t>(n));
 
       auto pipeline = ctx.getPipeline("matmul_tn");
       auto cmdBuf = ctx.commandQueue()->commandBuffer();
       auto encoder = cmdBuf->computeCommandEncoder();
 
       encoder->setComputePipelineState(pipeline);
-      encoder->setBuffer(self_ptr->gpu_data_, 0, 0);  // A = self
-      encoder->setBuffer(gradCBuf, 0, 1);  // B = dC
-      encoder->setBuffer(gradBBuf, 0, 2);  // C = dB
+      encoder->setBuffer(self_ptr->gpu_data_, 0, 0);
+      encoder->setBuffer(gradCBuf, 0, 1); 
+      encoder->setBuffer(gradBBuf, 0, 2);
       encoder->setBuffer(bufM, 0, 3);
       encoder->setBuffer(bufK, 0, 4);
       encoder->setBuffer(bufN, 0, 5);
@@ -919,14 +849,10 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
       encoder->endEncoding();
       cmdBuf->commit();
       cmdBuf->waitUntilCompleted();
-
-      ctx.releaseBuffer(bufM);
-      ctx.releaseBuffer(bufK);
-      ctx.releaseBuffer(bufN);
     }
 
-    float *gradAPtr = static_cast<float *>(gradABuf->contents());
-    float *gradBPtr = static_cast<float *>(gradBBuf->contents());
+    float *gradAPtr = static_cast<float *>(gradABuf.get()->contents());
+    float *gradBPtr = static_cast<float *>(gradBBuf.get()->contents());
     float *gpuGradAPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     float *gpuGradBPtr = static_cast<float *>(b->gpu_grad_->contents());
 
@@ -938,10 +864,6 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
       b->grad_[i] += static_cast<double>(gradBPtr[i]);
       gpuGradBPtr[i] += gradBPtr[i];
     }
-
-    ctx.releaseBuffer(gradCBuf);
-    ctx.releaseBuffer(gradABuf);
-    ctx.releaseBuffer(gradBBuf);
   };
 
   return result;
@@ -962,8 +884,8 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
   MTL::Buffer *outputBuf = ctx.createBuffer(numThreadgroups * sizeof(float));
 
   while (currentSize > 1) {
-    auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-    *static_cast<uint32_t *>(bufSize->contents()) = currentSize;
+    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+    bufSize.set(currentSize);
 
     auto cmdBuf = ctx.commandQueue()->commandBuffer();
     auto encoder = cmdBuf->computeCommandEncoder();
@@ -973,7 +895,6 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
     encoder->setBuffer(outputBuf, 0, 1);
     encoder->setBuffer(bufSize, 0, 2);
 
-
     MTL::Size numGroups(numThreadgroups, 1, 1);
     MTL::Size tgSize(threadgroupSize, 1, 1);
     encoder->dispatchThreadgroups(numGroups, tgSize);
@@ -981,8 +902,6 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
     encoder->endEncoding();
     cmdBuf->commit();
     cmdBuf->waitUntilCompleted();
-
-    ctx.releaseBuffer(bufSize);
 
     currentSize = numThreadgroups;
     numThreadgroups = (currentSize + threadgroupSize - 1) / threadgroupSize;
@@ -1013,12 +932,11 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
 
     float gradScalar = static_cast<float>(result->grad_[0]);
 
-    auto gradXBuf = ctx.createBuffer(n * sizeof(float));
-
-    auto bufScalar = ctx.createBuffer(sizeof(float));
-    auto bufSize = ctx.createBuffer(sizeof(uint32_t));
-    *static_cast<float *>(bufScalar->contents()) = gradScalar;
-    *static_cast<uint32_t *>(bufSize->contents()) = static_cast<uint32_t>(n);
+    ScopedBuffer gradXBuf(ctx, n * sizeof(float));
+    ScopedBuffer bufScalar(ctx, sizeof(float));
+    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+    bufScalar.set(gradScalar);
+    bufSize.set(static_cast<uint32_t>(n));
 
     auto pipeline = ctx.getPipeline("broadcast_scalar");
     auto cmdBuf = ctx.commandQueue()->commandBuffer();
@@ -1037,16 +955,12 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
     cmdBuf->commit();
     cmdBuf->waitUntilCompleted();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf->contents());
+    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
     float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];
     }
-
-    ctx.releaseBuffer(gradXBuf);
-    ctx.releaseBuffer(bufScalar);
-    ctx.releaseBuffer(bufSize);
   };
 
   return result;

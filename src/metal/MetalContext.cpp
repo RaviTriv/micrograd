@@ -132,4 +132,30 @@ bool MetalContext::isAvailable() const {
 MTL::Device *MetalContext::device() { return device_; }
 MTL::CommandQueue *MetalContext::commandQueue() { return command_queue_; }
 
+ScopedBuffer::ScopedBuffer(MetalContext &ctx, size_t bytes)
+    : ctx_(&ctx), buffer_(ctx.createBuffer(bytes)) {}
+
+ScopedBuffer::~ScopedBuffer() {
+  if (buffer_) {
+    ctx_->releaseBuffer(buffer_);
+  }
+}
+
+ScopedBuffer::ScopedBuffer(ScopedBuffer &&other) noexcept
+    : ctx_(other.ctx_), buffer_(other.buffer_) {
+  other.buffer_ = nullptr;
+}
+
+ScopedBuffer &ScopedBuffer::operator=(ScopedBuffer &&other) noexcept {
+  if (this != &other) {
+    if (buffer_) {
+      ctx_->releaseBuffer(buffer_);
+    }
+    ctx_ = other.ctx_;
+    buffer_ = other.buffer_;
+    other.buffer_ = nullptr;
+  }
+  return *this;
+}
+
 #endif

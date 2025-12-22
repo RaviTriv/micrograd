@@ -8,6 +8,30 @@
 #include <string>
 #include <unordered_map>
 
+class MetalContext;
+
+class ScopedBuffer {
+public:
+  ScopedBuffer(MetalContext &ctx, size_t bytes);
+  ~ScopedBuffer();
+
+  ScopedBuffer(const ScopedBuffer &) = delete;
+  ScopedBuffer &operator=(const ScopedBuffer &) = delete;
+  ScopedBuffer(ScopedBuffer &&other) noexcept;
+  ScopedBuffer &operator=(ScopedBuffer &&other) noexcept;
+
+  template <typename T> void set(T value) {
+    *static_cast<T *>(buffer_->contents()) = value;
+  }
+
+  MTL::Buffer *get() const { return buffer_; }
+  operator MTL::Buffer *() const { return buffer_; }
+
+private:
+  MetalContext *ctx_;
+  MTL::Buffer *buffer_;
+};
+
 class MetalContext {
 public:
   static MetalContext &instance();
