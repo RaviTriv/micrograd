@@ -138,3 +138,35 @@ TEST(TensorTest, SumMetalTimeComparison) {
 
   EXPECT_NEAR(y->data()[0], expected, 1e-1);
 }
+
+TEST(TensorTest, MatmulMetalBackward) {
+  auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 2},
+                                    std::vector<double>{1, 2, 3, 4});
+  auto b = std::make_shared<Tensor>(std::vector<size_t>{2, 2},
+                                    std::vector<double>{5, 6, 7, 8});
+
+  a->to(micrograd::Backend::Metal);
+  b->to(micrograd::Backend::Metal);
+
+  auto c = a->matmul(b);
+
+  c->to(micrograd::Backend::CPU);
+  EXPECT_NEAR(c->data()[0], 19.0, 1e-4);
+  EXPECT_NEAR(c->data()[1], 22.0, 1e-4);
+  EXPECT_NEAR(c->data()[2], 43.0, 1e-4);
+  EXPECT_NEAR(c->data()[3], 50.0, 1e-4);
+
+  c->to(micrograd::Backend::Metal);
+  auto loss = c->sum();
+  loss->backward();
+
+  EXPECT_NEAR(a->grad()[0], 11.0, 1e-4);
+  EXPECT_NEAR(a->grad()[1], 15.0, 1e-4);
+  EXPECT_NEAR(a->grad()[2], 11.0, 1e-4);
+  EXPECT_NEAR(a->grad()[3], 15.0, 1e-4);
+
+  EXPECT_NEAR(b->grad()[0], 4.0, 1e-4);
+  EXPECT_NEAR(b->grad()[1], 4.0, 1e-4);
+  EXPECT_NEAR(b->grad()[2], 6.0, 1e-4);
+  EXPECT_NEAR(b->grad()[3], 6.0, 1e-4);
+}
