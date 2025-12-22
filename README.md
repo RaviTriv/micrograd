@@ -63,9 +63,10 @@ Ops are dispatched to compute shaders and launch a gpu thread per element to exe
 ### Supported Accelerators
 - Metal
 
-
 ## Tests
 Tests compare values computed from Pytorch to verify correctness.
 ```bash
 cd build && cmake .. -DBUILD_TESTS=ON && make micrograd_tests && ctest --output-on-failure
 ```
+
+![Flamegraph](./images/flamegraph.png)
