@@ -29,6 +29,7 @@ add_library(micrograd
     src/mnist.cpp
     src/metal/MetalContext.cpp
     src/metal/Kernels.cpp
+    src/metal/Dispatch.cpp
     src/metal/TensorMetal.cpp
 )
 
