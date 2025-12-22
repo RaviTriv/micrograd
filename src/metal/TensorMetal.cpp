@@ -638,4 +638,75 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
   return result;
 }
 
+std::shared_ptr<Tensor> Tensor::sum_metal() {
+  auto result = std::make_shared<Tensor>(std::vector<size_t>{1});
+  result->op_ = "sum";
+
+  auto &ctx = MetalContext::instance();
+  auto pipeline = ctx.getPipeline("sum_reduce");
+
+  const uint32_t threadgroupSize = 256;
+  uint32_t currentSize = static_cast<uint32_t>(size());
+  uint32_t numThreadgroups = (currentSize + threadgroupSize - 1) / threadgroupSize;
+
+  MTL::Buffer *inputBuf = gpu_data_;
+  MTL::Buffer *outputBuf = ctx.createBuffer(numThreadgroups * sizeof(float));
+
+  while (currentSize > 1) {
+    auto bufSize = ctx.createBuffer(sizeof(uint32_t));
+    *static_cast<uint32_t *>(bufSize->contents()) = currentSize;
+
+    auto cmdBuf = ctx.commandQueue()->commandBuffer();
+    auto encoder = cmdBuf->computeCommandEncoder();
+
+    encoder->setComputePipelineState(pipeline);
+    encoder->setBuffer(inputBuf, 0, 0);
+    encoder->setBuffer(outputBuf, 0, 1);
+    encoder->setBuffer(bufSize, 0, 2);
+
+
+    MTL::Size numGroups(numThreadgroups, 1, 1);
+    MTL::Size tgSize(threadgroupSize, 1, 1);
+    encoder->dispatchThreadgroups(numGroups, tgSize);
+
+    encoder->endEncoding();
+    cmdBuf->commit();
+    cmdBuf->waitUntilCompleted();
+
+    ctx.releaseBuffer(bufSize);
+
+    currentSize = numThreadgroups;
+    numThreadgroups = (currentSize + threadgroupSize - 1) / threadgroupSize;
+
+    if (currentSize > 1) {
+      if (inputBuf != gpu_data_) {
+        ctx.releaseBuffer(inputBuf);
+      }
+      inputBuf = outputBuf;
+      outputBuf = ctx.createBuffer(numThreadgroups * sizeof(float));
+    }
+  }
+
+  float finalSum = *static_cast<float *>(outputBuf->contents());
+  result->data()[0] = static_cast<double>(finalSum);
+
+  if (inputBuf != gpu_data_) {
+    ctx.releaseBuffer(inputBuf);
+  }
+  ctx.releaseBuffer(outputBuf);
+
+  auto self_ptr = shared_from_this();
+  result->children_ = {self_ptr};
+
+  result->backward_fn_ = [result, self_ptr]() {
+    self_ptr->to(micrograd::Backend::CPU);
+
+    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
+      self_ptr->grad_[i] += result->grad_[0];
+    }
+  };
+
+  return result;
+}
+
 #endif

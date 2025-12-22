@@ -82,5 +82,6 @@ private:
   std::shared_ptr<Tensor> relu_metal();
   std::shared_ptr<Tensor> sigmoid_metal();
   std::shared_ptr<Tensor> tanh_metal();
+  std::shared_ptr<Tensor> sum_metal();
 #endif
 };

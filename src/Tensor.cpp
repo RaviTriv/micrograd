@@ -305,6 +305,12 @@ std::shared_ptr<Tensor> Tensor::pow(double exponent) {
 }
 
 std::shared_ptr<Tensor> Tensor::sum() {
+#ifdef MICROGRAD_METAL_ENABLED
+  if (backend_ == micrograd::Backend::Metal) {
+    return sum_metal();
+  }
+#endif
+
   auto result = std::make_shared<Tensor>(std::vector<size_t>{1});
   result->op_ = "sum";
 

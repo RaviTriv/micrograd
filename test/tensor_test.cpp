@@ -104,3 +104,37 @@ TEST(TensorTest, ChainRule) {
   EXPECT_NEAR(y->data()[0], 784, 1e-9);
   EXPECT_NEAR(x->grad()[0], 1512, 1e-9);
 }
+
+TEST(TensorTest, SumMetal) {
+  auto x = std::make_shared<Tensor>(std::vector<size_t>{4},
+                                    std::vector<double>{1.0, 2.0, 3.0, 4.0});
+  x->to(micrograd::Backend::Metal);
+
+  auto y = x->sum();
+
+  EXPECT_NEAR(y->data()[0], 10.0, 1e-4);
+
+  y->backward();
+
+  x->to(micrograd::Backend::CPU);
+  EXPECT_NEAR(x->grad()[0], 1.0, 1e-4);
+  EXPECT_NEAR(x->grad()[1], 1.0, 1e-4);
+  EXPECT_NEAR(x->grad()[2], 1.0, 1e-4);
+  EXPECT_NEAR(x->grad()[3], 1.0, 1e-4);
+}
+
+TEST(TensorTest, SumMetalTimeComparison) {
+  std::vector<double> data(10000);
+  double expected = 0.0;
+  for (int i = 0; i < 10000; i++) {
+    data[static_cast<size_t>(i)] = static_cast<double>(i + 1);
+    expected += static_cast<double>(i + 1);
+  }
+
+  auto x = std::make_shared<Tensor>(std::vector<size_t>{10000}, data);
+  x->to(micrograd::Backend::Metal);
+
+  auto y = x->sum();
+
+  EXPECT_NEAR(y->data()[0], expected, 1e-1);
+}

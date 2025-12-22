@@ -214,5 +214,31 @@ kernel void tanh_op(
     }
     C[gid] = tanh(A[gid]);
 }
+
+kernel void sum_reduce(
+    device const float* input [[buffer(0)]],
+    device float* output [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]],
+    uint tid [[thread_index_in_threadgroup]],
+    uint tgid [[threadgroup_position_in_grid]],
+    uint tgSize [[threads_per_threadgroup]])
+{
+    threadgroup float shared[256];
+
+    shared[tid] = (gid < size) ? input[gid] : 0.0f;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint stride = tgSize / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            shared[tid] += shared[tid + stride];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    if (tid == 0) {
+        output[tgid] = shared[0];
+    }
+}
 )";
 }
