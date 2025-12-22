@@ -1,13 +1,13 @@
 # micrograd
 A small automatic differentiation engine.
 
+## Computational Graphs
+Mathematical expressions can be represented as directed acyclic graphs with nodes as variables or functions and edges as data flow.
+
 ![Computational Graph](./images/graph.png)
 
-## Features
-- Backpropogation
-- Tensor class
-- Neural Net Training API
-- Accelerator Support
+## Automatic Differentiation (Autodiff)
+Autodiff is a method to automatically compute derivatives by breaking functions into smaller ops and applying the chain rule.
 
 ## Build & Run
 ```bash
@@ -51,6 +51,18 @@ int main() {
   }
 }
 ```
+
+## Accelerators
+Accelerators can be leveraged to parallelize ops making execution a lot faster!
+Ops are dispatched to compute shaders and launch a gpu thread per element to execute in parallel.
+
+### Execution Pipeline
+
+### Parallel Reduction
+
+### Supported Accelerators
+- Metal
+
 
 ## Tests
 Tests compare values computed from Pytorch to verify correctness.
