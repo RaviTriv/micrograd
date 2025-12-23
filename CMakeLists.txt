@@ -23,6 +23,8 @@ if(APPLE)
 endif()
 
 add_library(micrograd
+    src/core/Tensor.cpp
+    src/core/Autograd.cpp
     src/Tensor.cpp
     src/Utils.cpp
     src/nn.cpp
