@@ -25,7 +25,12 @@ endif()
 add_library(micrograd
     src/core/Tensor.cpp
     src/core/Autograd.cpp
-    src/Tensor.cpp
+
+    src/ops/Activations.cpp
+    src/ops/Arithmetic.cpp
+    src/ops/Matmul.cpp
+    src/ops/Reduction.cpp
+
     src/Utils.cpp
     src/nn.cpp
     src/mnist.cpp
