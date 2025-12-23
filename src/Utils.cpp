@@ -1,5 +1,6 @@
 #include "micrograd/utils.h"
 #include <functional>
+#include <iomanip>
 #include <sstream>
 #include <unordered_set>
 
@@ -40,4 +41,10 @@ std::string to_dot(const std::shared_ptr<Tensor> &tensor) {
   build(tensor);
   ss << "}\n";
   return ss.str();
+}
+
+std::string format_scalar(const std::string &op, double scalar) {
+  std::ostringstream oss;
+  oss << op << " " << std::fixed << std::setprecision(2) << scalar;
+  return oss.str();
 }

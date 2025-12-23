@@ -1,10 +1,9 @@
 #include "micrograd/Tensor.h"
+#include "micrograd/Utils.h"
 #include <cmath>
 #include <cstddef>
 #include <functional>
-#include <iomanip>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <unordered_set>
 
@@ -12,7 +11,6 @@
 #include "micrograd/metal/MetalContext.h"
 #endif
 
-std::string format_scalar(const std::string &op, double scalar);
 Tensor::Tensor(std::vector<size_t> shape) : shape_(shape) {
   size_t total = 1;
   for (auto dim : shape_) {
@@ -503,12 +501,6 @@ void Tensor::zero_grad() {
   for (size_t i = 0; i < grad_.size(); i++) {
     grad_[i] = 0.0;
   }
-}
-
-std::string format_scalar(const std::string &op, double scalar) {
-  std::ostringstream oss;
-  oss << op << " " << std::fixed << std::setprecision(2) << scalar;
-  return oss.str();
 }
 
 const std::vector<size_t> &Tensor::shape() const { return shape_; }

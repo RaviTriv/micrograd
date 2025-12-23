@@ -1,19 +1,13 @@
 #ifdef MICROGRAD_METAL_ENABLED
 
 #include "micrograd/Tensor.h"
+#include "micrograd/Utils.h"
 #include "micrograd/metal/Dispatch.h"
 #include "micrograd/metal/MetalContext.h"
 #include <cmath>
-#include <iomanip>
 #include <sstream>
 
-namespace {
-std::string format_scalar(const std::string &op, double scalar) {
-  std::ostringstream oss;
-  oss << op << " " << std::fixed << std::setprecision(2) << scalar;
-  return oss.str();
-}
-} // namespace
+namespace {} // namespace
 
 std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
