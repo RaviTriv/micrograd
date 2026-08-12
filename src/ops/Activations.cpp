@@ -22,7 +22,7 @@ std::shared_ptr<Tensor> Tensor::relu() {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] +=
           result->grad_[i] * (self_ptr->data_[i] > 0 ? 1.0 : 0.0);
@@ -49,7 +49,7 @@ std::shared_ptr<Tensor> Tensor::sigmoid() {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       double sigmoid_val = result->data_[i];
       self_ptr->grad_[i] +=
@@ -77,7 +77,7 @@ std::shared_ptr<Tensor> Tensor::tanh() {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       double tanh_val = result->data_[i];
       self_ptr->grad_[i] += result->grad_[i] * (1.0 - tanh_val * tanh_val);

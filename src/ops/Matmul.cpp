@@ -31,20 +31,21 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
     for (size_t j = 0; j < n; j++) {
       double sum = 0.0;
       for (size_t p = 0; p < k; p++) {
-        sum += at({i, p}) * b->at({p, j});
+        sum += data_[i * k + p] * b->data_[p * n + j];
       }
-      result->at({i, j}) = sum;
+      result->data_[i * n + j] = sum;
     }
   }
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
 
-  result->backward_fn_ = [result, self_ptr, b, m, k, n]() {
+  result->backward_fn_ = [result = result.get(), self_ptr, b, m, k, n]() {
     for (size_t i = 0; i < m; i++) {
       for (size_t j = 0; j < k; j++) {
         for (size_t p = 0; p < n; p++) {
-          self_ptr->grad_at({i, j}) += result->grad_at({i, p}) * b->at({j, p});
+          self_ptr->grad_[i * k + j] +=
+              result->grad_[i * n + p] * b->data_[j * n + p];
         }
       }
     }
@@ -52,7 +53,8 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
     for (size_t i = 0; i < k; i++) {
       for (size_t j = 0; j < n; j++) {
         for (size_t p = 0; p < m; p++) {
-          b->grad_at({i, j}) += self_ptr->at({p, i}) * result->grad_at({p, j});
+          b->grad_[i * n + j] +=
+              self_ptr->data_[p * k + i] * result->grad_[p * n + j];
         }
       }
     }

@@ -28,7 +28,7 @@ std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
 
-  result->backward_fn_ = [result, self_ptr, b]() {
+  result->backward_fn_ = [result = result.get(), self_ptr, b]() {
     self_ptr->to(micrograd::Backend::CPU);
     b->to(micrograd::Backend::CPU);
     result->to(micrograd::Backend::CPU);
@@ -61,7 +61,7 @@ std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
 
-  result->backward_fn_ = [result, self_ptr, b]() {
+  result->backward_fn_ = [result = result.get(), self_ptr, b]() {
     self_ptr->to(micrograd::Backend::CPU);
     b->to(micrograd::Backend::CPU);
     result->to(micrograd::Backend::CPU);
@@ -94,7 +94,7 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
 
-  result->backward_fn_ = [result, self_ptr, b]() {
+  result->backward_fn_ = [result = result.get(), self_ptr, b]() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
@@ -153,7 +153,7 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
 
-  result->backward_fn_ = [result, self_ptr, b]() {
+  result->backward_fn_ = [result = result.get(), self_ptr, b]() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
@@ -214,7 +214,7 @@ std::shared_ptr<Tensor> Tensor::add_scalar_metal(double scalar) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     self_ptr->to(micrograd::Backend::CPU);
     result->to(micrograd::Backend::CPU);
 
@@ -247,7 +247,7 @@ std::shared_ptr<Tensor> Tensor::sub_scalar_metal(double scalar) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     self_ptr->to(micrograd::Backend::CPU);
     result->to(micrograd::Backend::CPU);
 
@@ -280,7 +280,7 @@ std::shared_ptr<Tensor> Tensor::mul_scalar_metal(double scalar) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr, scalar]() {
+  result->backward_fn_ = [result = result.get(), self_ptr, scalar]() {
     self_ptr->to(micrograd::Backend::CPU);
     result->to(micrograd::Backend::CPU);
 
@@ -313,7 +313,7 @@ std::shared_ptr<Tensor> Tensor::div_scalar_metal(double scalar) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr, scalar]() {
+  result->backward_fn_ = [result = result.get(), self_ptr, scalar]() {
     self_ptr->to(micrograd::Backend::CPU);
     result->to(micrograd::Backend::CPU);
 
@@ -346,7 +346,7 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr, exponent]() {
+  result->backward_fn_ = [result = result.get(), self_ptr, exponent]() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
@@ -400,7 +400,7 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
@@ -451,7 +451,7 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
@@ -502,7 +502,7 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
@@ -555,7 +555,7 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
 
-  result->backward_fn_ = [result, self_ptr, b, m, k, n]() {
+  result->backward_fn_ = [result = result.get(), self_ptr, b, m, k, n]() {
     auto &ctx = MetalContext::instance();
 
     result->to(micrograd::Backend::CPU);
@@ -656,7 +656,7 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 

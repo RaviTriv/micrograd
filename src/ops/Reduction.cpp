@@ -23,7 +23,7 @@ std::shared_ptr<Tensor> Tensor::sum() {
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
-  result->backward_fn_ = [result, self_ptr]() {
+  result->backward_fn_ = [result = result.get(), self_ptr]() {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[0];
     }
