@@ -10,6 +10,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 add_compile_options(
     -Wall -Wextra -Wpedantic
     -Wshadow -Wconversion -Wsign-conversion
@@ -58,6 +62,30 @@ endif()
 
 add_executable(main src/main.cpp)
 target_link_libraries(main PRIVATE micrograd)
+
+option(FETCH_MNIST "Download the MNIST dataset" ON)
+if(FETCH_MNIST)
+    set(MNIST_DATA_DIR "${CMAKE_BINARY_DIR}/mnist-data")
+    set(MNIST_DATA_FILES
+        "${MNIST_DATA_DIR}/train-images-idx3-ubyte"
+        "${MNIST_DATA_DIR}/train-labels-idx1-ubyte"
+        "${MNIST_DATA_DIR}/t10k-images-idx3-ubyte"
+        "${MNIST_DATA_DIR}/t10k-labels-idx1-ubyte"
+    )
+
+    add_custom_command(
+        OUTPUT ${MNIST_DATA_FILES}
+        COMMAND ${CMAKE_COMMAND} -DMNIST_DATA_DIR=${MNIST_DATA_DIR}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchMNIST.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchMNIST.cmake"
+        COMMENT "Downloading MNIST dataset"
+        VERBATIM
+    )
+    add_custom_target(mnist-data DEPENDS ${MNIST_DATA_FILES})
+    add_dependencies(main mnist-data)
+
+    target_compile_definitions(main PRIVATE MNIST_DATA_DIR="${MNIST_DATA_DIR}")
+endif()
 
 option(BUILD_TESTS "Unit tests" ON)
 if(BUILD_TESTS)
