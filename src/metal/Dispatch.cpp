@@ -36,7 +36,7 @@ void ElementwiseKernelLauncher::launch() {
 
 MatmulKernelLauncher::MatmulKernelLauncher(MetalContext &ctx, const std::string &kernel,
                                            size_t m, size_t k, size_t n)
-    : ctx_(ctx), m_(m), k_(k), n_(n), bufM_(ctx, sizeof(uint32_t)),
+    : ctx_(ctx), m_(m), n_(n), bufM_(ctx, sizeof(uint32_t)),
       bufK_(ctx, sizeof(uint32_t)), bufN_(ctx, sizeof(uint32_t)) {
   pipeline_ = ctx_.getPipeline(kernel);
   cmdBuf_ = ctx_.commandQueue()->commandBuffer();

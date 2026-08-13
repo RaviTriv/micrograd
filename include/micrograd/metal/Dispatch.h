@@ -41,7 +41,7 @@ private:
   MTL::ComputePipelineState *pipeline_;
   MTL::CommandBuffer *cmdBuf_;
   MTL::ComputeCommandEncoder *encoder_;
-  size_t m_, k_, n_;
+  size_t m_, n_;
   ScopedBuffer bufM_, bufK_, bufN_;
 };
 
