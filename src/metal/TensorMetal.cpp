@@ -7,8 +7,6 @@
 #include <cmath>
 #include <sstream>
 
-namespace {} // namespace
-
 std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
   result->op_ = "+";
@@ -462,13 +460,19 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
+    ScopedBuffer outBuf(ctx, n * sizeof(float));
+    float *outPtr = static_cast<float *>(outBuf.get()->contents());
+    for (size_t i = 0; i < n; i++) {
+      outPtr[i] = static_cast<float>(result->data_[i]);
+    }
+
     ScopedBuffer gradXBuf(ctx, n * sizeof(float));
     ScopedBuffer bufSize(ctx, sizeof(uint32_t));
     bufSize.set(static_cast<uint32_t>(n));
 
     ElementwiseKernelLauncher(ctx, "sigmoid_backward", n)
         .buffer(gradOutBuf)
-        .buffer(result->gpu_data_)
+        .buffer(outBuf)
         .buffer(gradXBuf)
         .buffer(bufSize)
         .launch();
@@ -513,13 +517,19 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
+    ScopedBuffer outBuf(ctx, n * sizeof(float));
+    float *outPtr = static_cast<float *>(outBuf.get()->contents());
+    for (size_t i = 0; i < n; i++) {
+      outPtr[i] = static_cast<float>(result->data_[i]);
+    }
+
     ScopedBuffer gradXBuf(ctx, n * sizeof(float));
     ScopedBuffer bufSize(ctx, sizeof(uint32_t));
     bufSize.set(static_cast<uint32_t>(n));
 
     ElementwiseKernelLauncher(ctx, "tanh_backward", n)
         .buffer(gradOutBuf)
-        .buffer(result->gpu_data_)
+        .buffer(outBuf)
         .buffer(gradXBuf)
         .buffer(bufSize)
         .launch();
@@ -574,7 +584,7 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
         .launch();
 
     ScopedBuffer gradBBuf(ctx, k * n * sizeof(float));
-    MatmulKernelLauncher(ctx, "matmul_tn", k, m, n)
+    MatmulKernelLauncher(ctx, "matmul_tn", m, k, n, k)
         .A(self_ptr->gpu_data_)
         .B(gradCBuf.get())
         .C(gradBBuf.get())

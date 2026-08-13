@@ -1,10 +1,18 @@
+#include "micrograd/NN.h"
 #include "micrograd/Tensor.h"
+#include <functional>
 #include <gtest/gtest.h>
 #include <memory>
 
 #ifdef MICROGRAD_METAL_ENABLED
+#include "micrograd/metal/MetalContext.h"
+
 #define SKIP_WITHOUT_METAL()                                                   \
   do {                                                                         \
+    auto &ctx = MetalContext::instance();                                      \
+    if (!ctx.isAvailable() && !ctx.initialize()) {                             \
+      GTEST_SKIP() << "no Metal device available";                             \
+    }                                                                          \
   } while (0)
 #else
 #define SKIP_WITHOUT_METAL() GTEST_SKIP() << "built without Metal support"
@@ -14,6 +22,65 @@ auto scalar(double val) {
   return std::make_shared<Tensor>(std::vector<size_t>{1},
                                   std::vector<double>{val});
 }
+
+auto vec(std::vector<double> values) {
+  return std::make_shared<Tensor>(std::vector<size_t>{values.size()}, values);
+}
+
+void expect_grad_matches_numeric(
+    const std::vector<double> &values,
+    const std::function<std::shared_ptr<Tensor>(std::shared_ptr<Tensor>)> &f) {
+  auto x = vec(values);
+  f(x)->backward();
+  const std::vector<double> analytic = x->grad();
+
+  constexpr double h = 1e-6;
+  for (size_t i = 0; i < values.size(); i++) {
+    auto shifted = values;
+
+    shifted[i] = values[i] + h;
+    const double up = f(vec(shifted))->data()[0];
+
+    shifted[i] = values[i] - h;
+    const double down = f(vec(shifted))->data()[0];
+
+    EXPECT_NEAR(analytic[i], (up - down) / (2 * h), 1e-5) << "at index " << i;
+  }
+}
+
+void expect_backends_agree(const std::vector<std::vector<double>> &inputs,
+                           const std::function<std::shared_ptr<Tensor>(
+                               std::vector<std::shared_ptr<Tensor>>)> &f) {
+  std::vector<std::shared_ptr<Tensor>> cpu_in, gpu_in;
+  for (const auto &values : inputs) {
+    cpu_in.push_back(vec(values));
+    gpu_in.push_back(vec(values));
+    gpu_in.back()->to(micrograd::Backend::Metal);
+  }
+
+  auto cpu_out = f(cpu_in);
+  cpu_out->backward();
+
+  auto gpu_out = f(gpu_in);
+  gpu_out->backward();
+  gpu_out->to(micrograd::Backend::CPU);
+
+  ASSERT_EQ(cpu_out->size(), gpu_out->size());
+  for (size_t i = 0; i < cpu_out->size(); i++) {
+    EXPECT_NEAR(cpu_out->data()[i], gpu_out->data()[i], 1e-4) << "value " << i;
+  }
+
+  for (size_t arg = 0; arg < inputs.size(); arg++) {
+    gpu_in[arg]->to(micrograd::Backend::CPU);
+    for (size_t i = 0; i < inputs[arg].size(); i++) {
+      EXPECT_NEAR(cpu_in[arg]->grad()[i], gpu_in[arg]->grad()[i], 1e-4)
+          << "grad of arg " << arg << " at " << i;
+    }
+  }
+}
+
+const std::vector<double> kLhs = {1.5, -2.0, 0.5, 3.0};
+const std::vector<double> kRhs = {2.0, 4.0, -1.5, 0.25};
 
 TEST(TensorTest, SanityCheck) {
   auto x = scalar(-4.0);
@@ -87,20 +154,6 @@ TEST(TensorTest, Pow) {
   EXPECT_NEAR(a->grad()[0], 48, 1e-9);
 }
 
-TEST(TensorTest, Quadratic) {
-  auto x = scalar(2);
-  auto b = x->pow(2.0);
-  auto c = b->mul(2.0);
-  auto d = x->mul(3.0);
-  auto e = d->add(5.0);
-  auto y = c->add(e);
-
-  y->backward();
-
-  EXPECT_NEAR(y->data()[0], 19, 1e-9);
-  EXPECT_NEAR(x->grad()[0], 11, 1e-9);
-}
-
 TEST(TensorTest, ChainRule) {
   auto x = scalar(3);
   auto a = x->pow(3.0);
@@ -111,6 +164,97 @@ TEST(TensorTest, ChainRule) {
 
   EXPECT_NEAR(y->data()[0], 784, 1e-9);
   EXPECT_NEAR(x->grad()[0], 1512, 1e-9);
+}
+
+TEST(TensorTest, NumericGradRelu) {
+  expect_grad_matches_numeric({-2.0, 0.5, 3.0},
+                              [](auto x) { return x->relu()->sum(); });
+}
+
+TEST(TensorTest, NumericGradSigmoid) {
+  expect_grad_matches_numeric({-1.5, 0.3, 2.0},
+                              [](auto x) { return x->sigmoid()->sum(); });
+}
+
+TEST(TensorTest, NumericGradTanh) {
+  expect_grad_matches_numeric({-1.5, 0.3, 2.0},
+                              [](auto x) { return x->tanh()->sum(); });
+}
+
+TEST(TensorTest, NumericGradPow) {
+  expect_grad_matches_numeric({0.5, 1.5, 2.5},
+                              [](auto x) { return x->pow(3.0)->sum(); });
+}
+
+TEST(TensorTest, NumericGradDiv) {
+  expect_grad_matches_numeric(
+      {1.0, 2.0}, [](auto x) { return x->div(vec({4.0, 5.0}))->sum(); });
+}
+
+TEST(TensorTest, NumericGradComposite) {
+  expect_grad_matches_numeric({0.4, -0.7, 1.2}, [](auto x) {
+    return x->mul(x)->add(x->tanh())->sigmoid()->sum();
+  });
+}
+
+TEST(TensorTest, MatmulNonSquare) {
+  auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 3},
+                                    std::vector<double>{1, 2, 3, 4, 5, 6});
+  auto b = std::make_shared<Tensor>(
+      std::vector<size_t>{3, 4},
+      std::vector<double>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
+
+  auto c = a->matmul(b);
+  c->sum()->backward();
+
+  ASSERT_EQ(c->shape(), (std::vector<size_t>{2, 4}));
+  EXPECT_NEAR(c->data()[0], 38.0, 1e-9);
+  EXPECT_NEAR(c->data()[3], 56.0, 1e-9);
+  EXPECT_NEAR(c->data()[7], 128.0, 1e-9);
+
+  EXPECT_NEAR(a->grad()[0], 10.0, 1e-9);
+  EXPECT_NEAR(a->grad()[1], 26.0, 1e-9);
+  EXPECT_NEAR(a->grad()[2], 42.0, 1e-9);
+
+  EXPECT_NEAR(b->grad()[0], 5.0, 1e-9);
+  EXPECT_NEAR(b->grad()[4], 7.0, 1e-9);
+  EXPECT_NEAR(b->grad()[8], 9.0, 1e-9);
+}
+
+TEST(TensorTest, InvalidShapesThrow) {
+  EXPECT_THROW(vec({1.0, 2.0})->add(vec({1.0})), std::invalid_argument);
+  EXPECT_THROW(vec({1.0, 2.0})->mul(vec({1.0})), std::invalid_argument);
+  EXPECT_THROW(vec({1.0, 2.0})->matmul(vec({1.0, 2.0})), std::invalid_argument);
+  EXPECT_THROW(std::make_shared<Tensor>(std::vector<size_t>{2, 2},
+                                        std::vector<double>{1.0}),
+               std::invalid_argument);
+
+  auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 3},
+                                    std::vector<double>(6, 1.0));
+  EXPECT_THROW(a->matmul(a), std::invalid_argument);
+}
+
+TEST(TensorTest, LinearSgdReducesLoss) {
+  Linear layer(2, 1);
+  SGD optimizer({layer.weights(), layer.bias()}, 0.1);
+
+  auto input = std::make_shared<Tensor>(std::vector<size_t>{1, 2},
+                                        std::vector<double>{0.5, -0.5});
+  auto target = std::make_shared<Tensor>(std::vector<size_t>{1, 1},
+                                         std::vector<double>{1.0});
+
+  const double before = mse_loss(layer.forward(input), target)->at({0});
+
+  for (int step = 0; step < 50; step++) {
+    auto loss = mse_loss(layer.forward(input), target);
+    optimizer.zero_grad();
+    loss->backward();
+    optimizer.step();
+  }
+
+  const double after = mse_loss(layer.forward(input), target)->at({0});
+  EXPECT_LT(after, before);
+  EXPECT_NEAR(after, 0.0, 1e-3);
 }
 
 TEST(TensorTest, GraphIsFreed) {
@@ -124,23 +268,98 @@ TEST(TensorTest, GraphIsFreed) {
   EXPECT_TRUE(w.expired());
 }
 
-TEST(TensorTest, SumMetal) {
+TEST(TensorTest, MetalMatchesCpuAdd) {
   SKIP_WITHOUT_METAL();
-  auto x = std::make_shared<Tensor>(std::vector<size_t>{4},
-                                    std::vector<double>{1.0, 2.0, 3.0, 4.0});
-  x->to(micrograd::Backend::Metal);
+  expect_backends_agree({kLhs, kRhs},
+                        [](auto in) { return in[0]->add(in[1]); });
+}
 
-  auto y = x->sum();
+TEST(TensorTest, MetalMatchesCpuSub) {
+  SKIP_WITHOUT_METAL();
+  expect_backends_agree({kLhs, kRhs},
+                        [](auto in) { return in[0]->sub(in[1]); });
+}
 
-  EXPECT_NEAR(y->data()[0], 10.0, 1e-4);
+TEST(TensorTest, MetalMatchesCpuMul) {
+  SKIP_WITHOUT_METAL();
+  expect_backends_agree({kLhs, kRhs},
+                        [](auto in) { return in[0]->mul(in[1]); });
+}
 
-  y->backward();
+TEST(TensorTest, MetalMatchesCpuDiv) {
+  SKIP_WITHOUT_METAL();
+  expect_backends_agree({kLhs, kRhs},
+                        [](auto in) { return in[0]->div(in[1]); });
+}
 
-  x->to(micrograd::Backend::CPU);
-  EXPECT_NEAR(x->grad()[0], 1.0, 1e-4);
-  EXPECT_NEAR(x->grad()[1], 1.0, 1e-4);
-  EXPECT_NEAR(x->grad()[2], 1.0, 1e-4);
-  EXPECT_NEAR(x->grad()[3], 1.0, 1e-4);
+TEST(TensorTest, MetalMatchesCpuScalarOps) {
+  SKIP_WITHOUT_METAL();
+  expect_backends_agree({kLhs}, [](auto in) { return in[0]->add(2.5); });
+  expect_backends_agree({kLhs}, [](auto in) { return in[0]->sub(1.25); });
+  expect_backends_agree({kLhs}, [](auto in) { return in[0]->mul(3.0); });
+  expect_backends_agree({kLhs}, [](auto in) { return in[0]->div(4.0); });
+}
+
+TEST(TensorTest, MetalMatchesCpuPow) {
+  SKIP_WITHOUT_METAL();
+  expect_backends_agree({{0.5, 1.5, 2.0, 3.0}},
+                        [](auto in) { return in[0]->pow(2.0); });
+}
+
+TEST(TensorTest, MetalMatchesCpuRelu) {
+  SKIP_WITHOUT_METAL();
+  expect_backends_agree({kLhs}, [](auto in) { return in[0]->relu(); });
+}
+
+TEST(TensorTest, MetalMatchesCpuSigmoid) {
+  SKIP_WITHOUT_METAL();
+  expect_backends_agree({kLhs}, [](auto in) { return in[0]->sigmoid(); });
+}
+
+TEST(TensorTest, MetalMatchesCpuTanh) {
+  SKIP_WITHOUT_METAL();
+  expect_backends_agree({kLhs}, [](auto in) { return in[0]->tanh(); });
+}
+
+TEST(TensorTest, MetalMatchesCpuSum) {
+  SKIP_WITHOUT_METAL();
+  expect_backends_agree({kLhs}, [](auto in) { return in[0]->sum(); });
+}
+
+TEST(TensorTest, MetalMatchesCpuMatmul) {
+  SKIP_WITHOUT_METAL();
+  const std::vector<double> a_data = {1, 2, 3, 4, 5, 6};
+  const std::vector<double> b_data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+
+  auto make = [](std::vector<size_t> shape, std::vector<double> data) {
+    return std::make_shared<Tensor>(shape, data);
+  };
+
+  auto cpu_a = make({2, 3}, a_data);
+  auto cpu_b = make({3, 4}, b_data);
+  auto cpu_c = cpu_a->matmul(cpu_b);
+  cpu_c->sum()->backward();
+
+  auto gpu_a = make({2, 3}, a_data);
+  auto gpu_b = make({3, 4}, b_data);
+  gpu_a->to(micrograd::Backend::Metal);
+  gpu_b->to(micrograd::Backend::Metal);
+  auto gpu_c = gpu_a->matmul(gpu_b);
+  gpu_c->sum()->backward();
+
+  gpu_c->to(micrograd::Backend::CPU);
+  gpu_a->to(micrograd::Backend::CPU);
+  gpu_b->to(micrograd::Backend::CPU);
+
+  for (size_t i = 0; i < cpu_c->size(); i++) {
+    EXPECT_NEAR(cpu_c->data()[i], gpu_c->data()[i], 1e-4) << "value " << i;
+  }
+  for (size_t i = 0; i < a_data.size(); i++) {
+    EXPECT_NEAR(cpu_a->grad()[i], gpu_a->grad()[i], 1e-4) << "grad a " << i;
+  }
+  for (size_t i = 0; i < b_data.size(); i++) {
+    EXPECT_NEAR(cpu_b->grad()[i], gpu_b->grad()[i], 1e-4) << "grad b " << i;
+  }
 }
 
 TEST(TensorTest, SumMetalTimeComparison) {
@@ -158,37 +377,4 @@ TEST(TensorTest, SumMetalTimeComparison) {
   auto y = x->sum();
 
   EXPECT_NEAR(y->data()[0], expected, 1e-1);
-}
-
-TEST(TensorTest, MatmulMetalBackward) {
-  SKIP_WITHOUT_METAL();
-  auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 2},
-                                    std::vector<double>{1, 2, 3, 4});
-  auto b = std::make_shared<Tensor>(std::vector<size_t>{2, 2},
-                                    std::vector<double>{5, 6, 7, 8});
-
-  a->to(micrograd::Backend::Metal);
-  b->to(micrograd::Backend::Metal);
-
-  auto c = a->matmul(b);
-
-  c->to(micrograd::Backend::CPU);
-  EXPECT_NEAR(c->data()[0], 19.0, 1e-4);
-  EXPECT_NEAR(c->data()[1], 22.0, 1e-4);
-  EXPECT_NEAR(c->data()[2], 43.0, 1e-4);
-  EXPECT_NEAR(c->data()[3], 50.0, 1e-4);
-
-  c->to(micrograd::Backend::Metal);
-  auto loss = c->sum();
-  loss->backward();
-
-  EXPECT_NEAR(a->grad()[0], 11.0, 1e-4);
-  EXPECT_NEAR(a->grad()[1], 15.0, 1e-4);
-  EXPECT_NEAR(a->grad()[2], 11.0, 1e-4);
-  EXPECT_NEAR(a->grad()[3], 15.0, 1e-4);
-
-  EXPECT_NEAR(b->grad()[0], 4.0, 1e-4);
-  EXPECT_NEAR(b->grad()[1], 4.0, 1e-4);
-  EXPECT_NEAR(b->grad()[2], 6.0, 1e-4);
-  EXPECT_NEAR(b->grad()[3], 6.0, 1e-4);
 }

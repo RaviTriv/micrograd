@@ -28,7 +28,7 @@ private:
 class MatmulKernelLauncher {
 public:
   MatmulKernelLauncher(MetalContext &ctx, const std::string &kernel,
-                       size_t m, size_t k, size_t n);
+                       size_t m, size_t k, size_t n, size_t output_rows = 0);
 
   MatmulKernelLauncher &A(MTL::Buffer *buf);
   MatmulKernelLauncher &B(MTL::Buffer *buf);
@@ -41,7 +41,7 @@ private:
   MTL::ComputePipelineState *pipeline_;
   MTL::CommandBuffer *cmdBuf_;
   MTL::ComputeCommandEncoder *encoder_;
-  size_t m_, n_;
+  size_t rows_, n_;
   ScopedBuffer bufM_, bufK_, bufN_;
 };
 

@@ -20,6 +20,8 @@ void Tensor::backward() {
       };
   findOrder(shared_from_this());
 
+  to(micrograd::Backend::CPU);
+
   for (size_t i = 0; i < grad_.size(); i++) {
     grad_[i] = 1.0;
   }

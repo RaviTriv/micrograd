@@ -35,8 +35,10 @@ void ElementwiseKernelLauncher::launch() {
 
 
 MatmulKernelLauncher::MatmulKernelLauncher(MetalContext &ctx, const std::string &kernel,
-                                           size_t m, size_t k, size_t n)
-    : ctx_(ctx), m_(m), n_(n), bufM_(ctx, sizeof(uint32_t)),
+                                           size_t m, size_t k, size_t n,
+                                           size_t output_rows)
+    : ctx_(ctx), rows_(output_rows == 0 ? m : output_rows), n_(n),
+      bufM_(ctx, sizeof(uint32_t)),
       bufK_(ctx, sizeof(uint32_t)), bufN_(ctx, sizeof(uint32_t)) {
   pipeline_ = ctx_.getPipeline(kernel);
   cmdBuf_ = ctx_.commandQueue()->commandBuffer();
@@ -68,8 +70,8 @@ MatmulKernelLauncher &MatmulKernelLauncher::C(MTL::Buffer *buf) {
 
 void MatmulKernelLauncher::launch() {
   constexpr size_t kTileSize = 16;
-  MTL::Size gridSize(n_, m_, 1);
-  MTL::Size threadGroupSize(std::min(n_, kTileSize), std::min(m_, kTileSize), 1);
+  MTL::Size gridSize(n_, rows_, 1);
+  MTL::Size threadGroupSize(std::min(n_, kTileSize), std::min(rows_, kTileSize), 1);
   encoder_->dispatchThreads(gridSize, threadGroupSize);
 
   encoder_->endEncoding();
