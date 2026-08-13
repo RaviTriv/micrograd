@@ -33,8 +33,8 @@ add_library(micrograd
     src/ops/Reduction.cpp
 
     src/Utils.cpp
-    src/nn.cpp
-    src/mnist.cpp
+    src/NN.cpp
+    src/MNIST.cpp
     src/metal/MetalContext.cpp
     src/metal/Kernels.cpp
     src/metal/Dispatch.cpp

@@ -1,8 +1,8 @@
 #include <iostream>
 #include <string>
 
-#include "micrograd/mnist.h"
-#include "micrograd/nn.h"
+#include "micrograd/MNIST.h"
+#include "micrograd/NN.h"
 
 #ifndef MNIST_DATA_DIR
 #define MNIST_DATA_DIR "data"

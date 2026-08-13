@@ -1,4 +1,4 @@
-#include "micrograd/nn.h"
+#include "micrograd/NN.h"
 #include <fstream>
 #include <memory>
 #include <random>

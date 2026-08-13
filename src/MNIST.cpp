@@ -1,4 +1,4 @@
-#include "micrograd/mnist.h"
+#include "micrograd/MNIST.h"
 #include "micrograd/Tensor.h"
 #include <cstddef>
 #include <fstream>
