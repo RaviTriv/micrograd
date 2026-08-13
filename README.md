@@ -2,6 +2,31 @@
 
 A small automatic differentiation engine.
 
+```c++
+#include "micrograd/Tensor.h"
+#include <iostream>
+
+int main() {
+  auto prediction = std::make_shared<Tensor>(
+    std::vector<size_t>{2},
+    std::vector<double>{1, 2});
+
+  auto target = std::make_shared<Tensor>(
+    std::vector<size_t>{2},
+    std::vector<double>{3, 3});
+
+  auto loss = prediction->sub(target)->pow(2.0)->sum();
+
+  loss->backward();
+
+  std::cout << loss->data()[0] << "\n"; // 5
+
+  for (auto& v : prediction->grad()){
+    std::cout << v << " "; // -4 -2
+  }
+}
+```
+
 ## Build & Run
 
 ```bash
@@ -10,41 +35,12 @@ cmake --build build
 ./build/main
 ```
 
+`main` trains a small network on MNIST.
+
 ## Tests
-Tests compare values computed from Pytorch to verify correctness.
 
 ```bash
 cmake -S . -B build -DBUILD_TESTS=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
-```
-
-
-## Example
-```c++
-#include "micrograd/Tensor.h"
-#include <iostream>
-
-int main() {
-  auto a = std::make_shared<Tensor>(
-    std::vector<size_t>{2, 2},
-    std::vector<double>{1, 2, 3, 4});
-
-  auto b = std::make_shared<Tensor>(
-    std::vector<size_t>{2, 2},
-    std::vector<double>{5, 6, 7, 8});
-
-  auto c = a->matmul(b);
-  auto loss = c->sum();
-
-  loss->backward();
-
-  for (auto& v : c->data()){
-    std::cout << v << " "; // 19 22 43 50
-  }
-
-  for (auto& v : a->grad()){
-    std::cout << v << " "; // 11 15 11 15
-  }
-}
 ```
