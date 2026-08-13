@@ -1,4 +1,4 @@
-#include "micrograd/utils.h"
+#include "micrograd/Utils.h"
 #include <functional>
 #include <iomanip>
 #include <sstream>

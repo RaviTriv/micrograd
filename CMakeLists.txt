@@ -17,9 +17,6 @@ add_compile_options(
 
 if(APPLE)
     option(ENABLE_METAL "Metal GPU acceleration" ON)
-    if(ENABLE_METAL)
-        add_compile_definitions(MICROGRAD_METAL_ENABLED)
-    endif()
 endif()
 
 add_library(micrograd
@@ -43,7 +40,16 @@ add_library(micrograd
 target_include_directories(micrograd PUBLIC include)
 
 if(APPLE AND ENABLE_METAL)
-    target_include_directories(micrograd PUBLIC external/metal-cpp)
+    include(FetchContent)
+    FetchContent_Declare(metalcpp
+        URL https://developer.apple.com/metal/cpp/files/metal-cpp_macOS15_iOS18.zip
+        URL_HASH SHA256=0433df1e0ab13c2b0becbd78665071e3fa28381e9714a3fce28a497892b8a184
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(metalcpp)
+
+    target_compile_definitions(micrograd PUBLIC MICROGRAD_METAL_ENABLED)
+    target_include_directories(micrograd SYSTEM PUBLIC ${metalcpp_SOURCE_DIR})
     target_link_libraries(micrograd PUBLIC
         "-framework Metal"
         "-framework Foundation"

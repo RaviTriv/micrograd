@@ -2,6 +2,14 @@
 #include <gtest/gtest.h>
 #include <memory>
 
+#ifdef MICROGRAD_METAL_ENABLED
+#define SKIP_WITHOUT_METAL()                                                   \
+  do {                                                                         \
+  } while (0)
+#else
+#define SKIP_WITHOUT_METAL() GTEST_SKIP() << "built without Metal support"
+#endif
+
 auto scalar(double val) {
   return std::make_shared<Tensor>(std::vector<size_t>{1},
                                   std::vector<double>{val});
@@ -105,7 +113,19 @@ TEST(TensorTest, ChainRule) {
   EXPECT_NEAR(x->grad()[0], 1512, 1e-9);
 }
 
+TEST(TensorTest, GraphIsFreed) {
+  std::weak_ptr<Tensor> w;
+  {
+    auto x = scalar(2.0);
+    auto y = x->mul(3.0)->relu();
+    y->backward();
+    w = y;
+  }
+  EXPECT_TRUE(w.expired());
+}
+
 TEST(TensorTest, SumMetal) {
+  SKIP_WITHOUT_METAL();
   auto x = std::make_shared<Tensor>(std::vector<size_t>{4},
                                     std::vector<double>{1.0, 2.0, 3.0, 4.0});
   x->to(micrograd::Backend::Metal);
@@ -124,6 +144,7 @@ TEST(TensorTest, SumMetal) {
 }
 
 TEST(TensorTest, SumMetalTimeComparison) {
+  SKIP_WITHOUT_METAL();
   std::vector<double> data(10000);
   double expected = 0.0;
   for (int i = 0; i < 10000; i++) {
@@ -140,6 +161,7 @@ TEST(TensorTest, SumMetalTimeComparison) {
 }
 
 TEST(TensorTest, MatmulMetalBackward) {
+  SKIP_WITHOUT_METAL();
   auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 2},
                                     std::vector<double>{1, 2, 3, 4});
   auto b = std::make_shared<Tensor>(std::vector<size_t>{2, 2},
