@@ -32,7 +32,6 @@ add_library(micrograd
     src/ops/Matmul.cpp
     src/ops/Reduction.cpp
 
-    src/Utils.cpp
     src/NN.cpp
     src/MNIST.cpp
     src/metal/MetalContext.cpp

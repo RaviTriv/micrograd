@@ -1,15 +1,12 @@
 #ifdef MICROGRAD_METAL_ENABLED
 
 #include "micrograd/Tensor.h"
-#include "micrograd/Utils.h"
 #include "micrograd/metal/Dispatch.h"
 #include "micrograd/metal/MetalContext.h"
 #include <cmath>
-#include <sstream>
 
 std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "+";
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -42,7 +39,6 @@ std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "-";
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -75,7 +71,6 @@ std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "*";
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -134,7 +129,6 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "/";
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -193,7 +187,6 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::add_scalar_metal(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = format_scalar("+", scalar);
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -226,7 +219,6 @@ std::shared_ptr<Tensor> Tensor::add_scalar_metal(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::sub_scalar_metal(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = format_scalar("-", scalar);
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -259,7 +251,6 @@ std::shared_ptr<Tensor> Tensor::sub_scalar_metal(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::mul_scalar_metal(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = format_scalar("*", scalar);
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -292,7 +283,6 @@ std::shared_ptr<Tensor> Tensor::mul_scalar_metal(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::div_scalar_metal(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = format_scalar("/", scalar);
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -325,7 +315,6 @@ std::shared_ptr<Tensor> Tensor::div_scalar_metal(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = format_scalar("^", exponent);
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -382,7 +371,6 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
 
 std::shared_ptr<Tensor> Tensor::relu_metal() {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "relu";
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -433,7 +421,6 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
 
 std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "sigmoid";
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -490,7 +477,6 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
 
 std::shared_ptr<Tensor> Tensor::tanh_metal() {
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "tanh";
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -551,7 +537,6 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
   size_t n = b->shape_[1];
 
   auto result = std::make_shared<Tensor>(std::vector<size_t>{m, n});
-  result->op_ = "@";
   result->to(micrograd::Backend::Metal);
 
   auto &ctx = MetalContext::instance();
@@ -610,7 +595,6 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::sum_metal() {
   auto result = std::make_shared<Tensor>(std::vector<size_t>{1});
-  result->op_ = "sum";
 
   auto &ctx = MetalContext::instance();
   auto pipeline = ctx.getPipeline("sum_reduce");

@@ -13,7 +13,6 @@ std::shared_ptr<Tensor> Tensor::relu() {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "relu";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = data_[i] > 0 ? data_[i] : 0;
@@ -40,7 +39,6 @@ std::shared_ptr<Tensor> Tensor::sigmoid() {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "sigmoid";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = 1.0 / (1.0 + std::exp(-data_[i]));
@@ -68,7 +66,6 @@ std::shared_ptr<Tensor> Tensor::tanh() {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-  result->op_ = "tanh";
 
   for (size_t i = 0; i < data_.size(); i++) {
     result->data_[i] = std::tanh(data_[i]);

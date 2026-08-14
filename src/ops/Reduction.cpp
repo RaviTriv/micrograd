@@ -12,7 +12,6 @@ std::shared_ptr<Tensor> Tensor::sum() {
 #endif
 
   auto result = std::make_shared<Tensor>(std::vector<size_t>{1});
-  result->op_ = "sum";
 
   double total = 0.0;
   for (size_t i = 0; i < data_.size(); i++) {

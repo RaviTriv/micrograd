@@ -25,7 +25,6 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   size_t n = b->shape_[1];
 
   auto result = std::make_shared<Tensor>(std::vector<size_t>{m, n});
-  result->op_ = "@";
 
   for (size_t i = 0; i < m; i++) {
     for (size_t j = 0; j < n; j++) {
