@@ -89,12 +89,22 @@ void Tensor::to(Backend b) {
     case Backend::Metal: {
 #ifdef MICROGRAD_METAL_ENABLED
       auto &ctx = MetalContext::instance();
-      if (!ctx.isAvailable()) {
-        ctx.initialize();
+      if (!ctx.isAvailable() && !ctx.initialize()) {
+        throw std::runtime_error("Metal device is unavailable");
       }
 
-      gpu_data_ = ctx.createBuffer(size() * sizeof(scalar_t));
-      gpu_grad_ = ctx.createBuffer(size() * sizeof(scalar_t));
+      MTL::Buffer *data_buffer = ctx.createBuffer(size() * sizeof(scalar_t));
+      if (!data_buffer) {
+        throw std::runtime_error("Metal allocation failed");
+      }
+      MTL::Buffer *grad_buffer = ctx.createBuffer(size() * sizeof(scalar_t));
+      if (!grad_buffer) {
+        ctx.releaseBuffer(data_buffer);
+        throw std::runtime_error("Metal allocation failed");
+      }
+
+      gpu_data_ = data_buffer;
+      gpu_grad_ = grad_buffer;
 
       std::ranges::copy(data_, static_cast<scalar_t *>(gpu_data_->contents()));
       std::fill_n(static_cast<scalar_t *>(gpu_grad_->contents()), size(), 0.0f);
