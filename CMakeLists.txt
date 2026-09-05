@@ -41,6 +41,8 @@ add_library(micrograd
     src/metal/TensorMetal.cpp
 )
 
+target_compile_options(micrograd PRIVATE -Werror)
+
 target_include_directories(micrograd PUBLIC include)
 
 if(APPLE AND ENABLE_METAL)
