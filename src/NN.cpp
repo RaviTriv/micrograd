@@ -4,6 +4,8 @@
 #include <memory>
 #include <random>
 
+#include "micrograd/Random.h"
+
 namespace micrograd {
 
 std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
@@ -38,13 +40,11 @@ std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input) {
 }
 
 Linear::Linear(size_t in_features, size_t out_features) {
-  std::random_device rd;
-  std::mt19937 gen(rd());
   std::uniform_real_distribution<> dis(-0.1, 0.1);
 
   std::vector<double> w_data(in_features * out_features);
   for (auto &w : w_data) {
-    w = dis(gen);
+    w = dis(global_rng());
   }
 
   weights_ = std::make_shared<Tensor>(
