@@ -1,6 +1,7 @@
 #include "micrograd/Tensor.h"
 
 #include <algorithm>
+#include <stdexcept>
 #include <utility>
 
 #ifdef MICROGRAD_METAL_ENABLED
@@ -84,37 +85,46 @@ void Tensor::to(Backend b) {
     return;
   }
 
+  switch (b) {
+    case Backend::Metal: {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (b == Backend::Metal) {
-    auto &ctx = MetalContext::instance();
-    if (!ctx.isAvailable()) {
-      ctx.initialize();
-    }
+      auto &ctx = MetalContext::instance();
+      if (!ctx.isAvailable()) {
+        ctx.initialize();
+      }
 
-    gpu_data_ = ctx.createBuffer(size() * sizeof(scalar_t));
-    gpu_grad_ = ctx.createBuffer(size() * sizeof(scalar_t));
+      gpu_data_ = ctx.createBuffer(size() * sizeof(scalar_t));
+      gpu_grad_ = ctx.createBuffer(size() * sizeof(scalar_t));
 
-    std::ranges::copy(data_, static_cast<scalar_t *>(gpu_data_->contents()));
-    std::fill_n(static_cast<scalar_t *>(gpu_grad_->contents()), size(), 0.0f);
+      std::ranges::copy(data_, static_cast<scalar_t *>(gpu_data_->contents()));
+      std::fill_n(static_cast<scalar_t *>(gpu_grad_->contents()), size(), 0.0f);
 
-    backend_ = Backend::Metal;
-  } else {
-    std::copy_n(static_cast<scalar_t *>(gpu_data_->contents()), size(),
-                data_.begin());
-    std::copy_n(static_cast<scalar_t *>(gpu_grad_->contents()), size(),
-                grad_.begin());
-
-    auto &ctx = MetalContext::instance();
-    ctx.releaseBuffer(gpu_data_);
-    ctx.releaseBuffer(gpu_grad_);
-    gpu_data_ = nullptr;
-    gpu_grad_ = nullptr;
-
-    backend_ = Backend::CPU;
-  }
-#else
-  (void)b;
+      backend_ = Backend::Metal;
 #endif
+      return;
+    }
+    case Backend::CPU: {
+#ifdef MICROGRAD_METAL_ENABLED
+      std::copy_n(static_cast<scalar_t *>(gpu_data_->contents()), size(),
+                  data_.begin());
+      std::copy_n(static_cast<scalar_t *>(gpu_grad_->contents()), size(),
+                  grad_.begin());
+
+      auto &ctx = MetalContext::instance();
+      ctx.releaseBuffer(gpu_data_);
+      ctx.releaseBuffer(gpu_grad_);
+      gpu_data_ = nullptr;
+      gpu_grad_ = nullptr;
+
+      backend_ = Backend::CPU;
+#endif
+      return;
+    }
+    case Backend::CUDA:
+      throw std::runtime_error("CUDA support is not compiled in");
+  }
+
+  throw std::runtime_error("Unknown device");
 }
 
 Backend Tensor::backend() const { return backend_; }
