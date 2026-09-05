@@ -1,0 +1,17 @@
+Checks: >
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  portability-*,
+  clang-analyzer-*,
+  google-readability-braces-around-statements,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -bugprone-easily-swappable-parameters,
+  -portability-avoid-pragma-once,
+  -performance-enum-size,
+  -modernize-use-nodiscard
+
+HeaderFilterRegex: '(include|src)/.*'
+
+WarningsAsErrors: ''

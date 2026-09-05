@@ -9,8 +9,7 @@
 #include "micrograd/metal/MetalContext.h"
 #endif
 class Tensor : public std::enable_shared_from_this<Tensor> {
-
-public:
+ public:
   Tensor(std::vector<size_t> shape);
   Tensor(std::vector<size_t> shape, std::vector<double> data);
   ~Tensor() = default;
@@ -47,7 +46,7 @@ public:
   void to(micrograd::Backend backend);
   micrograd::Backend backend() const;
 
-private:
+ private:
   void compute_strides();
 
   std::vector<double> data_;
@@ -59,7 +58,6 @@ private:
   std::function<void()> backward_fn_;
 
   size_t flat_index(const std::vector<size_t> &indices) const;
-
 
   micrograd::Backend backend_ = micrograd::Backend::CPU;
 

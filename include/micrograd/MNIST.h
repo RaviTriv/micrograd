@@ -1,9 +1,10 @@
 #pragma once
 
-#include "Tensor.h"
 #include <memory>
 #include <string>
 #include <vector>
+
+#include "Tensor.h"
 
 struct MNISTData {
   std::vector<std::shared_ptr<Tensor>> images;

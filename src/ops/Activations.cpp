@@ -1,5 +1,6 @@
-#include "micrograd/Tensor.h"
 #include <cmath>
+
+#include "micrograd/Tensor.h"
 
 #ifdef MICROGRAD_METAL_ENABLED
 #include "micrograd/metal/MetalContext.h"

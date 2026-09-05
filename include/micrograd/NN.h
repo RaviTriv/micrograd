@@ -1,31 +1,32 @@
 #pragma once
 
-#include "Tensor.h"
 #include <memory>
+
+#include "Tensor.h"
 
 std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
                                  const std::shared_ptr<Tensor> &target);
 std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input);
 class Linear {
-public:
+ public:
   Linear(size_t in_features, size_t out_features);
   std::shared_ptr<Tensor> forward(const std::shared_ptr<Tensor> &input);
   std::shared_ptr<Tensor> weights();
   std::shared_ptr<Tensor> bias();
 
-private:
+ private:
   std::shared_ptr<Tensor> weights_;
   std::shared_ptr<Tensor> bias_;
 };
 
 class SGD {
-public:
+ public:
   SGD(std::vector<std::shared_ptr<Tensor>> parameters, double learning_rate);
 
   void step();
   void zero_grad();
 
-private:
+ private:
   std::vector<std::shared_ptr<Tensor>> parameters_;
   double learning_rate_;
 };

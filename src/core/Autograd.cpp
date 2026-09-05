@@ -1,7 +1,8 @@
 
-#include "micrograd/Tensor.h"
 #include <functional>
 #include <unordered_set>
+
+#include "micrograd/Tensor.h"
 
 void Tensor::backward() {
   std::vector<std::shared_ptr<Tensor>> ordered;

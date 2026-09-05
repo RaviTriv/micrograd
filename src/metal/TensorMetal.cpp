@@ -1,9 +1,10 @@
 #ifdef MICROGRAD_METAL_ENABLED
 
+#include <cmath>
+
 #include "micrograd/Tensor.h"
 #include "micrograd/metal/Dispatch.h"
 #include "micrograd/metal/MetalContext.h"
-#include <cmath>
 
 std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);

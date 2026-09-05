@@ -4,14 +4,13 @@
 
 #include <Foundation/Foundation.hpp>
 #include <Metal/Metal.hpp>
-
 #include <string>
 #include <unordered_map>
 
 class MetalContext;
 
 class ScopedBuffer {
-public:
+ public:
   ScopedBuffer(MetalContext &ctx, size_t bytes);
   ~ScopedBuffer();
 
@@ -20,20 +19,21 @@ public:
   ScopedBuffer(ScopedBuffer &&other) noexcept;
   ScopedBuffer &operator=(ScopedBuffer &&other) noexcept;
 
-  template <typename T> void set(T value) {
+  template <typename T>
+  void set(T value) {
     *static_cast<T *>(buffer_->contents()) = value;
   }
 
   MTL::Buffer *get() const { return buffer_; }
   operator MTL::Buffer *() const { return buffer_; }
 
-private:
+ private:
   MetalContext *ctx_;
   MTL::Buffer *buffer_;
 };
 
 class MetalContext {
-public:
+ public:
   static MetalContext &instance();
 
   bool initialize();
@@ -49,7 +49,7 @@ public:
 
   void synchronize();
 
-private:
+ private:
   MetalContext();
   ~MetalContext();
 

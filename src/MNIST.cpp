@@ -1,9 +1,11 @@
 #include "micrograd/MNIST.h"
-#include "micrograd/Tensor.h"
+
 #include <cstddef>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
+
+#include "micrograd/Tensor.h"
 
 MNISTData load_mnist(const std::string &images_path,
                      const std::string &labels_path, int sample_count) {

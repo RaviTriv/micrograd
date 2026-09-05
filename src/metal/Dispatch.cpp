@@ -1,10 +1,12 @@
 #ifdef MICROGRAD_METAL_ENABLED
 
 #include "micrograd/metal/Dispatch.h"
+
 #include <algorithm>
 
 ElementwiseKernelLauncher::ElementwiseKernelLauncher(MetalContext &ctx,
-                                                     const std::string &kernel, size_t size)
+                                                     const std::string &kernel,
+                                                     size_t size)
     : ctx_(ctx), size_(size) {
   pipeline_ = ctx_.getPipeline(kernel);
   cmdBuf_ = ctx_.commandQueue()->commandBuffer();
@@ -17,7 +19,8 @@ ElementwiseKernelLauncher &ElementwiseKernelLauncher::buffer(MTL::Buffer *buf) {
   return *this;
 }
 
-ElementwiseKernelLauncher &ElementwiseKernelLauncher::buffer(const ScopedBuffer &buf) {
+ElementwiseKernelLauncher &ElementwiseKernelLauncher::buffer(
+    const ScopedBuffer &buf) {
   encoder_->setBuffer(buf.get(), 0, bufferIndex_++);
   return *this;
 }
@@ -33,13 +36,16 @@ void ElementwiseKernelLauncher::launch() {
   cmdBuf_->waitUntilCompleted();
 }
 
-
-MatmulKernelLauncher::MatmulKernelLauncher(MetalContext &ctx, const std::string &kernel,
-                                           size_t m, size_t k, size_t n,
+MatmulKernelLauncher::MatmulKernelLauncher(MetalContext &ctx,
+                                           const std::string &kernel, size_t m,
+                                           size_t k, size_t n,
                                            size_t output_rows)
-    : ctx_(ctx), rows_(output_rows == 0 ? m : output_rows), n_(n),
+    : ctx_(ctx),
+      rows_(output_rows == 0 ? m : output_rows),
+      n_(n),
       bufM_(ctx, sizeof(uint32_t)),
-      bufK_(ctx, sizeof(uint32_t)), bufN_(ctx, sizeof(uint32_t)) {
+      bufK_(ctx, sizeof(uint32_t)),
+      bufN_(ctx, sizeof(uint32_t)) {
   pipeline_ = ctx_.getPipeline(kernel);
   cmdBuf_ = ctx_.commandQueue()->commandBuffer();
   encoder_ = cmdBuf_->computeCommandEncoder();
@@ -71,7 +77,8 @@ MatmulKernelLauncher &MatmulKernelLauncher::C(MTL::Buffer *buf) {
 void MatmulKernelLauncher::launch() {
   constexpr size_t kTileSize = 16;
   MTL::Size gridSize(n_, rows_, 1);
-  MTL::Size threadGroupSize(std::min(n_, kTileSize), std::min(rows_, kTileSize), 1);
+  MTL::Size threadGroupSize(std::min(n_, kTileSize), std::min(rows_, kTileSize),
+                            1);
   encoder_->dispatchThreads(gridSize, threadGroupSize);
 
   encoder_->endEncoding();

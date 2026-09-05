@@ -68,8 +68,6 @@ std::vector<double> &Tensor::data() { return data_; }
 
 std::vector<double> &Tensor::grad() { return grad_; }
 
-
-
 void Tensor::zero_grad() {
   for (size_t i = 0; i < grad_.size(); i++) {
     grad_[i] = 0.0;

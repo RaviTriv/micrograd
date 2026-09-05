@@ -1,6 +1,7 @@
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 #include "micrograd/metal/MetalContext.h"
+
 #include "micrograd/metal/Kernels.h"
 #ifdef MICROGRAD_METAL_ENABLED
 

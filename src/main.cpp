@@ -33,7 +33,7 @@ double evaluate(const MNISTData &set, Linear &l1, Linear &l2) {
          static_cast<double>(set.images.size());
 }
 
-} // namespace
+}  // namespace
 
 int main(int argc, char **argv) {
   const std::string data_dir = argc > 1 ? argv[1] : MNIST_DATA_DIR;

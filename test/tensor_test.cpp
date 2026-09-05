@@ -1,18 +1,21 @@
-#include "micrograd/NN.h"
 #include "micrograd/Tensor.h"
-#include <functional>
+
 #include <gtest/gtest.h>
+
+#include <functional>
 #include <memory>
+
+#include "micrograd/NN.h"
 
 #ifdef MICROGRAD_METAL_ENABLED
 #include "micrograd/metal/MetalContext.h"
 
-#define SKIP_WITHOUT_METAL()                                                   \
-  do {                                                                         \
-    auto &ctx = MetalContext::instance();                                      \
-    if (!ctx.isAvailable() && !ctx.initialize()) {                             \
-      GTEST_SKIP() << "no Metal device available";                             \
-    }                                                                          \
+#define SKIP_WITHOUT_METAL()                       \
+  do {                                             \
+    auto &ctx = MetalContext::instance();          \
+    if (!ctx.isAvailable() && !ctx.initialize()) { \
+      GTEST_SKIP() << "no Metal device available"; \
+    }                                              \
   } while (0)
 #else
 #define SKIP_WITHOUT_METAL() GTEST_SKIP() << "built without Metal support"
