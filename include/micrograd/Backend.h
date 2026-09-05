@@ -1,5 +1,7 @@
 #pragma once
 
+#include "micrograd/Device.h"
+
 namespace micrograd {
-enum class Backend { CPU, Metal };
+using Backend = Device;
 }
