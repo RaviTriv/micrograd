@@ -96,7 +96,7 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
+    auto *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
@@ -115,10 +115,10 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
         .buffer(bufSize)
         .launch();
 
-    float *gradAPtr = static_cast<float *>(gradABuf.get()->contents());
-    float *gradBPtr = static_cast<float *>(gradBBuf.get()->contents());
-    float *gpuGradAPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
-    float *gpuGradBPtr = static_cast<float *>(b->gpu_grad_->contents());
+    auto *gradAPtr = static_cast<float *>(gradABuf.get()->contents());
+    auto *gradBPtr = static_cast<float *>(gradBBuf.get()->contents());
+    auto *gpuGradAPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
+    auto *gpuGradBPtr = static_cast<float *>(b->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradAPtr[i]);
       gpuGradAPtr[i] += gradAPtr[i];
@@ -154,7 +154,7 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
+    auto *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
@@ -173,10 +173,10 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
         .buffer(bufSize)
         .launch();
 
-    float *gradAPtr = static_cast<float *>(gradABuf.get()->contents());
-    float *gradBPtr = static_cast<float *>(gradBBuf.get()->contents());
-    float *gpuGradAPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
-    float *gpuGradBPtr = static_cast<float *>(b->gpu_grad_->contents());
+    auto *gradAPtr = static_cast<float *>(gradABuf.get()->contents());
+    auto *gradBPtr = static_cast<float *>(gradBBuf.get()->contents());
+    auto *gpuGradAPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
+    auto *gpuGradBPtr = static_cast<float *>(b->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradAPtr[i]);
       gpuGradAPtr[i] += gradAPtr[i];
@@ -342,7 +342,7 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
+    auto *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
@@ -361,8 +361,8 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
         .buffer(bufSize)
         .launch();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
-    float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
+    auto *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
+    auto *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];
@@ -395,7 +395,7 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
+    auto *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
@@ -411,8 +411,8 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
         .buffer(bufSize)
         .launch();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
-    float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
+    auto *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
+    auto *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];
@@ -445,13 +445,13 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
+    auto *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
     ScopedBuffer outBuf(ctx, n * sizeof(float));
-    float *outPtr = static_cast<float *>(outBuf.get()->contents());
+    auto *outPtr = static_cast<float *>(outBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       outPtr[i] = static_cast<float>(result->data_[i]);
     }
@@ -467,8 +467,8 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
         .buffer(bufSize)
         .launch();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
-    float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
+    auto *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
+    auto *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];
@@ -501,13 +501,13 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
-    float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
+    auto *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       gradOutPtr[i] = static_cast<float>(result->grad_[i]);
     }
 
     ScopedBuffer outBuf(ctx, n * sizeof(float));
-    float *outPtr = static_cast<float *>(outBuf.get()->contents());
+    auto *outPtr = static_cast<float *>(outBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
       outPtr[i] = static_cast<float>(result->data_[i]);
     }
@@ -523,8 +523,8 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
         .buffer(bufSize)
         .launch();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
-    float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
+    auto *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
+    auto *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];
@@ -559,7 +559,7 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
     result->to(Backend::CPU);
 
     ScopedBuffer gradCBuf(ctx, m * n * sizeof(float));
-    float *gradCPtr = static_cast<float *>(gradCBuf.get()->contents());
+    auto *gradCPtr = static_cast<float *>(gradCBuf.get()->contents());
     for (size_t i = 0; i < m * n; i++) {
       gradCPtr[i] = static_cast<float>(result->grad_[i]);
     }
@@ -578,10 +578,10 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
         .C(gradBBuf.get())
         .launch();
 
-    float *gradAPtr = static_cast<float *>(gradABuf.get()->contents());
-    float *gradBPtr = static_cast<float *>(gradBBuf.get()->contents());
-    float *gpuGradAPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
-    float *gpuGradBPtr = static_cast<float *>(b->gpu_grad_->contents());
+    auto *gradAPtr = static_cast<float *>(gradABuf.get()->contents());
+    auto *gradBPtr = static_cast<float *>(gradBBuf.get()->contents());
+    auto *gpuGradAPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
+    auto *gpuGradBPtr = static_cast<float *>(b->gpu_grad_->contents());
 
     for (size_t i = 0; i < m * k; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradAPtr[i]);
@@ -603,7 +603,7 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
   auto pipeline = ctx.getPipeline("sum_reduce");
 
   const uint32_t threadgroupSize = 256;
-  uint32_t currentSize = static_cast<uint32_t>(size());
+  auto currentSize = static_cast<uint32_t>(size());
   uint32_t numThreadgroups =
       (currentSize + threadgroupSize - 1) / threadgroupSize;
 
@@ -657,7 +657,7 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
-    float gradScalar = static_cast<float>(result->grad_[0]);
+    auto gradScalar = static_cast<float>(result->grad_[0]);
 
     ScopedBuffer gradXBuf(ctx, n * sizeof(float));
     ScopedBuffer bufScalar(ctx, sizeof(float));
@@ -671,8 +671,8 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
         .buffer(bufSize)
         .launch();
 
-    float *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
-    float *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
+    auto *gradXPtr = static_cast<float *>(gradXBuf.get()->contents());
+    auto *gpuGradPtr = static_cast<float *>(self_ptr->gpu_grad_->contents());
     for (size_t i = 0; i < n; i++) {
       self_ptr->grad_[i] += static_cast<double>(gradXPtr[i]);
       gpuGradPtr[i] += gradXPtr[i];

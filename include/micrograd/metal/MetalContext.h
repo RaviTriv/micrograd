@@ -36,6 +36,9 @@ class MetalContext {
  public:
   static MetalContext &instance();
 
+  MetalContext(const MetalContext &) = delete;
+  MetalContext &operator=(const MetalContext &) = delete;
+
   bool initialize();
   void shutdown();
   bool isAvailable() const;
@@ -52,9 +55,6 @@ class MetalContext {
  private:
   MetalContext();
   ~MetalContext();
-
-  MetalContext(const MetalContext &) = delete;
-  MetalContext &operator=(const MetalContext &) = delete;
 
   MTL::Device *device_ = nullptr;
   MTL::CommandQueue *command_queue_ = nullptr;

@@ -10,8 +10,9 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   -portability-avoid-pragma-once,
   -performance-enum-size,
-  -modernize-use-nodiscard
+  -modernize-use-nodiscard,
+  -bugprone-throwing-static-initialization
 
 HeaderFilterRegex: '(include|src)/.*'
 
-WarningsAsErrors: ''
+WarningsAsErrors: '*'

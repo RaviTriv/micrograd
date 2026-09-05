@@ -16,8 +16,8 @@ std::shared_ptr<Tensor> Tensor::sum() {
   auto result = std::make_shared<Tensor>(std::vector<size_t>{1});
 
   double total = 0.0;
-  for (size_t i = 0; i < data_.size(); i++) {
-    total += data_[i];
+  for (double value : data_) {
+    total += value;
   }
   result->data_[0] = total;
 
@@ -25,8 +25,8 @@ std::shared_ptr<Tensor> Tensor::sum() {
   result->children_ = {self_ptr};
 
   result->backward_fn_ = [result = result.get(), self_ptr]() {
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      self_ptr->grad_[i] += result->grad_[0];
+    for (double &g : self_ptr->grad_) {
+      g += result->grad_[0];
     }
   };
 

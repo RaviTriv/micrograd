@@ -1,5 +1,6 @@
 
 #include <functional>
+#include <ranges>
 #include <unordered_set>
 
 #include "micrograd/Tensor.h"
@@ -10,8 +11,8 @@ void Tensor::backward() {
   std::vector<std::shared_ptr<Tensor>> ordered;
   std::unordered_set<Tensor *> visited;
 
-  std::function<void(std::shared_ptr<Tensor>)> findOrder =
-      [&](std::shared_ptr<Tensor> node) {
+  std::function<void(const std::shared_ptr<Tensor> &)> findOrder =
+      [&](const std::shared_ptr<Tensor> &node) {
         if (visited.contains(node.get())) {
           return;
         }
@@ -25,13 +26,13 @@ void Tensor::backward() {
 
   to(Backend::CPU);
 
-  for (size_t i = 0; i < grad_.size(); i++) {
-    grad_[i] = 1.0;
+  for (double &g : grad_) {
+    g = 1.0;
   }
 
-  for (auto it = ordered.rbegin(); it != ordered.rend(); it++) {
-    if ((*it)->backward_fn_) {
-      (*it)->backward_fn_();
+  for (const auto &node : std::ranges::reverse_view(ordered)) {
+    if (node->backward_fn_) {
+      node->backward_fn_();
     }
   }
 }

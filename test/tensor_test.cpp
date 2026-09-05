@@ -28,7 +28,7 @@ auto scalar(double val) {
                                   std::vector<double>{val});
 }
 
-auto vec(std::vector<double> values) {
+auto vec(const std::vector<double> &values) {
   return std::make_shared<Tensor>(std::vector<size_t>{values.size()}, values);
 }
 
@@ -173,31 +173,31 @@ TEST(TensorTest, ChainRule) {
 
 TEST(TensorTest, NumericGradRelu) {
   expect_grad_matches_numeric({-2.0, 0.5, 3.0},
-                              [](auto x) { return x->relu()->sum(); });
+                              [](const auto &x) { return x->relu()->sum(); });
 }
 
 TEST(TensorTest, NumericGradSigmoid) {
-  expect_grad_matches_numeric({-1.5, 0.3, 2.0},
-                              [](auto x) { return x->sigmoid()->sum(); });
+  expect_grad_matches_numeric(
+      {-1.5, 0.3, 2.0}, [](const auto &x) { return x->sigmoid()->sum(); });
 }
 
 TEST(TensorTest, NumericGradTanh) {
   expect_grad_matches_numeric({-1.5, 0.3, 2.0},
-                              [](auto x) { return x->tanh()->sum(); });
+                              [](const auto &x) { return x->tanh()->sum(); });
 }
 
 TEST(TensorTest, NumericGradPow) {
   expect_grad_matches_numeric({0.5, 1.5, 2.5},
-                              [](auto x) { return x->pow(3.0)->sum(); });
+                              [](const auto &x) { return x->pow(3.0)->sum(); });
 }
 
 TEST(TensorTest, NumericGradDiv) {
   expect_grad_matches_numeric(
-      {1.0, 2.0}, [](auto x) { return x->div(vec({4.0, 5.0}))->sum(); });
+      {1.0, 2.0}, [](const auto &x) { return x->div(vec({4.0, 5.0}))->sum(); });
 }
 
 TEST(TensorTest, NumericGradComposite) {
-  expect_grad_matches_numeric({0.4, -0.7, 1.2}, [](auto x) {
+  expect_grad_matches_numeric({0.4, -0.7, 1.2}, [](const auto &x) {
     return x->mul(x)->add(x->tanh())->sigmoid()->sum();
   });
 }
@@ -276,59 +276,61 @@ TEST(TensorTest, GraphIsFreed) {
 TEST(TensorTest, MetalMatchesCpuAdd) {
   SKIP_WITHOUT_METAL();
   expect_backends_agree({kLhs, kRhs},
-                        [](auto in) { return in[0]->add(in[1]); });
+                        [](const auto &in) { return in[0]->add(in[1]); });
 }
 
 TEST(TensorTest, MetalMatchesCpuSub) {
   SKIP_WITHOUT_METAL();
   expect_backends_agree({kLhs, kRhs},
-                        [](auto in) { return in[0]->sub(in[1]); });
+                        [](const auto &in) { return in[0]->sub(in[1]); });
 }
 
 TEST(TensorTest, MetalMatchesCpuMul) {
   SKIP_WITHOUT_METAL();
   expect_backends_agree({kLhs, kRhs},
-                        [](auto in) { return in[0]->mul(in[1]); });
+                        [](const auto &in) { return in[0]->mul(in[1]); });
 }
 
 TEST(TensorTest, MetalMatchesCpuDiv) {
   SKIP_WITHOUT_METAL();
   expect_backends_agree({kLhs, kRhs},
-                        [](auto in) { return in[0]->div(in[1]); });
+                        [](const auto &in) { return in[0]->div(in[1]); });
 }
 
 TEST(TensorTest, MetalMatchesCpuScalarOps) {
   SKIP_WITHOUT_METAL();
-  expect_backends_agree({kLhs}, [](auto in) { return in[0]->add(2.5); });
-  expect_backends_agree({kLhs}, [](auto in) { return in[0]->sub(1.25); });
-  expect_backends_agree({kLhs}, [](auto in) { return in[0]->mul(3.0); });
-  expect_backends_agree({kLhs}, [](auto in) { return in[0]->div(4.0); });
+  expect_backends_agree({kLhs}, [](const auto &in) { return in[0]->add(2.5); });
+  expect_backends_agree({kLhs},
+                        [](const auto &in) { return in[0]->sub(1.25); });
+  expect_backends_agree({kLhs}, [](const auto &in) { return in[0]->mul(3.0); });
+  expect_backends_agree({kLhs}, [](const auto &in) { return in[0]->div(4.0); });
 }
 
 TEST(TensorTest, MetalMatchesCpuPow) {
   SKIP_WITHOUT_METAL();
   expect_backends_agree({{0.5, 1.5, 2.0, 3.0}},
-                        [](auto in) { return in[0]->pow(2.0); });
+                        [](const auto &in) { return in[0]->pow(2.0); });
 }
 
 TEST(TensorTest, MetalMatchesCpuRelu) {
   SKIP_WITHOUT_METAL();
-  expect_backends_agree({kLhs}, [](auto in) { return in[0]->relu(); });
+  expect_backends_agree({kLhs}, [](const auto &in) { return in[0]->relu(); });
 }
 
 TEST(TensorTest, MetalMatchesCpuSigmoid) {
   SKIP_WITHOUT_METAL();
-  expect_backends_agree({kLhs}, [](auto in) { return in[0]->sigmoid(); });
+  expect_backends_agree({kLhs},
+                        [](const auto &in) { return in[0]->sigmoid(); });
 }
 
 TEST(TensorTest, MetalMatchesCpuTanh) {
   SKIP_WITHOUT_METAL();
-  expect_backends_agree({kLhs}, [](auto in) { return in[0]->tanh(); });
+  expect_backends_agree({kLhs}, [](const auto &in) { return in[0]->tanh(); });
 }
 
 TEST(TensorTest, MetalMatchesCpuSum) {
   SKIP_WITHOUT_METAL();
-  expect_backends_agree({kLhs}, [](auto in) { return in[0]->sum(); });
+  expect_backends_agree({kLhs}, [](const auto &in) { return in[0]->sum(); });
 }
 
 TEST(TensorTest, MetalMatchesCpuMatmul) {
@@ -336,7 +338,8 @@ TEST(TensorTest, MetalMatchesCpuMatmul) {
   const std::vector<double> a_data = {1, 2, 3, 4, 5, 6};
   const std::vector<double> b_data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 
-  auto make = [](std::vector<size_t> shape, std::vector<double> data) {
+  auto make = [](const std::vector<size_t> &shape,
+                 const std::vector<double> &data) {
     return std::make_shared<Tensor>(shape, data);
   };
 

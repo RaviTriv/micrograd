@@ -23,28 +23,27 @@ bool MetalContext::initialize() {
 
   device_ = MTL::CreateSystemDefaultDevice();
   if (!device_) {
-    std::cerr << "NO GPU FOUND!!!!!" << std::endl;
+    std::cerr << "NO GPU FOUND!!!!!\n";
     return false;
   }
 
   command_queue_ = device_->newCommandQueue();
   if (!command_queue_) {
-    std::cerr << "Failed to create command queue." << std::endl;
+    std::cerr << "Failed to create command queue.\n";
     return false;
   }
 
-  std::cout << device_->name()->utf8String() << " initialized to accelerate!"
-            << std::endl;
+  std::cout << device_->name()->utf8String() << " initialized to accelerate!\n";
 
   NS::Error *error = nullptr;
   NS::String *source = NS::String::string(micrograd::metal::KERNEL_SOURCE,
                                           NS::UTF8StringEncoding);
   library_ = device_->newLibrary(source, nullptr, &error);
   if (!library_) {
-    std::cerr << "FAILED TO INIT KERNEL :(" << std::endl;
+    std::cerr << "FAILED TO INIT KERNEL :(\n";
     if (error) {
       std::cerr << "Error: " << error->localizedDescription()->utf8String()
-                << std::endl;
+                << '\n';
     }
     return false;
   }
@@ -84,7 +83,7 @@ MTL::ComputePipelineState *MetalContext::getPipeline(const std::string &name) {
   MTL::Function *fn = library_->newFunction(fnName);
 
   if (!fn) {
-    std::cerr << "Failed to create function: " << name << std::endl;
+    std::cerr << "Failed to create function: " << name << "\n";
     return nullptr;
   }
 
@@ -94,8 +93,7 @@ MTL::ComputePipelineState *MetalContext::getPipeline(const std::string &name) {
   fn->release();
 
   if (!pipeline) {
-    std::cerr << "Failed to create pipeline for function: " << name << " :("
-              << std::endl;
+    std::cerr << "Failed to create pipeline for function: " << name << " :(\n";
   }
 
   pipelines_[name] = pipeline;

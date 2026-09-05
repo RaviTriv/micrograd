@@ -1,12 +1,14 @@
 #include "micrograd/Tensor.h"
 
+#include <utility>
+
 #ifdef MICROGRAD_METAL_ENABLED
 #include "micrograd/metal/MetalContext.h"
 #endif
 
 namespace micrograd {
 
-Tensor::Tensor(std::vector<size_t> shape) : shape_(shape) {
+Tensor::Tensor(std::vector<size_t> shape) : shape_(std::move(shape)) {
   size_t total = 1;
   for (auto dim : shape_) {
     total *= dim;
@@ -17,7 +19,7 @@ Tensor::Tensor(std::vector<size_t> shape) : shape_(shape) {
 }
 
 Tensor::Tensor(std::vector<size_t> shape, std::vector<double> data)
-    : data_(data), shape_(shape) {
+    : data_(std::move(data)), shape_(std::move(shape)) {
   size_t total = 1;
   for (auto dim : shape_) {
     total *= dim;
@@ -71,8 +73,8 @@ std::vector<double> &Tensor::data() { return data_; }
 std::vector<double> &Tensor::grad() { return grad_; }
 
 void Tensor::zero_grad() {
-  for (size_t i = 0; i < grad_.size(); i++) {
-    grad_[i] = 0.0;
+  for (double &g : grad_) {
+    g = 0.0;
   }
 }
 
@@ -91,24 +93,24 @@ void Tensor::to(Backend b) {
     gpu_data_ = ctx.createBuffer(size() * sizeof(float));
     gpu_grad_ = ctx.createBuffer(size() * sizeof(float));
 
-    float *gpu_ptr = static_cast<float *>(gpu_data_->contents());
+    auto *gpu_ptr = static_cast<float *>(gpu_data_->contents());
     for (size_t i = 0; i < size(); i++) {
       gpu_ptr[i] = static_cast<float>(data_[i]);
     }
 
-    float *grad_ptr = static_cast<float *>(gpu_grad_->contents());
+    auto *grad_ptr = static_cast<float *>(gpu_grad_->contents());
     for (size_t i = 0; i < size(); i++) {
       grad_ptr[i] = 0.0f;
     }
 
     backend_ = Backend::Metal;
   } else {
-    float *gpu_ptr = static_cast<float *>(gpu_data_->contents());
+    auto *gpu_ptr = static_cast<float *>(gpu_data_->contents());
     for (size_t i = 0; i < size(); i++) {
       data_[i] = static_cast<double>(gpu_ptr[i]);
     }
 
-    float *grad_ptr = static_cast<float *>(gpu_grad_->contents());
+    auto *grad_ptr = static_cast<float *>(gpu_grad_->contents());
     for (size_t i = 0; i < size(); i++) {
       grad_[i] = static_cast<double>(grad_ptr[i]);
     }

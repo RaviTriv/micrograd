@@ -38,9 +38,9 @@ double evaluate(const MNISTData &set, Linear &l1, Linear &l2) {
 }  // namespace
 
 int main(int argc, char **argv) {
-  const std::string data_dir = argc > 1 ? argv[1] : MNIST_DATA_DIR;
-
   try {
+    const std::string data_dir = argc > 1 ? argv[1] : MNIST_DATA_DIR;
+
     auto train = load_mnist(data_dir + "/train-images-idx3-ubyte",
                             data_dir + "/train-labels-idx1-ubyte", 60000);
     auto test = load_mnist(data_dir + "/t10k-images-idx3-ubyte",
@@ -68,12 +68,11 @@ int main(int argc, char **argv) {
 
       std::cout << "Epoch " << epoch + 1 << ": loss = "
                 << total_loss / static_cast<double>(train.images.size())
-                << ", test accuracy = " << evaluate(test, l1, l2) << "%"
-                << std::endl;
+                << ", test accuracy = " << evaluate(test, l1, l2) << "%\n";
     }
 
     save_model("mnist.bin", l1, l2);
-    std::cout << "Saved trained model to mnist.bin" << std::endl;
+    std::cout << "Saved trained model to mnist.bin\n";
   } catch (const std::exception &e) {
     std::cerr << "error: " << e.what() << "\n\n"
               << "Pass the dataset directory as the first argument, or "

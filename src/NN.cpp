@@ -3,6 +3,7 @@
 #include <fstream>
 #include <memory>
 #include <random>
+#include <utility>
 
 #include "micrograd/Random.h"
 
@@ -22,17 +23,17 @@ std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
 std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input) {
   std::vector<double> pooled(196);
 
-  for (int py = 0; py < 14; py++) {
-    for (int px = 0; px < 14; px++) {
+  for (size_t py = 0; py < 14; py++) {
+    for (size_t px = 0; px < 14; px++) {
       double sum = 0.0;
-      for (int dy = 0; dy < 2; dy++) {
-        for (int dx = 0; dx < 2; dx++) {
-          int y = py * 2 + dy;
-          int x = px * 2 + dx;
-          sum += input->at({0, static_cast<size_t>(y * 28 + x)});
+      for (size_t dy = 0; dy < 2; dy++) {
+        for (size_t dx = 0; dx < 2; dx++) {
+          size_t y = (py * 2) + dy;
+          size_t x = (px * 2) + dx;
+          sum += input->at({0, (y * 28) + x});
         }
       }
-      pooled[static_cast<size_t>(py * 14 + px)] = sum / 4.0;
+      pooled[(py * 14) + px] = sum / 4.0;
     }
   }
 
@@ -63,7 +64,7 @@ std::shared_ptr<Tensor> Linear::weights() { return weights_; }
 std::shared_ptr<Tensor> Linear::bias() { return bias_; }
 
 SGD::SGD(std::vector<std::shared_ptr<Tensor>> parameters, double learning_rate)
-    : parameters_(parameters), learning_rate_(learning_rate) {}
+    : parameters_(std::move(parameters)), learning_rate_(learning_rate) {}
 
 void SGD::zero_grad() {
   for (auto &p : parameters_) {
