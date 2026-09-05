@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
     Linear l1(196, 100);
     Linear l2(100, 10);
 
-    SGD optimizer({l1.weights(), l1.bias(), l2.weights(), l2.bias()}, 0.01);
+    SGD optimizer({l1.weights(), l1.bias(), l2.weights(), l2.bias()}, 0.01f);
 
     for (int epoch = 0; epoch < 30; epoch++) {
       double total_loss = 0.0;
@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
         loss->backward();
         optimizer.step();
 
-        total_loss += loss->at({0});
+        total_loss += static_cast<double>(loss->at({0}));
       }
 
       std::cout << "Epoch " << epoch + 1 << ": loss = "

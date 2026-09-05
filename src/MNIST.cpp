@@ -27,11 +27,11 @@ MNISTData load_mnist(const std::string &images_path,
   labels_file.seekg(8);
 
   for (int i = 0; i < sample_count; i++) {
-    std::vector<double> pixels(784);
+    std::vector<scalar_t> pixels(784);
     for (size_t j = 0; j < 784; j++) {
       unsigned char pixel;
       images_file.read(reinterpret_cast<char *>(&pixel), 1);
-      pixels[j] = pixel / 255.0;
+      pixels[j] = static_cast<scalar_t>(pixel) / 255.0f;
     }
     if (!images_file) {
       throw std::runtime_error("MNIST images truncated at sample " +
@@ -49,8 +49,8 @@ MNISTData load_mnist(const std::string &images_path,
       throw std::runtime_error("MNIST label out of range at sample " +
                                std::to_string(i));
     }
-    std::vector<double> one_hot(10, 0.0);
-    one_hot[label] = 1.0;
+    std::vector<scalar_t> one_hot(10, 0.0f);
+    one_hot[label] = 1.0f;
     data.labels.push_back(
         std::make_shared<Tensor>(std::vector<size_t>{1, 10}, one_hot));
   }

@@ -128,7 +128,7 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
   return result;
 }
 
-std::shared_ptr<Tensor> Tensor::add(double scalar) {
+std::shared_ptr<Tensor> Tensor::add(scalar_t scalar) {
 #ifdef MICROGRAD_METAL_ENABLED
   if (backend_ == Backend::Metal) {
     return add_scalar_metal(scalar);
@@ -153,7 +153,7 @@ std::shared_ptr<Tensor> Tensor::add(double scalar) {
   return result;
 }
 
-std::shared_ptr<Tensor> Tensor::sub(double scalar) {
+std::shared_ptr<Tensor> Tensor::sub(scalar_t scalar) {
 #ifdef MICROGRAD_METAL_ENABLED
   if (backend_ == Backend::Metal) {
     return sub_scalar_metal(scalar);
@@ -178,7 +178,7 @@ std::shared_ptr<Tensor> Tensor::sub(double scalar) {
   return result;
 }
 
-std::shared_ptr<Tensor> Tensor::mul(double scalar) {
+std::shared_ptr<Tensor> Tensor::mul(scalar_t scalar) {
 #ifdef MICROGRAD_METAL_ENABLED
   if (backend_ == Backend::Metal) {
     return mul_scalar_metal(scalar);
@@ -203,7 +203,7 @@ std::shared_ptr<Tensor> Tensor::mul(double scalar) {
   return result;
 }
 
-std::shared_ptr<Tensor> Tensor::div(double scalar) {
+std::shared_ptr<Tensor> Tensor::div(scalar_t scalar) {
 #ifdef MICROGRAD_METAL_ENABLED
   if (backend_ == Backend::Metal) {
     return div_scalar_metal(scalar);
@@ -228,7 +228,7 @@ std::shared_ptr<Tensor> Tensor::div(double scalar) {
   return result;
 }
 
-std::shared_ptr<Tensor> Tensor::pow(double exponent) {
+std::shared_ptr<Tensor> Tensor::pow(scalar_t exponent) {
 #ifdef MICROGRAD_METAL_ENABLED
   if (backend_ == Backend::Metal) {
     return pow_metal(exponent);
@@ -247,7 +247,7 @@ std::shared_ptr<Tensor> Tensor::pow(double exponent) {
   result->backward_fn_ = [result = result.get(), self_ptr, exponent]() {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[i] * exponent *
-                            std::pow(self_ptr->data_[i], exponent - 1);
+                            std::pow(self_ptr->data_[i], exponent - 1.0f);
     }
   };
 

@@ -23,14 +23,14 @@ class Linear {
 
 class SGD {
  public:
-  SGD(std::vector<std::shared_ptr<Tensor>> parameters, double learning_rate);
+  SGD(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate);
 
   void step();
   void zero_grad();
 
  private:
   std::vector<std::shared_ptr<Tensor>> parameters_;
-  double learning_rate_;
+  scalar_t learning_rate_;
 };
 
 void save_model(const std::string &path, Linear &l1, Linear &l2);

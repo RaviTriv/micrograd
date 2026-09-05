@@ -23,37 +23,37 @@
 
 using namespace micrograd;
 
-auto scalar(double val) {
+auto scalar(scalar_t val) {
   return std::make_shared<Tensor>(std::vector<size_t>{1},
-                                  std::vector<double>{val});
+                                  std::vector<scalar_t>{val});
 }
 
-auto vec(const std::vector<double> &values) {
+auto vec(const std::vector<scalar_t> &values) {
   return std::make_shared<Tensor>(std::vector<size_t>{values.size()}, values);
 }
 
 void expect_grad_matches_numeric(
-    const std::vector<double> &values,
+    const std::vector<scalar_t> &values,
     const std::function<std::shared_ptr<Tensor>(std::shared_ptr<Tensor>)> &f) {
   auto x = vec(values);
   f(x)->backward();
-  const std::vector<double> analytic = x->grad();
+  const std::vector<scalar_t> analytic = x->grad();
 
-  constexpr double h = 1e-6;
+  constexpr scalar_t h = 1e-2f;
   for (size_t i = 0; i < values.size(); i++) {
     auto shifted = values;
 
     shifted[i] = values[i] + h;
-    const double up = f(vec(shifted))->data()[0];
+    const scalar_t up = f(vec(shifted))->data()[0];
 
     shifted[i] = values[i] - h;
-    const double down = f(vec(shifted))->data()[0];
+    const scalar_t down = f(vec(shifted))->data()[0];
 
-    EXPECT_NEAR(analytic[i], (up - down) / (2 * h), 1e-5) << "at index " << i;
+    EXPECT_NEAR(analytic[i], (up - down) / (2 * h), 1e-3) << "at index " << i;
   }
 }
 
-void expect_backends_agree(const std::vector<std::vector<double>> &inputs,
+void expect_backends_agree(const std::vector<std::vector<scalar_t>> &inputs,
                            const std::function<std::shared_ptr<Tensor>(
                                std::vector<std::shared_ptr<Tensor>>)> &f) {
   std::vector<std::shared_ptr<Tensor>> cpu_in, gpu_in;
@@ -84,8 +84,8 @@ void expect_backends_agree(const std::vector<std::vector<double>> &inputs,
   }
 }
 
-const std::vector<double> kLhs = {1.5, -2.0, 0.5, 3.0};
-const std::vector<double> kRhs = {2.0, 4.0, -1.5, 0.25};
+const std::vector<scalar_t> kLhs = {1.5, -2.0, 0.5, 3.0};
+const std::vector<scalar_t> kRhs = {2.0, 4.0, -1.5, 0.25};
 
 TEST(TensorTest, SanityCheck) {
   auto x = scalar(-4.0);
@@ -144,9 +144,9 @@ TEST(TensorTest, Div) {
 
   c->backward();
 
-  EXPECT_NEAR(c->data()[0], 0.80, 1e-9);
-  EXPECT_NEAR(a->grad()[0], 0.20, 1e-9);
-  EXPECT_NEAR(b->grad()[0], -0.16, 1e-9);
+  EXPECT_NEAR(c->data()[0], 0.80, 1e-6);
+  EXPECT_NEAR(a->grad()[0], 0.20, 1e-6);
+  EXPECT_NEAR(b->grad()[0], -0.16, 1e-6);
 }
 
 TEST(TensorTest, Pow) {
@@ -172,42 +172,43 @@ TEST(TensorTest, ChainRule) {
 }
 
 TEST(TensorTest, NumericGradRelu) {
-  expect_grad_matches_numeric({-2.0, 0.5, 3.0},
+  expect_grad_matches_numeric({-2.0f, 0.5f, 3.0f},
                               [](const auto &x) { return x->relu()->sum(); });
 }
 
 TEST(TensorTest, NumericGradSigmoid) {
   expect_grad_matches_numeric(
-      {-1.5, 0.3, 2.0}, [](const auto &x) { return x->sigmoid()->sum(); });
+      {-1.5f, 0.3f, 2.0f}, [](const auto &x) { return x->sigmoid()->sum(); });
 }
 
 TEST(TensorTest, NumericGradTanh) {
-  expect_grad_matches_numeric({-1.5, 0.3, 2.0},
+  expect_grad_matches_numeric({-1.5f, 0.3f, 2.0f},
                               [](const auto &x) { return x->tanh()->sum(); });
 }
 
 TEST(TensorTest, NumericGradPow) {
-  expect_grad_matches_numeric({0.5, 1.5, 2.5},
-                              [](const auto &x) { return x->pow(3.0)->sum(); });
+  expect_grad_matches_numeric(
+      {0.5f, 1.5f, 2.5f}, [](const auto &x) { return x->pow(3.0f)->sum(); });
 }
 
 TEST(TensorTest, NumericGradDiv) {
-  expect_grad_matches_numeric(
-      {1.0, 2.0}, [](const auto &x) { return x->div(vec({4.0, 5.0}))->sum(); });
+  expect_grad_matches_numeric({1.0f, 2.0f}, [](const auto &x) {
+    return x->div(vec({4.0f, 5.0f}))->sum();
+  });
 }
 
 TEST(TensorTest, NumericGradComposite) {
-  expect_grad_matches_numeric({0.4, -0.7, 1.2}, [](const auto &x) {
+  expect_grad_matches_numeric({0.4f, -0.7f, 1.2f}, [](const auto &x) {
     return x->mul(x)->add(x->tanh())->sigmoid()->sum();
   });
 }
 
 TEST(TensorTest, MatmulNonSquare) {
   auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 3},
-                                    std::vector<double>{1, 2, 3, 4, 5, 6});
+                                    std::vector<scalar_t>{1, 2, 3, 4, 5, 6});
   auto b = std::make_shared<Tensor>(
       std::vector<size_t>{3, 4},
-      std::vector<double>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
+      std::vector<scalar_t>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
 
   auto c = a->matmul(b);
   c->sum()->backward();
@@ -231,24 +232,24 @@ TEST(TensorTest, InvalidShapesThrow) {
   EXPECT_THROW(vec({1.0, 2.0})->mul(vec({1.0})), std::invalid_argument);
   EXPECT_THROW(vec({1.0, 2.0})->matmul(vec({1.0, 2.0})), std::invalid_argument);
   EXPECT_THROW(std::make_shared<Tensor>(std::vector<size_t>{2, 2},
-                                        std::vector<double>{1.0}),
+                                        std::vector<scalar_t>{1.0}),
                std::invalid_argument);
 
   auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 3},
-                                    std::vector<double>(6, 1.0));
+                                    std::vector<scalar_t>(6, 1.0));
   EXPECT_THROW(a->matmul(a), std::invalid_argument);
 }
 
 TEST(TensorTest, LinearSgdReducesLoss) {
   Linear layer(2, 1);
-  SGD optimizer({layer.weights(), layer.bias()}, 0.1);
+  SGD optimizer({layer.weights(), layer.bias()}, 0.1f);
 
   auto input = std::make_shared<Tensor>(std::vector<size_t>{1, 2},
-                                        std::vector<double>{0.5, -0.5});
+                                        std::vector<scalar_t>{0.5, -0.5});
   auto target = std::make_shared<Tensor>(std::vector<size_t>{1, 1},
-                                         std::vector<double>{1.0});
+                                         std::vector<scalar_t>{1.0});
 
-  const double before = mse_loss(layer.forward(input), target)->at({0});
+  const scalar_t before = mse_loss(layer.forward(input), target)->at({0});
 
   for (int step = 0; step < 50; step++) {
     auto loss = mse_loss(layer.forward(input), target);
@@ -257,7 +258,7 @@ TEST(TensorTest, LinearSgdReducesLoss) {
     optimizer.step();
   }
 
-  const double after = mse_loss(layer.forward(input), target)->at({0});
+  const scalar_t after = mse_loss(layer.forward(input), target)->at({0});
   EXPECT_LT(after, before);
   EXPECT_NEAR(after, 0.0, 1e-3);
 }
@@ -335,11 +336,11 @@ TEST(TensorTest, MetalMatchesCpuSum) {
 
 TEST(TensorTest, MetalMatchesCpuMatmul) {
   SKIP_WITHOUT_METAL();
-  const std::vector<double> a_data = {1, 2, 3, 4, 5, 6};
-  const std::vector<double> b_data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+  const std::vector<scalar_t> a_data = {1, 2, 3, 4, 5, 6};
+  const std::vector<scalar_t> b_data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 
   auto make = [](const std::vector<size_t> &shape,
-                 const std::vector<double> &data) {
+                 const std::vector<scalar_t> &data) {
     return std::make_shared<Tensor>(shape, data);
   };
 
@@ -372,10 +373,10 @@ TEST(TensorTest, MetalMatchesCpuMatmul) {
 
 TEST(TensorTest, SumMetalTimeComparison) {
   SKIP_WITHOUT_METAL();
-  std::vector<double> data(10000);
+  std::vector<scalar_t> data(10000);
   double expected = 0.0;
   for (int i = 0; i < 10000; i++) {
-    data[static_cast<size_t>(i)] = static_cast<double>(i + 1);
+    data[static_cast<size_t>(i)] = static_cast<scalar_t>(i + 1);
     expected += static_cast<double>(i + 1);
   }
 

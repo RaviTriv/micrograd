@@ -18,7 +18,7 @@ std::shared_ptr<Tensor> Tensor::relu() {
   auto result = std::make_shared<Tensor>(shape_);
 
   for (size_t i = 0; i < data_.size(); i++) {
-    result->data_[i] = data_[i] > 0 ? data_[i] : 0;
+    result->data_[i] = data_[i] > 0 ? data_[i] : 0.0f;
   }
 
   auto self_ptr = shared_from_this();
@@ -27,7 +27,7 @@ std::shared_ptr<Tensor> Tensor::relu() {
   result->backward_fn_ = [result = result.get(), self_ptr]() {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] +=
-          result->grad_[i] * (self_ptr->data_[i] > 0 ? 1.0 : 0.0);
+          result->grad_[i] * (self_ptr->data_[i] > 0 ? 1.0f : 0.0f);
     }
   };
 
@@ -44,7 +44,7 @@ std::shared_ptr<Tensor> Tensor::sigmoid() {
   auto result = std::make_shared<Tensor>(shape_);
 
   for (size_t i = 0; i < data_.size(); i++) {
-    result->data_[i] = 1.0 / (1.0 + std::exp(-data_[i]));
+    result->data_[i] = 1.0f / (1.0f + std::exp(-data_[i]));
   }
 
   auto self_ptr = shared_from_this();
@@ -52,9 +52,9 @@ std::shared_ptr<Tensor> Tensor::sigmoid() {
 
   result->backward_fn_ = [result = result.get(), self_ptr]() {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      double sigmoid_val = result->data_[i];
+      scalar_t sigmoid_val = result->data_[i];
       self_ptr->grad_[i] +=
-          result->grad_[i] * sigmoid_val * (1.0 - sigmoid_val);
+          result->grad_[i] * sigmoid_val * (1.0f - sigmoid_val);
     }
   };
 
@@ -79,8 +79,8 @@ std::shared_ptr<Tensor> Tensor::tanh() {
 
   result->backward_fn_ = [result = result.get(), self_ptr]() {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      double tanh_val = result->data_[i];
-      self_ptr->grad_[i] += result->grad_[i] * (1.0 - tanh_val * tanh_val);
+      scalar_t tanh_val = result->data_[i];
+      self_ptr->grad_[i] += result->grad_[i] * (1.0f - tanh_val * tanh_val);
     }
   };
 

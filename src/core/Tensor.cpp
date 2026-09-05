@@ -1,5 +1,6 @@
 #include "micrograd/Tensor.h"
 
+#include <algorithm>
 #include <utility>
 
 #ifdef MICROGRAD_METAL_ENABLED
@@ -13,12 +14,12 @@ Tensor::Tensor(std::vector<size_t> shape) : shape_(std::move(shape)) {
   for (auto dim : shape_) {
     total *= dim;
   }
-  data_.resize(total, 0.0);
-  grad_.resize(total, 0.0);
+  data_.resize(total, 0.0f);
+  grad_.resize(total, 0.0f);
   compute_strides();
 }
 
-Tensor::Tensor(std::vector<size_t> shape, std::vector<double> data)
+Tensor::Tensor(std::vector<size_t> shape, std::vector<scalar_t> data)
     : data_(std::move(data)), shape_(std::move(shape)) {
   size_t total = 1;
   for (auto dim : shape_) {
@@ -27,7 +28,7 @@ Tensor::Tensor(std::vector<size_t> shape, std::vector<double> data)
   if (data_.size() != total) {
     throw std::invalid_argument("Tensor and data size mismatch");
   }
-  grad_.resize(total, 0.0);
+  grad_.resize(total, 0.0f);
   compute_strides();
 }
 
@@ -44,19 +45,19 @@ const std::vector<size_t> &Tensor::shape() const { return shape_; }
 
 size_t Tensor::size() const { return data_.size(); }
 
-double &Tensor::at(const std::vector<size_t> &indices) {
+scalar_t &Tensor::at(const std::vector<size_t> &indices) {
   return data_[flat_index(indices)];
 }
 
-double Tensor::at(const std::vector<size_t> &indices) const {
+scalar_t Tensor::at(const std::vector<size_t> &indices) const {
   return data_[flat_index(indices)];
 }
 
-double &Tensor::grad_at(const std::vector<size_t> &indices) {
+scalar_t &Tensor::grad_at(const std::vector<size_t> &indices) {
   return grad_[flat_index(indices)];
 }
 
-double Tensor::grad_at(const std::vector<size_t> &indices) const {
+scalar_t Tensor::grad_at(const std::vector<size_t> &indices) const {
   return grad_[flat_index(indices)];
 }
 
@@ -68,13 +69,13 @@ size_t Tensor::flat_index(const std::vector<size_t> &indices) const {
   return idx;
 }
 
-std::vector<double> &Tensor::data() { return data_; }
+std::vector<scalar_t> &Tensor::data() { return data_; }
 
-std::vector<double> &Tensor::grad() { return grad_; }
+std::vector<scalar_t> &Tensor::grad() { return grad_; }
 
 void Tensor::zero_grad() {
-  for (double &g : grad_) {
-    g = 0.0;
+  for (scalar_t &g : grad_) {
+    g = 0.0f;
   }
 }
 
@@ -90,30 +91,18 @@ void Tensor::to(Backend b) {
       ctx.initialize();
     }
 
-    gpu_data_ = ctx.createBuffer(size() * sizeof(float));
-    gpu_grad_ = ctx.createBuffer(size() * sizeof(float));
+    gpu_data_ = ctx.createBuffer(size() * sizeof(scalar_t));
+    gpu_grad_ = ctx.createBuffer(size() * sizeof(scalar_t));
 
-    auto *gpu_ptr = static_cast<float *>(gpu_data_->contents());
-    for (size_t i = 0; i < size(); i++) {
-      gpu_ptr[i] = static_cast<float>(data_[i]);
-    }
-
-    auto *grad_ptr = static_cast<float *>(gpu_grad_->contents());
-    for (size_t i = 0; i < size(); i++) {
-      grad_ptr[i] = 0.0f;
-    }
+    std::ranges::copy(data_, static_cast<scalar_t *>(gpu_data_->contents()));
+    std::fill_n(static_cast<scalar_t *>(gpu_grad_->contents()), size(), 0.0f);
 
     backend_ = Backend::Metal;
   } else {
-    auto *gpu_ptr = static_cast<float *>(gpu_data_->contents());
-    for (size_t i = 0; i < size(); i++) {
-      data_[i] = static_cast<double>(gpu_ptr[i]);
-    }
-
-    auto *grad_ptr = static_cast<float *>(gpu_grad_->contents());
-    for (size_t i = 0; i < size(); i++) {
-      grad_[i] = static_cast<double>(grad_ptr[i]);
-    }
+    std::copy_n(static_cast<scalar_t *>(gpu_data_->contents()), size(),
+                data_.begin());
+    std::copy_n(static_cast<scalar_t *>(gpu_grad_->contents()), size(),
+                grad_.begin());
 
     auto &ctx = MetalContext::instance();
     ctx.releaseBuffer(gpu_data_);

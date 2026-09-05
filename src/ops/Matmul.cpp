@@ -29,7 +29,7 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
 
   for (size_t i = 0; i < m; i++) {
     for (size_t j = 0; j < n; j++) {
-      double sum = 0.0;
+      scalar_t sum = 0.0f;
       for (size_t p = 0; p < k; p++) {
         sum += data_[i * k + p] * b->data_[p * n + j];
       }

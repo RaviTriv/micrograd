@@ -26,8 +26,8 @@ void Tensor::backward() {
 
   to(Backend::CPU);
 
-  for (double &g : grad_) {
-    g = 1.0;
+  for (scalar_t &g : grad_) {
+    g = 1.0f;
   }
 
   for (const auto &node : std::ranges::reverse_view(ordered)) {
