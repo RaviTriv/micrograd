@@ -21,6 +21,8 @@
 #define SKIP_WITHOUT_METAL() GTEST_SKIP() << "built without Metal support"
 #endif
 
+using namespace micrograd;
+
 auto scalar(double val) {
   return std::make_shared<Tensor>(std::vector<size_t>{1},
                                   std::vector<double>{val});
@@ -58,7 +60,7 @@ void expect_backends_agree(const std::vector<std::vector<double>> &inputs,
   for (const auto &values : inputs) {
     cpu_in.push_back(vec(values));
     gpu_in.push_back(vec(values));
-    gpu_in.back()->to(micrograd::Backend::Metal);
+    gpu_in.back()->to(Backend::Metal);
   }
 
   auto cpu_out = f(cpu_in);
@@ -66,7 +68,7 @@ void expect_backends_agree(const std::vector<std::vector<double>> &inputs,
 
   auto gpu_out = f(gpu_in);
   gpu_out->backward();
-  gpu_out->to(micrograd::Backend::CPU);
+  gpu_out->to(Backend::CPU);
 
   ASSERT_EQ(cpu_out->size(), gpu_out->size());
   for (size_t i = 0; i < cpu_out->size(); i++) {
@@ -74,7 +76,7 @@ void expect_backends_agree(const std::vector<std::vector<double>> &inputs,
   }
 
   for (size_t arg = 0; arg < inputs.size(); arg++) {
-    gpu_in[arg]->to(micrograd::Backend::CPU);
+    gpu_in[arg]->to(Backend::CPU);
     for (size_t i = 0; i < inputs[arg].size(); i++) {
       EXPECT_NEAR(cpu_in[arg]->grad()[i], gpu_in[arg]->grad()[i], 1e-4)
           << "grad of arg " << arg << " at " << i;
@@ -345,14 +347,14 @@ TEST(TensorTest, MetalMatchesCpuMatmul) {
 
   auto gpu_a = make({2, 3}, a_data);
   auto gpu_b = make({3, 4}, b_data);
-  gpu_a->to(micrograd::Backend::Metal);
-  gpu_b->to(micrograd::Backend::Metal);
+  gpu_a->to(Backend::Metal);
+  gpu_b->to(Backend::Metal);
   auto gpu_c = gpu_a->matmul(gpu_b);
   gpu_c->sum()->backward();
 
-  gpu_c->to(micrograd::Backend::CPU);
-  gpu_a->to(micrograd::Backend::CPU);
-  gpu_b->to(micrograd::Backend::CPU);
+  gpu_c->to(Backend::CPU);
+  gpu_a->to(Backend::CPU);
+  gpu_b->to(Backend::CPU);
 
   for (size_t i = 0; i < cpu_c->size(); i++) {
     EXPECT_NEAR(cpu_c->data()[i], gpu_c->data()[i], 1e-4) << "value " << i;
@@ -375,7 +377,7 @@ TEST(TensorTest, SumMetalTimeComparison) {
   }
 
   auto x = std::make_shared<Tensor>(std::vector<size_t>{10000}, data);
-  x->to(micrograd::Backend::Metal);
+  x->to(Backend::Metal);
 
   auto y = x->sum();
 

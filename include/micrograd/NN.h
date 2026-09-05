@@ -4,6 +4,8 @@
 
 #include "Tensor.h"
 
+namespace micrograd {
+
 std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
                                  const std::shared_ptr<Tensor> &target);
 std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input);
@@ -33,3 +35,5 @@ class SGD {
 
 void save_model(const std::string &path, Linear &l1, Linear &l2);
 void load_model(const std::string &path, Linear &l1, Linear &l2);
+
+}  // namespace micrograd

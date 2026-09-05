@@ -6,6 +6,8 @@
 
 #include "Tensor.h"
 
+namespace micrograd {
+
 struct MNISTData {
   std::vector<std::shared_ptr<Tensor>> images;
   std::vector<std::shared_ptr<Tensor>> labels;
@@ -13,3 +15,5 @@ struct MNISTData {
 
 MNISTData load_mnist(const std::string &images_path,
                      const std::string &labels_path, int sample_count);
+
+}  // namespace micrograd

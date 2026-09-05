@@ -4,6 +4,8 @@
 #include "micrograd/metal/MetalContext.h"
 #endif
 
+namespace micrograd {
+
 Tensor::Tensor(std::vector<size_t> shape) : shape_(shape) {
   size_t total = 1;
   for (auto dim : shape_) {
@@ -74,13 +76,13 @@ void Tensor::zero_grad() {
   }
 }
 
-void Tensor::to(micrograd::Backend b) {
+void Tensor::to(Backend b) {
   if (backend_ == b) {
     return;
   }
 
 #ifdef MICROGRAD_METAL_ENABLED
-  if (b == micrograd::Backend::Metal) {
+  if (b == Backend::Metal) {
     auto &ctx = MetalContext::instance();
     if (!ctx.isAvailable()) {
       ctx.initialize();
@@ -99,7 +101,7 @@ void Tensor::to(micrograd::Backend b) {
       grad_ptr[i] = 0.0f;
     }
 
-    backend_ = micrograd::Backend::Metal;
+    backend_ = Backend::Metal;
   } else {
     float *gpu_ptr = static_cast<float *>(gpu_data_->contents());
     for (size_t i = 0; i < size(); i++) {
@@ -117,11 +119,13 @@ void Tensor::to(micrograd::Backend b) {
     gpu_data_ = nullptr;
     gpu_grad_ = nullptr;
 
-    backend_ = micrograd::Backend::CPU;
+    backend_ = Backend::CPU;
   }
 #else
   (void)b;
 #endif
 }
 
-micrograd::Backend Tensor::backend() const { return backend_; }
+Backend Tensor::backend() const { return backend_; }
+
+}  // namespace micrograd

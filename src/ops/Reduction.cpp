@@ -4,9 +4,11 @@
 #include "micrograd/metal/MetalContext.h"
 #endif
 
+namespace micrograd {
+
 std::shared_ptr<Tensor> Tensor::sum() {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal) {
     return sum_metal();
   }
 #endif
@@ -30,3 +32,5 @@ std::shared_ptr<Tensor> Tensor::sum() {
 
   return result;
 }
+
+}  // namespace micrograd

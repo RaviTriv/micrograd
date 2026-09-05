@@ -4,6 +4,8 @@
 #include "micrograd/MNIST.h"
 #include "micrograd/NN.h"
 
+using namespace micrograd;
+
 #ifndef MNIST_DATA_DIR
 #define MNIST_DATA_DIR "data"
 #endif

@@ -6,9 +6,11 @@
 #include "micrograd/metal/MetalContext.h"
 #endif
 
+namespace micrograd {
+
 std::shared_ptr<Tensor> Tensor::relu() {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal) {
     return relu_metal();
   }
 #endif
@@ -34,7 +36,7 @@ std::shared_ptr<Tensor> Tensor::relu() {
 
 std::shared_ptr<Tensor> Tensor::sigmoid() {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal) {
     return sigmoid_metal();
   }
 #endif
@@ -61,7 +63,7 @@ std::shared_ptr<Tensor> Tensor::sigmoid() {
 
 std::shared_ptr<Tensor> Tensor::tanh() {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal) {
     return tanh_metal();
   }
 #endif
@@ -84,3 +86,5 @@ std::shared_ptr<Tensor> Tensor::tanh() {
 
   return result;
 }
+
+}  // namespace micrograd

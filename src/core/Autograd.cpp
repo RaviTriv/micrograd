@@ -4,6 +4,8 @@
 
 #include "micrograd/Tensor.h"
 
+namespace micrograd {
+
 void Tensor::backward() {
   std::vector<std::shared_ptr<Tensor>> ordered;
   std::unordered_set<Tensor *> visited;
@@ -21,7 +23,7 @@ void Tensor::backward() {
       };
   findOrder(shared_from_this());
 
-  to(micrograd::Backend::CPU);
+  to(Backend::CPU);
 
   for (size_t i = 0; i < grad_.size(); i++) {
     grad_[i] = 1.0;
@@ -33,3 +35,5 @@ void Tensor::backward() {
     }
   }
 }
+
+}  // namespace micrograd

@@ -4,6 +4,8 @@
 #include "micrograd/metal/MetalContext.h"
 #endif
 
+namespace micrograd {
+
 std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   if (shape_.size() != 2 || b->shape_.size() != 2) {
     throw std::invalid_argument("Tensors must be 2D for matmul");
@@ -14,8 +16,7 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   }
 
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal &&
-      b->backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal && b->backend_ == Backend::Metal) {
     return matmul_metal(b);
   }
 #endif
@@ -61,3 +62,5 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
 
   return result;
 }
+
+}  // namespace micrograd

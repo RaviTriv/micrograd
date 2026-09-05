@@ -6,14 +6,15 @@
 #include "micrograd/metal/MetalContext.h"
 #endif
 
+namespace micrograd {
+
 std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
   if (shape_ != b->shape_) {
     throw std::invalid_argument("Tensor shapes do not match");
   }
 
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal &&
-      b->backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal && b->backend_ == Backend::Metal) {
     return add_metal(b);
   }
 #endif
@@ -42,8 +43,7 @@ std::shared_ptr<Tensor> Tensor::sub(const std::shared_ptr<Tensor> &b) {
   }
 
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal &&
-      b->backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal && b->backend_ == Backend::Metal) {
     return sub_metal(b);
   }
 #endif
@@ -73,8 +73,7 @@ std::shared_ptr<Tensor> Tensor::mul(const std::shared_ptr<Tensor> &b) {
   }
 
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal &&
-      b->backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal && b->backend_ == Backend::Metal) {
     return mul_metal(b);
   }
 #endif
@@ -104,8 +103,7 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
   }
 
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal &&
-      b->backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal && b->backend_ == Backend::Metal) {
     return div_metal(b);
   }
 #endif
@@ -132,7 +130,7 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::add(double scalar) {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal) {
     return add_scalar_metal(scalar);
   }
 #endif
@@ -157,7 +155,7 @@ std::shared_ptr<Tensor> Tensor::add(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::sub(double scalar) {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal) {
     return sub_scalar_metal(scalar);
   }
 #endif
@@ -182,7 +180,7 @@ std::shared_ptr<Tensor> Tensor::sub(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::mul(double scalar) {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal) {
     return mul_scalar_metal(scalar);
   }
 #endif
@@ -207,7 +205,7 @@ std::shared_ptr<Tensor> Tensor::mul(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::div(double scalar) {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal) {
     return div_scalar_metal(scalar);
   }
 #endif
@@ -232,7 +230,7 @@ std::shared_ptr<Tensor> Tensor::div(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::pow(double exponent) {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == micrograd::Backend::Metal) {
+  if (backend_ == Backend::Metal) {
     return pow_metal(exponent);
   }
 #endif
@@ -255,3 +253,5 @@ std::shared_ptr<Tensor> Tensor::pow(double exponent) {
 
   return result;
 }
+
+}  // namespace micrograd

@@ -7,6 +7,8 @@
 
 #include "micrograd/Tensor.h"
 
+namespace micrograd {
+
 MNISTData load_mnist(const std::string &images_path,
                      const std::string &labels_path, int sample_count) {
   MNISTData data;
@@ -55,3 +57,5 @@ MNISTData load_mnist(const std::string &images_path,
 
   return data;
 }
+
+}  // namespace micrograd

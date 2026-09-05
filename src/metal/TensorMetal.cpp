@@ -6,9 +6,11 @@
 #include "micrograd/metal/Dispatch.h"
 #include "micrograd/metal/MetalContext.h"
 
+namespace micrograd {
+
 std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufSize(ctx, sizeof(uint32_t));
@@ -25,9 +27,9 @@ std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   result->children_ = {self_ptr, b};
 
   result->backward_fn_ = [result = result.get(), self_ptr, b]() {
-    self_ptr->to(micrograd::Backend::CPU);
-    b->to(micrograd::Backend::CPU);
-    result->to(micrograd::Backend::CPU);
+    self_ptr->to(Backend::CPU);
+    b->to(Backend::CPU);
+    result->to(Backend::CPU);
 
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[i];
@@ -40,7 +42,7 @@ std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufSize(ctx, sizeof(uint32_t));
@@ -57,9 +59,9 @@ std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
   result->children_ = {self_ptr, b};
 
   result->backward_fn_ = [result = result.get(), self_ptr, b]() {
-    self_ptr->to(micrograd::Backend::CPU);
-    b->to(micrograd::Backend::CPU);
-    result->to(micrograd::Backend::CPU);
+    self_ptr->to(Backend::CPU);
+    b->to(Backend::CPU);
+    result->to(Backend::CPU);
 
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[i];
@@ -72,7 +74,7 @@ std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufSize(ctx, sizeof(uint32_t));
@@ -92,7 +94,7 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
-    result->to(micrograd::Backend::CPU);
+    result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
     float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
@@ -130,7 +132,7 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufSize(ctx, sizeof(uint32_t));
@@ -150,7 +152,7 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
-    result->to(micrograd::Backend::CPU);
+    result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
     float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
@@ -188,7 +190,7 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
 
 std::shared_ptr<Tensor> Tensor::add_scalar_metal(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufScalar(ctx, sizeof(float));
@@ -207,8 +209,8 @@ std::shared_ptr<Tensor> Tensor::add_scalar_metal(double scalar) {
   result->children_ = {self_ptr};
 
   result->backward_fn_ = [result = result.get(), self_ptr]() {
-    self_ptr->to(micrograd::Backend::CPU);
-    result->to(micrograd::Backend::CPU);
+    self_ptr->to(Backend::CPU);
+    result->to(Backend::CPU);
 
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[i];
@@ -220,7 +222,7 @@ std::shared_ptr<Tensor> Tensor::add_scalar_metal(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::sub_scalar_metal(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufScalar(ctx, sizeof(float));
@@ -239,8 +241,8 @@ std::shared_ptr<Tensor> Tensor::sub_scalar_metal(double scalar) {
   result->children_ = {self_ptr};
 
   result->backward_fn_ = [result = result.get(), self_ptr]() {
-    self_ptr->to(micrograd::Backend::CPU);
-    result->to(micrograd::Backend::CPU);
+    self_ptr->to(Backend::CPU);
+    result->to(Backend::CPU);
 
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[i];
@@ -252,7 +254,7 @@ std::shared_ptr<Tensor> Tensor::sub_scalar_metal(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::mul_scalar_metal(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufScalar(ctx, sizeof(float));
@@ -271,8 +273,8 @@ std::shared_ptr<Tensor> Tensor::mul_scalar_metal(double scalar) {
   result->children_ = {self_ptr};
 
   result->backward_fn_ = [result = result.get(), self_ptr, scalar]() {
-    self_ptr->to(micrograd::Backend::CPU);
-    result->to(micrograd::Backend::CPU);
+    self_ptr->to(Backend::CPU);
+    result->to(Backend::CPU);
 
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[i] * scalar;
@@ -284,7 +286,7 @@ std::shared_ptr<Tensor> Tensor::mul_scalar_metal(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::div_scalar_metal(double scalar) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufScalar(ctx, sizeof(float));
@@ -303,8 +305,8 @@ std::shared_ptr<Tensor> Tensor::div_scalar_metal(double scalar) {
   result->children_ = {self_ptr};
 
   result->backward_fn_ = [result = result.get(), self_ptr, scalar]() {
-    self_ptr->to(micrograd::Backend::CPU);
-    result->to(micrograd::Backend::CPU);
+    self_ptr->to(Backend::CPU);
+    result->to(Backend::CPU);
 
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[i] / scalar;
@@ -316,7 +318,7 @@ std::shared_ptr<Tensor> Tensor::div_scalar_metal(double scalar) {
 
 std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufExp(ctx, sizeof(float));
@@ -338,7 +340,7 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
-    result->to(micrograd::Backend::CPU);
+    result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
     float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
@@ -372,7 +374,7 @@ std::shared_ptr<Tensor> Tensor::pow_metal(double exponent) {
 
 std::shared_ptr<Tensor> Tensor::relu_metal() {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufSize(ctx, sizeof(uint32_t));
@@ -391,7 +393,7 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
-    result->to(micrograd::Backend::CPU);
+    result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
     float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
@@ -422,7 +424,7 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
 
 std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufSize(ctx, sizeof(uint32_t));
@@ -441,7 +443,7 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
-    result->to(micrograd::Backend::CPU);
+    result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
     float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
@@ -478,7 +480,7 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
 
 std::shared_ptr<Tensor> Tensor::tanh_metal() {
   auto result = std::make_shared<Tensor>(shape_);
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
   ScopedBuffer bufSize(ctx, sizeof(uint32_t));
@@ -497,7 +499,7 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
-    result->to(micrograd::Backend::CPU);
+    result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(float));
     float *gradOutPtr = static_cast<float *>(gradOutBuf.get()->contents());
     for (size_t i = 0; i < n; i++) {
@@ -538,7 +540,7 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
   size_t n = b->shape_[1];
 
   auto result = std::make_shared<Tensor>(std::vector<size_t>{m, n});
-  result->to(micrograd::Backend::Metal);
+  result->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
 
@@ -554,7 +556,7 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
   result->backward_fn_ = [result = result.get(), self_ptr, b, m, k, n]() {
     auto &ctx = MetalContext::instance();
 
-    result->to(micrograd::Backend::CPU);
+    result->to(Backend::CPU);
 
     ScopedBuffer gradCBuf(ctx, m * n * sizeof(float));
     float *gradCPtr = static_cast<float *>(gradCBuf.get()->contents());
@@ -679,5 +681,7 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
 
   return result;
 }
+
+}  // namespace micrograd
 
 #endif

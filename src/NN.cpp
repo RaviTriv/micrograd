@@ -4,6 +4,8 @@
 #include <memory>
 #include <random>
 
+namespace micrograd {
+
 std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
                                  const std::shared_ptr<Tensor> &target) {
   auto diff = prediction->sub(target);
@@ -124,3 +126,5 @@ void load_model(const std::string &path, Linear &l1, Linear &l2) {
 
   file.close();
 }
+
+}  // namespace micrograd
