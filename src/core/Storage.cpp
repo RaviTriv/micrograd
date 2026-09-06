@@ -3,6 +3,7 @@
 #include <cstring>
 #include <new>
 #include <stdexcept>
+#include <utility>
 
 #ifdef MICROGRAD_METAL_ENABLED
 #include "micrograd/metal/MetalContext.h"
@@ -60,17 +61,6 @@ void deallocate(void *data, Device device) {
   }
 }
 
-void *host_pointer(void *data, Device device) {
-  if (device != Device::Metal) {
-    return data;
-  }
-#ifdef MICROGRAD_METAL_ENABLED
-  return static_cast<MTL::Buffer *>(data)->contents();
-#else
-  return nullptr;
-#endif
-}
-
 }  // namespace
 
 Storage::Storage(size_t bytes, Device device)
@@ -103,10 +93,35 @@ Storage Storage::copy_to(Device device) const {
 
   Storage copy(bytes_, device);
   if (bytes_ > 0) {
-    std::memcpy(host_pointer(copy.data_, copy.device_),
-                host_pointer(data_, device_), bytes_);
+    std::memcpy(copy.host_pointer(), host_pointer(), bytes_);
   }
   return copy;
+}
+
+void *Storage::data() {
+  return const_cast<void *>(std::as_const(*this).data());
+}
+
+const void *Storage::data() const {
+  if (device_ != Device::CPU) {
+    throw std::runtime_error("Storage data is not host memory");
+  }
+  return data_;
+}
+
+void *Storage::host_pointer() {
+  return const_cast<void *>(std::as_const(*this).host_pointer());
+}
+
+const void *Storage::host_pointer() const {
+  if (device_ != Device::Metal) {
+    return data_;
+  }
+#ifdef MICROGRAD_METAL_ENABLED
+  return static_cast<MTL::Buffer *>(data_)->contents();
+#else
+  return nullptr;
+#endif
 }
 
 MTL::Buffer *Storage::buffer() const {

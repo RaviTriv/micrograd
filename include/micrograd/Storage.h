@@ -23,7 +23,10 @@ class Storage {
 
   Storage copy_to(Device device) const;
 
-  void *data() const { return data_; }
+  void *data();
+  const void *data() const;
+  void *host_pointer();
+  const void *host_pointer() const;
   MTL::Buffer *buffer() const;
   size_t bytes() const { return bytes_; }
   Device device() const { return device_; }
