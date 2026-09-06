@@ -7,6 +7,8 @@
 #include <string>
 #include <unordered_map>
 
+namespace micrograd {
+
 class MetalContext;
 
 class ScopedBuffer {
@@ -63,5 +65,7 @@ class MetalContext {
   std::unordered_map<std::string, MTL::ComputePipelineState *> pipelines_;
   bool initialized_ = false;
 };
+
+}  // namespace micrograd
 
 #endif

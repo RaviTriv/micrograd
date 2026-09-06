@@ -4,6 +4,8 @@
 
 #include <algorithm>
 
+namespace micrograd {
+
 ElementwiseKernelLauncher::ElementwiseKernelLauncher(MetalContext &ctx,
                                                      const std::string &kernel,
                                                      size_t size)
@@ -85,5 +87,7 @@ void MatmulKernelLauncher::launch() {
   cmdBuf_->commit();
   cmdBuf_->waitUntilCompleted();
 }
+
+}  // namespace micrograd
 
 #endif

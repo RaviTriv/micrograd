@@ -8,6 +8,8 @@
 
 #include "micrograd/metal/MetalContext.h"
 
+namespace micrograd {
+
 class ElementwiseKernelLauncher {
  public:
   ElementwiseKernelLauncher(MetalContext &ctx, const std::string &kernel,
@@ -46,5 +48,7 @@ class MatmulKernelLauncher {
   size_t rows_, n_;
   ScopedBuffer bufM_, bufK_, bufN_;
 };
+
+}  // namespace micrograd
 
 #endif

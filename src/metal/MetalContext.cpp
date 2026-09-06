@@ -7,6 +7,8 @@
 
 #include <iostream>
 
+namespace micrograd {
+
 MetalContext &MetalContext::instance() {
   static MetalContext context;
   return context;
@@ -156,5 +158,7 @@ ScopedBuffer &ScopedBuffer::operator=(ScopedBuffer &&other) noexcept {
   }
   return *this;
 }
+
+}  // namespace micrograd
 
 #endif
