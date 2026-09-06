@@ -10,24 +10,28 @@ namespace micrograd {
 
 std::shared_ptr<Tensor> Tensor::relu() {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == Backend::Metal) {
+  if (backend() == Backend::Metal) {
     return relu_metal();
   }
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
 
-  for (size_t i = 0; i < data_.size(); i++) {
-    result->data_[i] = data_[i] > 0 ? data_[i] : 0.0f;
+  auto lhs = data();
+  auto out = result->data();
+  for (size_t i = 0; i < lhs.size(); i++) {
+    out[i] = lhs[i] > 0 ? lhs[i] : 0.0f;
   }
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
   result->backward_fn_ = [result = result.get(), self_ptr]() {
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      self_ptr->grad_[i] +=
-          result->grad_[i] * (self_ptr->data_[i] > 0 ? 1.0f : 0.0f);
+    auto a_data = self_ptr->data();
+    auto a_grad = self_ptr->grad();
+    auto out_grad = result->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i] * (a_data[i] > 0 ? 1.0f : 0.0f);
     }
   };
 
@@ -36,25 +40,29 @@ std::shared_ptr<Tensor> Tensor::relu() {
 
 std::shared_ptr<Tensor> Tensor::sigmoid() {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == Backend::Metal) {
+  if (backend() == Backend::Metal) {
     return sigmoid_metal();
   }
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
 
-  for (size_t i = 0; i < data_.size(); i++) {
-    result->data_[i] = 1.0f / (1.0f + std::exp(-data_[i]));
+  auto lhs = data();
+  auto out = result->data();
+  for (size_t i = 0; i < lhs.size(); i++) {
+    out[i] = 1.0f / (1.0f + std::exp(-lhs[i]));
   }
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
   result->backward_fn_ = [result = result.get(), self_ptr]() {
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      scalar_t sigmoid_val = result->data_[i];
-      self_ptr->grad_[i] +=
-          result->grad_[i] * sigmoid_val * (1.0f - sigmoid_val);
+    auto out_data = result->data();
+    auto a_grad = self_ptr->grad();
+    auto out_grad = result->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      scalar_t sigmoid_val = out_data[i];
+      a_grad[i] += out_grad[i] * sigmoid_val * (1.0f - sigmoid_val);
     }
   };
 
@@ -63,24 +71,29 @@ std::shared_ptr<Tensor> Tensor::sigmoid() {
 
 std::shared_ptr<Tensor> Tensor::tanh() {
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == Backend::Metal) {
+  if (backend() == Backend::Metal) {
     return tanh_metal();
   }
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
 
-  for (size_t i = 0; i < data_.size(); i++) {
-    result->data_[i] = std::tanh(data_[i]);
+  auto lhs = data();
+  auto out = result->data();
+  for (size_t i = 0; i < lhs.size(); i++) {
+    out[i] = std::tanh(lhs[i]);
   }
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
 
   result->backward_fn_ = [result = result.get(), self_ptr]() {
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      scalar_t tanh_val = result->data_[i];
-      self_ptr->grad_[i] += result->grad_[i] * (1.0f - tanh_val * tanh_val);
+    auto out_data = result->data();
+    auto a_grad = self_ptr->grad();
+    auto out_grad = result->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      scalar_t tanh_val = out_data[i];
+      a_grad[i] += out_grad[i] * (1.0f - tanh_val * tanh_val);
     }
   };
 

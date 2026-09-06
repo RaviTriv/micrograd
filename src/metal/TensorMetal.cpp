@@ -18,9 +18,9 @@ std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "add", size())
-      .buffer(gpu_data_)
-      .buffer(b->gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(b->data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufSize)
       .launch();
 
@@ -32,9 +32,12 @@ std::shared_ptr<Tensor> Tensor::add_metal(const std::shared_ptr<Tensor> &b) {
     b->to(Backend::CPU);
     result->to(Backend::CPU);
 
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      self_ptr->grad_[i] += result->grad_[i];
-      b->grad_[i] += result->grad_[i];
+    auto a_grad = self_ptr->grad();
+    auto b_grad = b->grad();
+    auto out_grad = result->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i];
+      b_grad[i] += out_grad[i];
     }
   };
 
@@ -50,9 +53,9 @@ std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "sub", size())
-      .buffer(gpu_data_)
-      .buffer(b->gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(b->data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufSize)
       .launch();
 
@@ -64,9 +67,12 @@ std::shared_ptr<Tensor> Tensor::sub_metal(const std::shared_ptr<Tensor> &b) {
     b->to(Backend::CPU);
     result->to(Backend::CPU);
 
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      self_ptr->grad_[i] += result->grad_[i];
-      b->grad_[i] -= result->grad_[i];
+    auto a_grad = self_ptr->grad();
+    auto b_grad = b->grad();
+    auto out_grad = result->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i];
+      b_grad[i] -= out_grad[i];
     }
   };
 
@@ -82,9 +88,9 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "mul", size())
-      .buffer(gpu_data_)
-      .buffer(b->gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(b->data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufSize)
       .launch();
 
@@ -97,7 +103,7 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(result->grad_.data(), n,
+    std::copy_n(result->grad().data(), n,
                 static_cast<scalar_t *>(gradOutBuf.get()->contents()));
 
     ScopedBuffer gradABuf(ctx, n * sizeof(scalar_t));
@@ -107,8 +113,8 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
 
     ElementwiseKernelLauncher(ctx, "mul_backward", n)
         .buffer(gradOutBuf)
-        .buffer(self_ptr->gpu_data_)
-        .buffer(b->gpu_data_)
+        .buffer(self_ptr->data_.buffer())
+        .buffer(b->data_.buffer())
         .buffer(gradABuf)
         .buffer(gradBBuf)
         .buffer(bufSize)
@@ -116,13 +122,10 @@ std::shared_ptr<Tensor> Tensor::mul_metal(const std::shared_ptr<Tensor> &b) {
 
     auto *gradAPtr = static_cast<scalar_t *>(gradABuf.get()->contents());
     auto *gradBPtr = static_cast<scalar_t *>(gradBBuf.get()->contents());
-    auto *gpuGradAPtr =
-        static_cast<scalar_t *>(self_ptr->gpu_grad_->contents());
-    auto *gpuGradBPtr = static_cast<scalar_t *>(b->gpu_grad_->contents());
+    auto *gpuGradAPtr = static_cast<scalar_t *>(self_ptr->grad_.host_pointer());
+    auto *gpuGradBPtr = static_cast<scalar_t *>(b->grad_.host_pointer());
     for (size_t i = 0; i < n; i++) {
-      self_ptr->grad_[i] += gradAPtr[i];
       gpuGradAPtr[i] += gradAPtr[i];
-      b->grad_[i] += gradBPtr[i];
       gpuGradBPtr[i] += gradBPtr[i];
     }
   };
@@ -139,9 +142,9 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "div_op", size())
-      .buffer(gpu_data_)
-      .buffer(b->gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(b->data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufSize)
       .launch();
 
@@ -154,7 +157,7 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(result->grad_.data(), n,
+    std::copy_n(result->grad().data(), n,
                 static_cast<scalar_t *>(gradOutBuf.get()->contents()));
 
     ScopedBuffer gradABuf(ctx, n * sizeof(scalar_t));
@@ -164,8 +167,8 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
 
     ElementwiseKernelLauncher(ctx, "div_backward", n)
         .buffer(gradOutBuf)
-        .buffer(self_ptr->gpu_data_)
-        .buffer(b->gpu_data_)
+        .buffer(self_ptr->data_.buffer())
+        .buffer(b->data_.buffer())
         .buffer(gradABuf)
         .buffer(gradBBuf)
         .buffer(bufSize)
@@ -173,13 +176,10 @@ std::shared_ptr<Tensor> Tensor::div_metal(const std::shared_ptr<Tensor> &b) {
 
     auto *gradAPtr = static_cast<scalar_t *>(gradABuf.get()->contents());
     auto *gradBPtr = static_cast<scalar_t *>(gradBBuf.get()->contents());
-    auto *gpuGradAPtr =
-        static_cast<scalar_t *>(self_ptr->gpu_grad_->contents());
-    auto *gpuGradBPtr = static_cast<scalar_t *>(b->gpu_grad_->contents());
+    auto *gpuGradAPtr = static_cast<scalar_t *>(self_ptr->grad_.host_pointer());
+    auto *gpuGradBPtr = static_cast<scalar_t *>(b->grad_.host_pointer());
     for (size_t i = 0; i < n; i++) {
-      self_ptr->grad_[i] += gradAPtr[i];
       gpuGradAPtr[i] += gradAPtr[i];
-      b->grad_[i] += gradBPtr[i];
       gpuGradBPtr[i] += gradBPtr[i];
     }
   };
@@ -198,8 +198,8 @@ std::shared_ptr<Tensor> Tensor::add_scalar_metal(scalar_t scalar) {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "add_scalar", size())
-      .buffer(gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufScalar)
       .buffer(bufSize)
       .launch();
@@ -211,8 +211,10 @@ std::shared_ptr<Tensor> Tensor::add_scalar_metal(scalar_t scalar) {
     self_ptr->to(Backend::CPU);
     result->to(Backend::CPU);
 
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      self_ptr->grad_[i] += result->grad_[i];
+    auto a_grad = self_ptr->grad();
+    auto out_grad = result->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i];
     }
   };
 
@@ -230,8 +232,8 @@ std::shared_ptr<Tensor> Tensor::sub_scalar_metal(scalar_t scalar) {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "sub_scalar", size())
-      .buffer(gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufScalar)
       .buffer(bufSize)
       .launch();
@@ -243,8 +245,10 @@ std::shared_ptr<Tensor> Tensor::sub_scalar_metal(scalar_t scalar) {
     self_ptr->to(Backend::CPU);
     result->to(Backend::CPU);
 
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      self_ptr->grad_[i] += result->grad_[i];
+    auto a_grad = self_ptr->grad();
+    auto out_grad = result->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i];
     }
   };
 
@@ -262,8 +266,8 @@ std::shared_ptr<Tensor> Tensor::mul_scalar_metal(scalar_t scalar) {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "mul_scalar", size())
-      .buffer(gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufScalar)
       .buffer(bufSize)
       .launch();
@@ -275,8 +279,10 @@ std::shared_ptr<Tensor> Tensor::mul_scalar_metal(scalar_t scalar) {
     self_ptr->to(Backend::CPU);
     result->to(Backend::CPU);
 
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      self_ptr->grad_[i] += result->grad_[i] * scalar;
+    auto a_grad = self_ptr->grad();
+    auto out_grad = result->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i] * scalar;
     }
   };
 
@@ -294,8 +300,8 @@ std::shared_ptr<Tensor> Tensor::div_scalar_metal(scalar_t scalar) {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "div_scalar", size())
-      .buffer(gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufScalar)
       .buffer(bufSize)
       .launch();
@@ -307,8 +313,10 @@ std::shared_ptr<Tensor> Tensor::div_scalar_metal(scalar_t scalar) {
     self_ptr->to(Backend::CPU);
     result->to(Backend::CPU);
 
-    for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
-      self_ptr->grad_[i] += result->grad_[i] / scalar;
+    auto a_grad = self_ptr->grad();
+    auto out_grad = result->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i] / scalar;
     }
   };
 
@@ -326,8 +334,8 @@ std::shared_ptr<Tensor> Tensor::pow_metal(scalar_t exponent) {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "pow_op", size())
-      .buffer(gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufExp)
       .buffer(bufSize)
       .launch();
@@ -341,7 +349,7 @@ std::shared_ptr<Tensor> Tensor::pow_metal(scalar_t exponent) {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(result->grad_.data(), n,
+    std::copy_n(result->grad().data(), n,
                 static_cast<scalar_t *>(gradOutBuf.get()->contents()));
 
     ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
@@ -352,16 +360,15 @@ std::shared_ptr<Tensor> Tensor::pow_metal(scalar_t exponent) {
 
     ElementwiseKernelLauncher(ctx, "pow_backward", n)
         .buffer(gradOutBuf)
-        .buffer(self_ptr->gpu_data_)
+        .buffer(self_ptr->data_.buffer())
         .buffer(gradXBuf)
         .buffer(bufExp)
         .buffer(bufSize)
         .launch();
 
     auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->gpu_grad_->contents());
+    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->grad_.host_pointer());
     for (size_t i = 0; i < n; i++) {
-      self_ptr->grad_[i] += gradXPtr[i];
       gpuGradPtr[i] += gradXPtr[i];
     }
   };
@@ -378,8 +385,8 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "relu", size())
-      .buffer(gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufSize)
       .launch();
 
@@ -392,7 +399,7 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(result->grad_.data(), n,
+    std::copy_n(result->grad().data(), n,
                 static_cast<scalar_t *>(gradOutBuf.get()->contents()));
 
     ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
@@ -401,15 +408,14 @@ std::shared_ptr<Tensor> Tensor::relu_metal() {
 
     ElementwiseKernelLauncher(ctx, "relu_backward", n)
         .buffer(gradOutBuf)
-        .buffer(self_ptr->gpu_data_)
+        .buffer(self_ptr->data_.buffer())
         .buffer(gradXBuf)
         .buffer(bufSize)
         .launch();
 
     auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->gpu_grad_->contents());
+    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->grad_.host_pointer());
     for (size_t i = 0; i < n; i++) {
-      self_ptr->grad_[i] += gradXPtr[i];
       gpuGradPtr[i] += gradXPtr[i];
     }
   };
@@ -426,8 +432,8 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "sigmoid", size())
-      .buffer(gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufSize)
       .launch();
 
@@ -440,11 +446,11 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(result->grad_.data(), n,
+    std::copy_n(result->grad().data(), n,
                 static_cast<scalar_t *>(gradOutBuf.get()->contents()));
 
     ScopedBuffer outBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(result->data_.data(), n,
+    std::copy_n(result->data().data(), n,
                 static_cast<scalar_t *>(outBuf.get()->contents()));
 
     ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
@@ -459,9 +465,8 @@ std::shared_ptr<Tensor> Tensor::sigmoid_metal() {
         .launch();
 
     auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->gpu_grad_->contents());
+    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->grad_.host_pointer());
     for (size_t i = 0; i < n; i++) {
-      self_ptr->grad_[i] += gradXPtr[i];
       gpuGradPtr[i] += gradXPtr[i];
     }
   };
@@ -478,8 +483,8 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
   bufSize.set(static_cast<uint32_t>(size()));
 
   ElementwiseKernelLauncher(ctx, "tanh_op", size())
-      .buffer(gpu_data_)
-      .buffer(result->gpu_data_)
+      .buffer(data_.buffer())
+      .buffer(result->data_.buffer())
       .buffer(bufSize)
       .launch();
 
@@ -492,11 +497,11 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
 
     result->to(Backend::CPU);
     ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(result->grad_.data(), n,
+    std::copy_n(result->grad().data(), n,
                 static_cast<scalar_t *>(gradOutBuf.get()->contents()));
 
     ScopedBuffer outBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(result->data_.data(), n,
+    std::copy_n(result->data().data(), n,
                 static_cast<scalar_t *>(outBuf.get()->contents()));
 
     ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
@@ -511,9 +516,8 @@ std::shared_ptr<Tensor> Tensor::tanh_metal() {
         .launch();
 
     auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->gpu_grad_->contents());
+    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->grad_.host_pointer());
     for (size_t i = 0; i < n; i++) {
-      self_ptr->grad_[i] += gradXPtr[i];
       gpuGradPtr[i] += gradXPtr[i];
     }
   };
@@ -532,9 +536,9 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
   auto &ctx = MetalContext::instance();
 
   MatmulKernelLauncher(ctx, "matmul", m, k, n)
-      .A(gpu_data_)
-      .B(b->gpu_data_)
-      .C(result->gpu_data_)
+      .A(data_.buffer())
+      .B(b->data_.buffer())
+      .C(result->data_.buffer())
       .launch();
 
   auto self_ptr = shared_from_this();
@@ -546,35 +550,32 @@ std::shared_ptr<Tensor> Tensor::matmul_metal(const std::shared_ptr<Tensor> &b) {
     result->to(Backend::CPU);
 
     ScopedBuffer gradCBuf(ctx, m * n * sizeof(scalar_t));
-    std::copy_n(result->grad_.data(), m * n,
+    std::copy_n(result->grad().data(), m * n,
                 static_cast<scalar_t *>(gradCBuf.get()->contents()));
 
     ScopedBuffer gradABuf(ctx, m * k * sizeof(scalar_t));
     MatmulKernelLauncher(ctx, "matmul_nt", m, n, k)
         .A(gradCBuf.get())
-        .B(b->gpu_data_)
+        .B(b->data_.buffer())
         .C(gradABuf.get())
         .launch();
 
     ScopedBuffer gradBBuf(ctx, k * n * sizeof(scalar_t));
     MatmulKernelLauncher(ctx, "matmul_tn", m, k, n, k)
-        .A(self_ptr->gpu_data_)
+        .A(self_ptr->data_.buffer())
         .B(gradCBuf.get())
         .C(gradBBuf.get())
         .launch();
 
     auto *gradAPtr = static_cast<scalar_t *>(gradABuf.get()->contents());
     auto *gradBPtr = static_cast<scalar_t *>(gradBBuf.get()->contents());
-    auto *gpuGradAPtr =
-        static_cast<scalar_t *>(self_ptr->gpu_grad_->contents());
-    auto *gpuGradBPtr = static_cast<scalar_t *>(b->gpu_grad_->contents());
+    auto *gpuGradAPtr = static_cast<scalar_t *>(self_ptr->grad_.host_pointer());
+    auto *gpuGradBPtr = static_cast<scalar_t *>(b->grad_.host_pointer());
 
     for (size_t i = 0; i < m * k; i++) {
-      self_ptr->grad_[i] += gradAPtr[i];
       gpuGradAPtr[i] += gradAPtr[i];
     }
     for (size_t i = 0; i < k * n; i++) {
-      b->grad_[i] += gradBPtr[i];
       gpuGradBPtr[i] += gradBPtr[i];
     }
   };
@@ -593,7 +594,8 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
   uint32_t numThreadgroups =
       (currentSize + threadgroupSize - 1) / threadgroupSize;
 
-  MTL::Buffer *inputBuf = gpu_data_;
+  MTL::Buffer *sourceBuf = data_.buffer();
+  MTL::Buffer *inputBuf = sourceBuf;
   MTL::Buffer *outputBuf = ctx.createBuffer(numThreadgroups * sizeof(scalar_t));
 
   while (currentSize > 1) {
@@ -620,7 +622,7 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
     numThreadgroups = (currentSize + threadgroupSize - 1) / threadgroupSize;
 
     if (currentSize > 1) {
-      if (inputBuf != gpu_data_) {
+      if (inputBuf != sourceBuf) {
         ctx.releaseBuffer(inputBuf);
       }
       inputBuf = outputBuf;
@@ -630,7 +632,7 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
 
   result->data()[0] = *static_cast<scalar_t *>(outputBuf->contents());
 
-  if (inputBuf != gpu_data_) {
+  if (inputBuf != sourceBuf) {
     ctx.releaseBuffer(inputBuf);
   }
   ctx.releaseBuffer(outputBuf);
@@ -642,7 +644,7 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
     auto &ctx = MetalContext::instance();
     size_t n = self_ptr->size();
 
-    scalar_t gradScalar = result->grad_[0];
+    scalar_t gradScalar = result->grad()[0];
 
     ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
     ScopedBuffer bufScalar(ctx, sizeof(scalar_t));
@@ -657,9 +659,8 @@ std::shared_ptr<Tensor> Tensor::sum_metal() {
         .launch();
 
     auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->gpu_grad_->contents());
+    auto *gpuGradPtr = static_cast<scalar_t *>(self_ptr->grad_.host_pointer());
     for (size_t i = 0; i < n; i++) {
-      self_ptr->grad_[i] += gradXPtr[i];
       gpuGradPtr[i] += gradXPtr[i];
     }
   };

@@ -37,7 +37,7 @@ void expect_grad_matches_numeric(
     const std::function<std::shared_ptr<Tensor>(std::shared_ptr<Tensor>)> &f) {
   auto x = vec(values);
   f(x)->backward();
-  const std::vector<scalar_t> analytic = x->grad();
+  const std::vector<scalar_t> analytic(x->grad().begin(), x->grad().end());
 
   constexpr scalar_t h = 1e-2f;
   for (size_t i = 0; i < values.size(); i++) {
@@ -84,7 +84,9 @@ void expect_backends_agree(const std::vector<std::vector<scalar_t>> &inputs,
   }
 }
 
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const std::vector<scalar_t> kLhs = {1.5, -2.0, 0.5, 3.0};
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const std::vector<scalar_t> kRhs = {2.0, 4.0, -1.5, 0.25};
 
 TEST(TensorTest, SanityCheck) {

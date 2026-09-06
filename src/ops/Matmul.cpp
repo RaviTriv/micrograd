@@ -16,7 +16,7 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   }
 
 #ifdef MICROGRAD_METAL_ENABLED
-  if (backend_ == Backend::Metal && b->backend_ == Backend::Metal) {
+  if (backend() == Backend::Metal && b->backend() == Backend::Metal) {
     return matmul_metal(b);
   }
 #endif
@@ -27,13 +27,16 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
 
   auto result = std::make_shared<Tensor>(std::vector<size_t>{m, n});
 
+  auto lhs = data();
+  auto rhs = b->data();
+  auto out = result->data();
   for (size_t i = 0; i < m; i++) {
     for (size_t j = 0; j < n; j++) {
       scalar_t sum = 0.0f;
       for (size_t p = 0; p < k; p++) {
-        sum += data_[i * k + p] * b->data_[p * n + j];
+        sum += lhs[i * k + p] * rhs[p * n + j];
       }
-      result->data_[i * n + j] = sum;
+      out[i * n + j] = sum;
     }
   }
 
@@ -41,11 +44,16 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   result->children_ = {self_ptr, b};
 
   result->backward_fn_ = [result = result.get(), self_ptr, b, m, k, n]() {
+    auto a_data = self_ptr->data();
+    auto b_data = b->data();
+    auto a_grad = self_ptr->grad();
+    auto b_grad = b->grad();
+    auto out_grad = result->grad();
+
     for (size_t i = 0; i < m; i++) {
       for (size_t j = 0; j < k; j++) {
         for (size_t p = 0; p < n; p++) {
-          self_ptr->grad_[i * k + j] +=
-              result->grad_[i * n + p] * b->data_[j * n + p];
+          a_grad[i * k + j] += out_grad[i * n + p] * b_data[j * n + p];
         }
       }
     }
@@ -53,8 +61,7 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
     for (size_t i = 0; i < k; i++) {
       for (size_t j = 0; j < n; j++) {
         for (size_t p = 0; p < m; p++) {
-          b->grad_[i * n + j] +=
-              self_ptr->data_[p * k + i] * result->grad_[p * n + j];
+          b_grad[i * n + j] += a_data[p * k + i] * out_grad[p * n + j];
         }
       }
     }

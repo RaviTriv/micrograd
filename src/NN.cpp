@@ -88,10 +88,10 @@ void save_model(const std::string &path, Linear &l1, Linear &l2) {
     throw std::runtime_error("Could not open file for saving: " + path);
   }
 
-  auto &w1 = l1.weights()->data();
-  auto &b1 = l1.bias()->data();
-  auto &w2 = l2.weights()->data();
-  auto &b2 = l2.bias()->data();
+  auto w1 = l1.weights()->data();
+  auto b1 = l1.bias()->data();
+  auto w2 = l2.weights()->data();
+  auto b2 = l2.bias()->data();
 
   file.write(reinterpret_cast<char *>(w1.data()),
              static_cast<std::streamsize>(w1.size() * sizeof(scalar_t)));
@@ -112,10 +112,10 @@ void load_model(const std::string &path, Linear &l1, Linear &l2) {
     throw std::runtime_error("Could not open file for loading: " + path);
   }
 
-  auto &w1 = l1.weights()->data();
-  auto &b1 = l1.bias()->data();
-  auto &w2 = l2.weights()->data();
-  auto &b2 = l2.bias()->data();
+  auto w1 = l1.weights()->data();
+  auto b1 = l1.bias()->data();
+  auto w2 = l2.weights()->data();
+  auto b2 = l2.bias()->data();
 
   file.read(reinterpret_cast<char *>(w1.data()),
             static_cast<std::streamsize>(w1.size() * sizeof(scalar_t)));

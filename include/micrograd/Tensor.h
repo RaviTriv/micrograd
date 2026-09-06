@@ -2,19 +2,18 @@
 
 #include <functional>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include "micrograd/Backend.h"
 #include "micrograd/Scalar.h"
-#ifdef MICROGRAD_METAL_ENABLED
-#include "micrograd/metal/MetalContext.h"
-#endif
+#include "micrograd/Storage.h"
 
 namespace micrograd {
 class Tensor : public std::enable_shared_from_this<Tensor> {
  public:
   Tensor(std::vector<size_t> shape);
-  Tensor(std::vector<size_t> shape, std::vector<scalar_t> data);
+  Tensor(std::vector<size_t> shape, std::vector<scalar_t> values);
   ~Tensor() = default;
 
   std::shared_ptr<Tensor> add(const std::shared_ptr<Tensor> &b);
@@ -44,16 +43,18 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   scalar_t at(const std::vector<size_t> &indices) const;
   scalar_t &grad_at(const std::vector<size_t> &indices);
   scalar_t grad_at(const std::vector<size_t> &indices) const;
-  std::vector<scalar_t> &data();
-  std::vector<scalar_t> &grad();
-  void to(Backend backend);
+  std::span<scalar_t> data();
+  std::span<const scalar_t> data() const;
+  std::span<scalar_t> grad();
+  std::span<const scalar_t> grad() const;
+  void to(Backend device);
   Backend backend() const;
 
  private:
   void compute_strides();
 
-  std::vector<scalar_t> data_;
-  std::vector<scalar_t> grad_;
+  Storage data_;
+  Storage grad_;
   std::vector<size_t> shape_;
   std::vector<size_t> strides_;
 
@@ -62,11 +63,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
   size_t flat_index(const std::vector<size_t> &indices) const;
 
-  Backend backend_ = Backend::CPU;
-
 #ifdef MICROGRAD_METAL_ENABLED
-  MTL::Buffer *gpu_data_ = nullptr;
-  MTL::Buffer *gpu_grad_ = nullptr;
   std::shared_ptr<Tensor> add_metal(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> sub_metal(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> mul_metal(const std::shared_ptr<Tensor> &b);

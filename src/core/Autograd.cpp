@@ -26,7 +26,7 @@ void Tensor::backward() {
 
   to(Backend::CPU);
 
-  for (scalar_t &g : grad_) {
+  for (scalar_t &g : grad()) {
     g = 1.0f;
   }
 
