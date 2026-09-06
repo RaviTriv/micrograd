@@ -57,7 +57,7 @@ void deallocate(void *data, Device device) {
 #endif
       return;
     case Device::CUDA:
-      return;
+      throw std::runtime_error("CUDA support is not compiled in");
   }
 }
 
@@ -66,7 +66,7 @@ void deallocate(void *data, Device device) {
 Storage::Storage(size_t bytes, Device device)
     : data_(allocate(bytes, device)), bytes_(bytes), device_(device) {}
 
-Storage::~Storage() { release(); }
+Storage::~Storage() { release(); }  // NOLINT(bugprone-exception-escape)
 
 Storage::Storage(Storage &&other) noexcept
     : data_(other.data_), bytes_(other.bytes_), device_(other.device_) {
@@ -74,7 +74,8 @@ Storage::Storage(Storage &&other) noexcept
   other.bytes_ = 0;
 }
 
-Storage &Storage::operator=(Storage &&other) noexcept {
+Storage &Storage::operator=(  // NOLINT(bugprone-exception-escape)
+    Storage &&other) noexcept {
   if (this != &other) {
     release();
     data_ = other.data_;
