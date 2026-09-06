@@ -121,7 +121,7 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
     for (size_t i = 0; i < self_ptr->grad_.size(); i++) {
       self_ptr->grad_[i] += result->grad_[i] / b->data_[i];
       b->grad_[i] -=
-          result->grad_[i] * self_ptr->data_[i] / (b->data_[i] * b->data_[i]);
+          result->grad_[i] * self_ptr->data_[i] / b->data_[i] / b->data_[i];
     }
   };
 
