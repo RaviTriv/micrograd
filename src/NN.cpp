@@ -54,6 +54,9 @@ Linear::Linear(size_t in_features, size_t out_features) {
   std::vector<scalar_t> b_data(out_features, 0.0f);
   bias_ =
       std::make_shared<Tensor>(std::vector<size_t>{1, out_features}, b_data);
+
+  weights_->set_requires_grad(true);
+  bias_->set_requires_grad(true);
 }
 
 std::shared_ptr<Tensor> Linear::forward(const std::shared_ptr<Tensor> &input) {

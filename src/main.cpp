@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 
+#include "micrograd/Autograd.h"
 #include "micrograd/MNIST.h"
 #include "micrograd/NN.h"
 
@@ -23,6 +24,7 @@ size_t argmax(const std::shared_ptr<Tensor> &row) {
 }
 
 double evaluate(const MNISTData &set, Linear &l1, Linear &l2) {
+  const NoGradGuard no_grad;
   size_t correct = 0;
   for (size_t i = 0; i < set.images.size(); i++) {
     auto pooled = avg_pool_2x2(set.images[i]);

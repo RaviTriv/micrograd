@@ -23,13 +23,17 @@
 
 using namespace micrograd;
 
-auto scalar(scalar_t val) {
-  return std::make_shared<Tensor>(std::vector<size_t>{1},
-                                  std::vector<scalar_t>{val});
+auto leaf(const std::vector<size_t> &shape,
+          const std::vector<scalar_t> &values) {
+  auto t = std::make_shared<Tensor>(shape, values);
+  t->set_requires_grad(true);
+  return t;
 }
 
+auto scalar(scalar_t val) { return leaf({1}, {val}); }
+
 auto vec(const std::vector<scalar_t> &values) {
-  return std::make_shared<Tensor>(std::vector<size_t>{values.size()}, values);
+  return leaf({values.size()}, values);
 }
 
 void expect_grad_matches_numeric(
@@ -206,11 +210,8 @@ TEST(TensorTest, NumericGradComposite) {
 }
 
 TEST(TensorTest, MatmulNonSquare) {
-  auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 3},
-                                    std::vector<scalar_t>{1, 2, 3, 4, 5, 6});
-  auto b = std::make_shared<Tensor>(
-      std::vector<size_t>{3, 4},
-      std::vector<scalar_t>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
+  auto a = leaf({2, 3}, {1, 2, 3, 4, 5, 6});
+  auto b = leaf({3, 4}, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
 
   auto c = a->matmul(b);
   c->sum()->backward();
@@ -341,18 +342,13 @@ TEST(TensorTest, MetalMatchesCpuMatmul) {
   const std::vector<scalar_t> a_data = {1, 2, 3, 4, 5, 6};
   const std::vector<scalar_t> b_data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
 
-  auto make = [](const std::vector<size_t> &shape,
-                 const std::vector<scalar_t> &data) {
-    return std::make_shared<Tensor>(shape, data);
-  };
-
-  auto cpu_a = make({2, 3}, a_data);
-  auto cpu_b = make({3, 4}, b_data);
+  auto cpu_a = leaf({2, 3}, a_data);
+  auto cpu_b = leaf({3, 4}, b_data);
   auto cpu_c = cpu_a->matmul(cpu_b);
   cpu_c->sum()->backward();
 
-  auto gpu_a = make({2, 3}, a_data);
-  auto gpu_b = make({3, 4}, b_data);
+  auto gpu_a = leaf({2, 3}, a_data);
+  auto gpu_b = leaf({3, 4}, b_data);
   gpu_a->to(Backend::Metal);
   gpu_b->to(Backend::Metal);
   auto gpu_c = gpu_a->matmul(gpu_b);

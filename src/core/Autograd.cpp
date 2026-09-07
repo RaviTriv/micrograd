@@ -1,4 +1,6 @@
 
+#include "micrograd/Autograd.h"
+
 #include <functional>
 #include <ranges>
 #include <unordered_set>
@@ -6,6 +8,15 @@
 #include "micrograd/Tensor.h"
 
 namespace micrograd {
+namespace {
+thread_local bool grad_enabled = true;
+}  // namespace
+
+bool GradEnabled() { return grad_enabled; }
+
+NoGradGuard::NoGradGuard() : previous_(grad_enabled) { grad_enabled = false; }
+
+NoGradGuard::~NoGradGuard() { grad_enabled = previous_; }
 
 void Tensor::backward() {
   std::vector<std::shared_ptr<Tensor>> ordered;

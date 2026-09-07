@@ -91,6 +91,12 @@ void Tensor::zero_grad() {
   std::fill_n(static_cast<scalar_t *>(grad_.host_pointer()), size(), 0.0f);
 }
 
+bool Tensor::requires_grad() const { return requires_grad_; }
+
+void Tensor::set_requires_grad(bool requires_grad) {
+  requires_grad_ = requires_grad;
+}
+
 void Tensor::to(Backend device) {
   if (data_.device() == device) {
     return;

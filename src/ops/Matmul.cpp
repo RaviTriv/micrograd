@@ -1,3 +1,4 @@
+#include "micrograd/Autograd.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -21,11 +22,15 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   DispatchOp(OpId::kMatmul, backend(),
              {.lhs = this, .rhs = b.get(), .out = result.get()});
 
-  auto self_ptr = shared_from_this();
-  result->children_ = {self_ptr, b};
-  result->backward_fn_ =
-      MakeBackward(OpId::kMatmul, backend(),
-                   {.lhs = self_ptr, .rhs = b, .out = result.get()});
+  result->requires_grad_ =
+      GradEnabled() && (requires_grad_ || b->requires_grad_);
+  if (result->requires_grad_) {
+    auto self_ptr = shared_from_this();
+    result->children_ = {self_ptr, b};
+    result->backward_fn_ =
+        MakeBackward(OpId::kMatmul, backend(),
+                     {.lhs = self_ptr, .rhs = b, .out = result.get()});
+  }
 
   return result;
 }

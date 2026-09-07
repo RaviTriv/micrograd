@@ -36,6 +36,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
   void backward();
   void zero_grad();
+  bool requires_grad() const;
+  void set_requires_grad(bool requires_grad);
 
   const std::vector<size_t> &shape() const;
   size_t size() const;
@@ -64,6 +66,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
   std::vector<std::shared_ptr<Tensor>> children_;
   std::function<void()> backward_fn_;
+  bool requires_grad_ = false;
 
   size_t flat_index(const std::vector<size_t> &indices) const;
 };
