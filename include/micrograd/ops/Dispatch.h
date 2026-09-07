@@ -78,6 +78,8 @@ class OpRegistry {
   std::array<OpFn, kOpCount * kDeviceCount> table_{};
 };
 
+void DispatchOp(OpId op, Device device, const OpArgs &args);
+
 class OpRegistrar {
  public:
   OpRegistrar(OpId op, Device device, OpFn fn) {

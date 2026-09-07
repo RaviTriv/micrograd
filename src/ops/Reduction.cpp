@@ -1,4 +1,5 @@
 #include "micrograd/Tensor.h"
+#include "micrograd/ops/Dispatch.h"
 
 #ifdef MICROGRAD_METAL_ENABLED
 #include "micrograd/metal/MetalContext.h"
@@ -14,12 +15,7 @@ std::shared_ptr<Tensor> Tensor::sum() {
 #endif
 
   auto result = std::make_shared<Tensor>(std::vector<size_t>{1});
-
-  scalar_t total = 0.0f;
-  for (scalar_t value : data()) {
-    total += value;
-  }
-  result->data()[0] = total;
+  DispatchOp(OpId::kSum, backend(), {.lhs = this, .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};

@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/ops/Dispatch.h"
 
 #ifdef MICROGRAD_METAL_ENABLED
 #include "micrograd/metal/MetalContext.h"
@@ -20,13 +21,8 @@ std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto rhs = b->data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] + rhs[i];
-  }
+  DispatchOp(OpId::kAdd, backend(),
+             {.lhs = this, .rhs = b.get(), .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
@@ -55,13 +51,8 @@ std::shared_ptr<Tensor> Tensor::sub(const std::shared_ptr<Tensor> &b) {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto rhs = b->data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] - rhs[i];
-  }
+  DispatchOp(OpId::kSub, backend(),
+             {.lhs = this, .rhs = b.get(), .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
@@ -91,13 +82,8 @@ std::shared_ptr<Tensor> Tensor::mul(const std::shared_ptr<Tensor> &b) {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto rhs = b->data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] * rhs[i];
-  }
+  DispatchOp(OpId::kMul, backend(),
+             {.lhs = this, .rhs = b.get(), .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
@@ -129,13 +115,8 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto rhs = b->data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] / rhs[i];
-  }
+  DispatchOp(OpId::kDiv, backend(),
+             {.lhs = this, .rhs = b.get(), .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
@@ -163,12 +144,8 @@ std::shared_ptr<Tensor> Tensor::add(scalar_t scalar) {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] + scalar;
-  }
+  DispatchOp(OpId::kAddScalar, backend(),
+             {.lhs = this, .out = result.get(), .scalar = scalar});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -192,12 +169,8 @@ std::shared_ptr<Tensor> Tensor::sub(scalar_t scalar) {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] - scalar;
-  }
+  DispatchOp(OpId::kSubScalar, backend(),
+             {.lhs = this, .out = result.get(), .scalar = scalar});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -221,12 +194,8 @@ std::shared_ptr<Tensor> Tensor::mul(scalar_t scalar) {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] * scalar;
-  }
+  DispatchOp(OpId::kMulScalar, backend(),
+             {.lhs = this, .out = result.get(), .scalar = scalar});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -250,12 +219,8 @@ std::shared_ptr<Tensor> Tensor::div(scalar_t scalar) {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] / scalar;
-  }
+  DispatchOp(OpId::kDivScalar, backend(),
+             {.lhs = this, .out = result.get(), .scalar = scalar});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -279,12 +244,8 @@ std::shared_ptr<Tensor> Tensor::pow(scalar_t exponent) {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = std::pow(lhs[i], exponent);
-  }
+  DispatchOp(OpId::kPow, backend(),
+             {.lhs = this, .out = result.get(), .scalar = exponent});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};

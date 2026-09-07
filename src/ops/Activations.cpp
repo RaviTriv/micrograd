@@ -1,6 +1,5 @@
-#include <cmath>
-
 #include "micrograd/Tensor.h"
+#include "micrograd/ops/Dispatch.h"
 
 #ifdef MICROGRAD_METAL_ENABLED
 #include "micrograd/metal/MetalContext.h"
@@ -16,12 +15,7 @@ std::shared_ptr<Tensor> Tensor::relu() {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] > 0 ? lhs[i] : 0.0f;
-  }
+  DispatchOp(OpId::kRelu, backend(), {.lhs = this, .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -46,12 +40,7 @@ std::shared_ptr<Tensor> Tensor::sigmoid() {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = 1.0f / (1.0f + std::exp(-lhs[i]));
-  }
+  DispatchOp(OpId::kSigmoid, backend(), {.lhs = this, .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};
@@ -77,12 +66,7 @@ std::shared_ptr<Tensor> Tensor::tanh() {
 #endif
 
   auto result = std::make_shared<Tensor>(shape_);
-
-  auto lhs = data();
-  auto out = result->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = std::tanh(lhs[i]);
-  }
+  DispatchOp(OpId::kTanh, backend(), {.lhs = this, .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr};

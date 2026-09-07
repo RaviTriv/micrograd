@@ -1,4 +1,5 @@
 #include "micrograd/Tensor.h"
+#include "micrograd/ops/Dispatch.h"
 
 #ifdef MICROGRAD_METAL_ENABLED
 #include "micrograd/metal/MetalContext.h"
@@ -26,19 +27,8 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   size_t n = b->shape_[1];
 
   auto result = std::make_shared<Tensor>(std::vector<size_t>{m, n});
-
-  auto lhs = data();
-  auto rhs = b->data();
-  auto out = result->data();
-  for (size_t i = 0; i < m; i++) {
-    for (size_t j = 0; j < n; j++) {
-      scalar_t sum = 0.0f;
-      for (size_t p = 0; p < k; p++) {
-        sum += lhs[i * k + p] * rhs[p * n + j];
-      }
-      out[i * n + j] = sum;
-    }
-  }
+  DispatchOp(OpId::kMatmul, backend(),
+             {.lhs = this, .rhs = b.get(), .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
