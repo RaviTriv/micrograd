@@ -1,9 +1,10 @@
 
 #include "micrograd/Autograd.h"
 
-#include <functional>
 #include <ranges>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "micrograd/Tensor.h"
 
@@ -21,19 +22,22 @@ NoGradGuard::~NoGradGuard() { grad_enabled = previous_; }
 void Tensor::backward() {
   std::vector<std::shared_ptr<Tensor>> ordered;
   std::unordered_set<Tensor *> visited;
+  std::vector<std::pair<std::shared_ptr<Tensor>, size_t>> pending;
 
-  std::function<void(const std::shared_ptr<Tensor> &)> findOrder =
-      [&](const std::shared_ptr<Tensor> &node) {
-        if (visited.contains(node.get())) {
-          return;
-        }
-        visited.insert(node.get());
-        for (auto &child : node->children_) {
-          findOrder(child);
-        }
-        ordered.push_back(node);
-      };
-  findOrder(shared_from_this());
+  visited.insert(this);
+  pending.emplace_back(shared_from_this(), 0);
+  while (!pending.empty()) {
+    auto &[node, next_child] = pending.back();
+    if (next_child < node->children_.size()) {
+      const std::shared_ptr<Tensor> &child = node->children_[next_child++];
+      if (visited.insert(child.get()).second) {
+        pending.emplace_back(child, 0);
+      }
+      continue;
+    }
+    ordered.push_back(std::move(node));
+    pending.pop_back();
+  }
 
   to(Backend::CPU);
 
