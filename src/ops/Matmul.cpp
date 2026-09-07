@@ -1,10 +1,6 @@
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 
-#ifdef MICROGRAD_METAL_ENABLED
-#include "micrograd/metal/MetalContext.h"
-#endif
-
 namespace micrograd {
 
 std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
@@ -16,46 +12,20 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
     throw std::invalid_argument("Inner dimensions must match for matmul");
   }
 
-#ifdef MICROGRAD_METAL_ENABLED
-  if (backend() == Backend::Metal && b->backend() == Backend::Metal) {
-    return matmul_metal(b);
+  if (backend() != b->backend()) {
+    throw std::invalid_argument("Tensor devices do not match");
   }
-#endif
 
-  size_t m = shape_[0];
-  size_t k = shape_[1];
-  size_t n = b->shape_[1];
-
-  auto result = std::make_shared<Tensor>(std::vector<size_t>{m, n});
+  auto result =
+      std::make_shared<Tensor>(std::vector<size_t>{shape_[0], b->shape_[1]});
   DispatchOp(OpId::kMatmul, backend(),
              {.lhs = this, .rhs = b.get(), .out = result.get()});
 
   auto self_ptr = shared_from_this();
   result->children_ = {self_ptr, b};
-
-  result->backward_fn_ = [result = result.get(), self_ptr, b, m, k, n]() {
-    auto a_data = self_ptr->data();
-    auto b_data = b->data();
-    auto a_grad = self_ptr->grad();
-    auto b_grad = b->grad();
-    auto out_grad = result->grad();
-
-    for (size_t i = 0; i < m; i++) {
-      for (size_t j = 0; j < k; j++) {
-        for (size_t p = 0; p < n; p++) {
-          a_grad[i * k + j] += out_grad[i * n + p] * b_data[j * n + p];
-        }
-      }
-    }
-
-    for (size_t i = 0; i < k; i++) {
-      for (size_t j = 0; j < n; j++) {
-        for (size_t p = 0; p < m; p++) {
-          b_grad[i * n + j] += a_data[p * k + i] * out_grad[p * n + j];
-        }
-      }
-    }
-  };
+  result->backward_fn_ =
+      MakeBackward(OpId::kMatmul, backend(),
+                   {.lhs = self_ptr, .rhs = b, .out = result.get()});
 
   return result;
 }

@@ -49,6 +49,10 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::span<const scalar_t> grad() const;
   void to(Backend device);
   Backend backend() const;
+  Storage &data_storage();
+  const Storage &data_storage() const;
+  Storage &grad_storage();
+  const Storage &grad_storage() const;
 
  private:
   void compute_strides();
@@ -62,23 +66,6 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::function<void()> backward_fn_;
 
   size_t flat_index(const std::vector<size_t> &indices) const;
-
-#ifdef MICROGRAD_METAL_ENABLED
-  std::shared_ptr<Tensor> add_metal(const std::shared_ptr<Tensor> &b);
-  std::shared_ptr<Tensor> sub_metal(const std::shared_ptr<Tensor> &b);
-  std::shared_ptr<Tensor> mul_metal(const std::shared_ptr<Tensor> &b);
-  std::shared_ptr<Tensor> div_metal(const std::shared_ptr<Tensor> &b);
-  std::shared_ptr<Tensor> add_scalar_metal(scalar_t scalar);
-  std::shared_ptr<Tensor> sub_scalar_metal(scalar_t scalar);
-  std::shared_ptr<Tensor> mul_scalar_metal(scalar_t scalar);
-  std::shared_ptr<Tensor> div_scalar_metal(scalar_t scalar);
-  std::shared_ptr<Tensor> pow_metal(scalar_t exponent);
-  std::shared_ptr<Tensor> matmul_metal(const std::shared_ptr<Tensor> &b);
-  std::shared_ptr<Tensor> relu_metal();
-  std::shared_ptr<Tensor> sigmoid_metal();
-  std::shared_ptr<Tensor> tanh_metal();
-  std::shared_ptr<Tensor> sum_metal();
-#endif
 };
 
 }  // namespace micrograd

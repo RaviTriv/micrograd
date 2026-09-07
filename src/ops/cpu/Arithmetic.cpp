@@ -1,4 +1,5 @@
 #include <cmath>
+#include <functional>
 
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
@@ -83,6 +84,110 @@ void Pow(const OpArgs &args) {
   }
 }
 
+std::function<void()> AddBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    auto a_grad = lhs->grad();
+    auto b_grad = rhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i];
+      b_grad[i] += out_grad[i];
+    }
+  };
+}
+
+std::function<void()> SubBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    auto a_grad = lhs->grad();
+    auto b_grad = rhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i];
+      b_grad[i] -= out_grad[i];
+    }
+  };
+}
+
+std::function<void()> MulBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    auto a_data = lhs->data();
+    auto b_data = rhs->data();
+    auto a_grad = lhs->grad();
+    auto b_grad = rhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i] * b_data[i];
+      b_grad[i] += out_grad[i] * a_data[i];
+    }
+  };
+}
+
+std::function<void()> DivBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    auto a_data = lhs->data();
+    auto b_data = rhs->data();
+    auto a_grad = lhs->grad();
+    auto b_grad = rhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i] / b_data[i];
+      b_grad[i] -= out_grad[i] * a_data[i] / b_data[i] / b_data[i];
+    }
+  };
+}
+
+std::function<void()> AddScalarBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    auto a_grad = lhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i];
+    }
+  };
+}
+
+std::function<void()> SubScalarBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    auto a_grad = lhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i];
+    }
+  };
+}
+
+std::function<void()> MulScalarBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, scalar = args.scalar]() {
+    auto a_grad = lhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i] * scalar;
+    }
+  };
+}
+
+std::function<void()> DivScalarBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, scalar = args.scalar]() {
+    auto a_grad = lhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i] / scalar;
+    }
+  };
+}
+
+std::function<void()> PowBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, exponent = args.scalar]() {
+    auto a_data = lhs->data();
+    auto a_grad = lhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] +=
+          out_grad[i] * exponent * std::pow(a_data[i], exponent - 1.0f);
+    }
+  };
+}
+
 }  // namespace
 
 void RegisterArithmeticOps() {
@@ -96,6 +201,15 @@ void RegisterArithmeticOps() {
   registry.Register(OpId::kMulScalar, Device::CPU, MulScalar);
   registry.Register(OpId::kDivScalar, Device::CPU, DivScalar);
   registry.Register(OpId::kPow, Device::CPU, Pow);
+  registry.RegisterBackward(OpId::kAdd, Device::CPU, AddBackward);
+  registry.RegisterBackward(OpId::kSub, Device::CPU, SubBackward);
+  registry.RegisterBackward(OpId::kMul, Device::CPU, MulBackward);
+  registry.RegisterBackward(OpId::kDiv, Device::CPU, DivBackward);
+  registry.RegisterBackward(OpId::kAddScalar, Device::CPU, AddScalarBackward);
+  registry.RegisterBackward(OpId::kSubScalar, Device::CPU, SubScalarBackward);
+  registry.RegisterBackward(OpId::kMulScalar, Device::CPU, MulScalarBackward);
+  registry.RegisterBackward(OpId::kDivScalar, Device::CPU, DivScalarBackward);
+  registry.RegisterBackward(OpId::kPow, Device::CPU, PowBackward);
 }
 
 }  // namespace micrograd::ops::cpu

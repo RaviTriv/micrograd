@@ -45,7 +45,12 @@ add_library(micrograd
     src/metal/MetalContext.cpp
     src/metal/Kernels.cpp
     src/metal/Dispatch.cpp
-    src/metal/TensorMetal.cpp
+
+    src/metal/ops/Register.cpp
+    src/metal/ops/Activations.cpp
+    src/metal/ops/Arithmetic.cpp
+    src/metal/ops/Matmul.cpp
+    src/metal/ops/Reduction.cpp
 )
 
 target_compile_options(micrograd PRIVATE -Werror)

@@ -1,3 +1,5 @@
+#include <functional>
+
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 #include "micrograd/ops/cpu/Ops.h"
@@ -24,10 +26,42 @@ void Matmul(const OpArgs &args) {
   }
 }
 
+std::function<void()> MatmulBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    const size_t m = lhs->shape()[0];
+    const size_t k = lhs->shape()[1];
+    const size_t n = rhs->shape()[1];
+
+    auto a_data = lhs->data();
+    auto b_data = rhs->data();
+    auto a_grad = lhs->grad();
+    auto b_grad = rhs->grad();
+    auto out_grad = out->grad();
+
+    for (size_t i = 0; i < m; i++) {
+      for (size_t j = 0; j < k; j++) {
+        for (size_t p = 0; p < n; p++) {
+          a_grad[i * k + j] += out_grad[i * n + p] * b_data[j * n + p];
+        }
+      }
+    }
+
+    for (size_t i = 0; i < k; i++) {
+      for (size_t j = 0; j < n; j++) {
+        for (size_t p = 0; p < m; p++) {
+          b_grad[i * n + j] += a_data[p * k + i] * out_grad[p * n + j];
+        }
+      }
+    }
+  };
+}
+
 }  // namespace
 
 void RegisterMatmulOps() {
-  OpRegistry::Instance().Register(OpId::kMatmul, Device::CPU, Matmul);
+  OpRegistry &registry = OpRegistry::Instance();
+  registry.Register(OpId::kMatmul, Device::CPU, Matmul);
+  registry.RegisterBackward(OpId::kMatmul, Device::CPU, MatmulBackward);
 }
 
 }  // namespace micrograd::ops::cpu

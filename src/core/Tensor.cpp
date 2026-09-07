@@ -104,4 +104,12 @@ void Tensor::to(Backend device) {
 
 Backend Tensor::backend() const { return data_.device(); }
 
+Storage &Tensor::data_storage() { return data_; }
+
+const Storage &Tensor::data_storage() const { return data_; }
+
+Storage &Tensor::grad_storage() { return grad_; }
+
+const Storage &Tensor::grad_storage() const { return grad_; }
+
 }  // namespace micrograd
