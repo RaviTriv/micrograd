@@ -1,6 +1,7 @@
 #include "micrograd/Broadcast.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <stdexcept>
 
 #include "micrograd/Autograd.h"
@@ -25,6 +26,15 @@ std::vector<size_t> ContiguousStrides(const std::vector<size_t> &shape) {
     stride *= shape[i - 1];
   }
   return strides;
+}
+
+size_t NormalizeDim(int64_t dim, size_t rank) {
+  auto limit = static_cast<int64_t>(rank);
+  int64_t resolved = dim < 0 ? dim + limit : dim;
+  if (resolved < 0 || resolved >= limit) {
+    throw std::out_of_range("Dimension out of range");
+  }
+  return static_cast<size_t>(resolved);
 }
 
 std::vector<size_t> BroadcastShapes(const std::vector<size_t> &a,

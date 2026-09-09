@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <vector>
@@ -12,6 +13,8 @@ namespace micrograd {
 class Tensor;
 
 std::vector<size_t> ContiguousStrides(const std::vector<size_t> &shape);
+
+size_t NormalizeDim(int64_t dim, size_t rank);
 
 std::vector<size_t> BroadcastShapes(const std::vector<size_t> &a,
                                     const std::vector<size_t> &b);

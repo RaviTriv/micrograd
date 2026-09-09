@@ -53,15 +53,6 @@ std::vector<size_t> ResolveShape(const std::vector<int64_t> &shape,
   return resolved;
 }
 
-size_t NormalizeDim(int64_t dim, size_t rank) {
-  auto limit = static_cast<int64_t>(rank);
-  int64_t resolved = dim < 0 ? dim + limit : dim;
-  if (resolved < 0 || resolved >= limit) {
-    throw std::out_of_range("Dimension out of range");
-  }
-  return static_cast<size_t>(resolved);
-}
-
 std::vector<size_t> NormalizeDims(const std::vector<int64_t> &dims,
                                   size_t rank) {
   if (dims.size() != rank) {
