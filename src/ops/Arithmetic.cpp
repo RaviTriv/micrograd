@@ -10,16 +10,11 @@ std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
     throw std::invalid_argument("Tensor devices do not match");
   }
 
-  auto self_ptr = shared_from_this();
   std::vector<size_t> out_shape = BroadcastShapes(shape_, b->shape_);
   bool needs_grad = GradEnabled() && (requires_grad_ || b->requires_grad_);
-  if (needs_grad && (shape_ != out_shape || b->shape_ != out_shape)) {
-    throw std::invalid_argument(
-        "Broadcasting a tensor that requires grad is unsupported");
-  }
 
-  auto lhs = BroadcastTo(self_ptr, out_shape);
-  auto rhs = BroadcastTo(b, out_shape);
+  auto lhs = broadcast_to(out_shape);
+  auto rhs = b->broadcast_to(out_shape);
 
   auto result = std::make_shared<Tensor>(out_shape);
   DispatchOp(OpId::kAdd, backend(),
@@ -27,10 +22,9 @@ std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
 
   result->requires_grad_ = needs_grad;
   if (result->requires_grad_) {
-    result->children_ = {self_ptr, b};
-    result->backward_fn_ =
-        MakeBackward(OpId::kAdd, backend(),
-                     {.lhs = self_ptr, .rhs = b, .out = result.get()});
+    result->children_ = {lhs, rhs};
+    result->backward_fn_ = MakeBackward(
+        OpId::kAdd, backend(), {.lhs = lhs, .rhs = rhs, .out = result.get()});
   }
 
   return result;
@@ -41,16 +35,11 @@ std::shared_ptr<Tensor> Tensor::sub(const std::shared_ptr<Tensor> &b) {
     throw std::invalid_argument("Tensor devices do not match");
   }
 
-  auto self_ptr = shared_from_this();
   std::vector<size_t> out_shape = BroadcastShapes(shape_, b->shape_);
   bool needs_grad = GradEnabled() && (requires_grad_ || b->requires_grad_);
-  if (needs_grad && (shape_ != out_shape || b->shape_ != out_shape)) {
-    throw std::invalid_argument(
-        "Broadcasting a tensor that requires grad is unsupported");
-  }
 
-  auto lhs = BroadcastTo(self_ptr, out_shape);
-  auto rhs = BroadcastTo(b, out_shape);
+  auto lhs = broadcast_to(out_shape);
+  auto rhs = b->broadcast_to(out_shape);
 
   auto result = std::make_shared<Tensor>(out_shape);
   DispatchOp(OpId::kSub, backend(),
@@ -58,10 +47,9 @@ std::shared_ptr<Tensor> Tensor::sub(const std::shared_ptr<Tensor> &b) {
 
   result->requires_grad_ = needs_grad;
   if (result->requires_grad_) {
-    result->children_ = {self_ptr, b};
-    result->backward_fn_ =
-        MakeBackward(OpId::kSub, backend(),
-                     {.lhs = self_ptr, .rhs = b, .out = result.get()});
+    result->children_ = {lhs, rhs};
+    result->backward_fn_ = MakeBackward(
+        OpId::kSub, backend(), {.lhs = lhs, .rhs = rhs, .out = result.get()});
   }
 
   return result;
@@ -72,16 +60,11 @@ std::shared_ptr<Tensor> Tensor::mul(const std::shared_ptr<Tensor> &b) {
     throw std::invalid_argument("Tensor devices do not match");
   }
 
-  auto self_ptr = shared_from_this();
   std::vector<size_t> out_shape = BroadcastShapes(shape_, b->shape_);
   bool needs_grad = GradEnabled() && (requires_grad_ || b->requires_grad_);
-  if (needs_grad && (shape_ != out_shape || b->shape_ != out_shape)) {
-    throw std::invalid_argument(
-        "Broadcasting a tensor that requires grad is unsupported");
-  }
 
-  auto lhs = BroadcastTo(self_ptr, out_shape);
-  auto rhs = BroadcastTo(b, out_shape);
+  auto lhs = broadcast_to(out_shape);
+  auto rhs = b->broadcast_to(out_shape);
 
   auto result = std::make_shared<Tensor>(out_shape);
   DispatchOp(OpId::kMul, backend(),
@@ -89,10 +72,9 @@ std::shared_ptr<Tensor> Tensor::mul(const std::shared_ptr<Tensor> &b) {
 
   result->requires_grad_ = needs_grad;
   if (result->requires_grad_) {
-    result->children_ = {self_ptr, b};
-    result->backward_fn_ =
-        MakeBackward(OpId::kMul, backend(),
-                     {.lhs = self_ptr, .rhs = b, .out = result.get()});
+    result->children_ = {lhs, rhs};
+    result->backward_fn_ = MakeBackward(
+        OpId::kMul, backend(), {.lhs = lhs, .rhs = rhs, .out = result.get()});
   }
 
   return result;
@@ -103,16 +85,11 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
     throw std::invalid_argument("Tensor devices do not match");
   }
 
-  auto self_ptr = shared_from_this();
   std::vector<size_t> out_shape = BroadcastShapes(shape_, b->shape_);
   bool needs_grad = GradEnabled() && (requires_grad_ || b->requires_grad_);
-  if (needs_grad && (shape_ != out_shape || b->shape_ != out_shape)) {
-    throw std::invalid_argument(
-        "Broadcasting a tensor that requires grad is unsupported");
-  }
 
-  auto lhs = BroadcastTo(self_ptr, out_shape);
-  auto rhs = BroadcastTo(b, out_shape);
+  auto lhs = broadcast_to(out_shape);
+  auto rhs = b->broadcast_to(out_shape);
 
   auto result = std::make_shared<Tensor>(out_shape);
   DispatchOp(OpId::kDiv, backend(),
@@ -120,10 +97,9 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
 
   result->requires_grad_ = needs_grad;
   if (result->requires_grad_) {
-    result->children_ = {self_ptr, b};
-    result->backward_fn_ =
-        MakeBackward(OpId::kDiv, backend(),
-                     {.lhs = self_ptr, .rhs = b, .out = result.get()});
+    result->children_ = {lhs, rhs};
+    result->backward_fn_ = MakeBackward(
+        OpId::kDiv, backend(), {.lhs = lhs, .rhs = rhs, .out = result.get()});
   }
 
   return result;

@@ -232,8 +232,10 @@ TEST(TensorTest, MatmulNonSquare) {
 }
 
 TEST(TensorTest, InvalidShapesThrow) {
-  EXPECT_THROW(vec({1.0, 2.0})->add(vec({1.0})), std::invalid_argument);
-  EXPECT_THROW(vec({1.0, 2.0})->mul(vec({1.0})), std::invalid_argument);
+  EXPECT_THROW(vec({1.0, 2.0})->add(vec({1.0, 2.0, 3.0})),
+               std::invalid_argument);
+  EXPECT_THROW(vec({1.0, 2.0})->mul(vec({1.0, 2.0, 3.0})),
+               std::invalid_argument);
   EXPECT_THROW(vec({1.0, 2.0})->matmul(vec({1.0, 2.0})), std::invalid_argument);
   EXPECT_THROW(std::make_shared<Tensor>(std::vector<size_t>{2, 2},
                                         std::vector<scalar_t>{1.0}),

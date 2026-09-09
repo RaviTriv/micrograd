@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "micrograd/Autograd.h"
 #include "micrograd/Tensor.h"
 
 namespace micrograd {
@@ -64,6 +65,29 @@ std::vector<size_t> BroadcastStrides(const std::vector<size_t> &shape,
   return result;
 }
 
+void ReduceBroadcastGradient(std::span<const scalar_t> gradient,
+                             const std::vector<size_t> &shape,
+                             std::span<scalar_t> reduced,
+                             const std::vector<size_t> &target) {
+  std::vector<size_t> strides =
+      BroadcastStrides(target, ContiguousStrides(target), shape);
+
+  std::vector<size_t> index(shape.size(), 0);
+  for (scalar_t value : gradient) {
+    size_t reduced_index = 0;
+    for (size_t d = 0; d < shape.size(); d++) {
+      reduced_index += index[d] * strides[d];
+    }
+    reduced[reduced_index] += value;
+    for (size_t d = shape.size(); d > 0; d--) {
+      if (++index[d - 1] < shape[d - 1]) {
+        break;
+      }
+      index[d - 1] = 0;
+    }
+  }
+}
+
 std::shared_ptr<Tensor> BroadcastTo(const std::shared_ptr<Tensor> &tensor,
                                     const std::vector<size_t> &shape) {
   if (tensor->shape() == shape) {
@@ -92,6 +116,27 @@ std::shared_ptr<Tensor> BroadcastTo(const std::shared_ptr<Tensor> &tensor,
   }
 
   result->to(tensor->backend());
+  return result;
+}
+
+std::shared_ptr<Tensor> Tensor::broadcast_to(const std::vector<size_t> &shape) {
+  auto self_ptr = shared_from_this();
+  if (shape_ == shape) {
+    return self_ptr;
+  }
+
+  auto result = BroadcastTo(self_ptr, shape);
+  result->requires_grad_ = GradEnabled() && requires_grad_;
+  if (result->requires_grad_) {
+    result->children_ = {self_ptr};
+    result->backward_fn_ = [source = self_ptr, out = result.get()]() {
+      source->to(Backend::CPU);
+      out->to(Backend::CPU);
+      ReduceBroadcastGradient(out->grad(), out->shape(), source->grad(),
+                              source->shape());
+    };
+  }
+
   return result;
 }
 

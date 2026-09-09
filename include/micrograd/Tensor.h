@@ -59,6 +59,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
  private:
   void compute_strides();
+  std::shared_ptr<Tensor> broadcast_to(const std::vector<size_t> &shape);
   void propagate_gradients();
 
   Storage data_;
