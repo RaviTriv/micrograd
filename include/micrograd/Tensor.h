@@ -30,6 +30,9 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
   std::shared_ptr<Tensor> reshape(const std::vector<int64_t> &shape);
   std::shared_ptr<Tensor> view(const std::vector<int64_t> &shape);
+  std::shared_ptr<Tensor> transpose(int64_t dim0, int64_t dim1);
+  std::shared_ptr<Tensor> permute(const std::vector<int64_t> &dims);
+  std::shared_ptr<Tensor> contiguous();
 
   std::shared_ptr<Tensor> sum();
   std::shared_ptr<Tensor> matmul(const std::shared_ptr<Tensor> &b);
@@ -64,6 +67,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
  private:
   void compute_strides();
   std::shared_ptr<Tensor> broadcast_to(const std::vector<size_t> &shape);
+  std::shared_ptr<Tensor> strided_copy(const std::vector<size_t> &shape,
+                                       const std::vector<size_t> &strides);
   void propagate_gradients();
 
   Storage data_;
