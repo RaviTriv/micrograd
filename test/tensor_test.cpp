@@ -68,10 +68,11 @@ void expect_backends_agree(const std::vector<std::vector<scalar_t>> &inputs,
   }
 
   auto cpu_out = f(cpu_in);
-  cpu_out->backward();
+  Tensor ones(cpu_out->shape(), std::vector<scalar_t>(cpu_out->size(), 1.0f));
+  cpu_out->backward(ones);
 
   auto gpu_out = f(gpu_in);
-  gpu_out->backward();
+  gpu_out->backward(ones);
   gpu_out->to(Backend::CPU);
 
   ASSERT_EQ(cpu_out->size(), gpu_out->size());

@@ -35,6 +35,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> tanh();
 
   void backward();
+  void backward(const Tensor &grad_output);
   void zero_grad();
   bool requires_grad() const;
   void set_requires_grad(bool requires_grad);
@@ -58,6 +59,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
  private:
   void compute_strides();
+  void propagate_gradients();
 
   Storage data_;
   Storage grad_;
