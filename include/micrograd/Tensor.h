@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <span>
@@ -26,6 +27,9 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> mul(scalar_t scalar);
   std::shared_ptr<Tensor> div(scalar_t scalar);
   std::shared_ptr<Tensor> pow(scalar_t exponent);
+
+  std::shared_ptr<Tensor> reshape(const std::vector<int64_t> &shape);
+  std::shared_ptr<Tensor> view(const std::vector<int64_t> &shape);
 
   std::shared_ptr<Tensor> sum();
   std::shared_ptr<Tensor> matmul(const std::shared_ptr<Tensor> &b);
