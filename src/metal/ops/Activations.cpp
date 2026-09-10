@@ -29,6 +29,10 @@ void LaunchUnary(const char *kernel, const OpArgs &args) {
 void Relu(const OpArgs &args) { LaunchUnary("relu", args); }
 void Sigmoid(const OpArgs &args) { LaunchUnary("sigmoid", args); }
 void Tanh(const OpArgs &args) { LaunchUnary("tanh_op", args); }
+void Exp(const OpArgs &args) { LaunchUnary("exp_op", args); }
+void Log(const OpArgs &args) { LaunchUnary("log_op", args); }
+void Sqrt(const OpArgs &args) { LaunchUnary("sqrt_op", args); }
+void Neg(const OpArgs &args) { LaunchUnary("neg_op", args); }
 
 std::function<void()> ReluBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
@@ -45,6 +49,37 @@ std::function<void()> ReluBackward(const GradArgs &args) {
     bufSize.set(static_cast<uint32_t>(n));
 
     ElementwiseKernelLauncher(ctx, "relu_backward", n)
+        .buffer(gradOutBuf)
+        .buffer(lhs->data_storage().buffer())
+        .buffer(gradXBuf)
+        .buffer(bufSize)
+        .launch();
+
+    auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
+    auto *gpuGradPtr =
+        static_cast<scalar_t *>(lhs->grad_storage().host_pointer());
+    for (size_t i = 0; i < n; i++) {
+      gpuGradPtr[i] += gradXPtr[i];
+    }
+  };
+}
+
+std::function<void()> MakeInputBackward(const char *kernel,
+                                        const GradArgs &args) {
+  return [kernel, out = args.out, lhs = args.lhs]() {
+    auto &ctx = MetalContext::instance();
+    size_t n = lhs->size();
+
+    out->to(Backend::CPU);
+    ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
+    std::copy_n(out->grad().data(), n,
+                static_cast<scalar_t *>(gradOutBuf.get()->contents()));
+
+    ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
+    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+    bufSize.set(static_cast<uint32_t>(n));
+
+    ElementwiseKernelLauncher(ctx, kernel, n)
         .buffer(gradOutBuf)
         .buffer(lhs->data_storage().buffer())
         .buffer(gradXBuf)
@@ -103,6 +138,22 @@ std::function<void()> TanhBackward(const GradArgs &args) {
   return MakeOutputBackward("tanh_backward", args);
 }
 
+std::function<void()> ExpBackward(const GradArgs &args) {
+  return MakeOutputBackward("exp_backward", args);
+}
+
+std::function<void()> LogBackward(const GradArgs &args) {
+  return MakeInputBackward("log_backward", args);
+}
+
+std::function<void()> SqrtBackward(const GradArgs &args) {
+  return MakeOutputBackward("sqrt_backward", args);
+}
+
+std::function<void()> NegBackward(const GradArgs &args) {
+  return MakeInputBackward("neg_backward", args);
+}
+
 }  // namespace
 
 void RegisterActivationOps() {
@@ -110,9 +161,17 @@ void RegisterActivationOps() {
   registry.Register(OpId::kRelu, Device::Metal, Relu);
   registry.Register(OpId::kSigmoid, Device::Metal, Sigmoid);
   registry.Register(OpId::kTanh, Device::Metal, Tanh);
+  registry.Register(OpId::kExp, Device::Metal, Exp);
+  registry.Register(OpId::kLog, Device::Metal, Log);
+  registry.Register(OpId::kSqrt, Device::Metal, Sqrt);
+  registry.Register(OpId::kNeg, Device::Metal, Neg);
   registry.RegisterBackward(OpId::kRelu, Device::Metal, ReluBackward);
   registry.RegisterBackward(OpId::kSigmoid, Device::Metal, SigmoidBackward);
   registry.RegisterBackward(OpId::kTanh, Device::Metal, TanhBackward);
+  registry.RegisterBackward(OpId::kExp, Device::Metal, ExpBackward);
+  registry.RegisterBackward(OpId::kLog, Device::Metal, LogBackward);
+  registry.RegisterBackward(OpId::kSqrt, Device::Metal, SqrtBackward);
+  registry.RegisterBackward(OpId::kNeg, Device::Metal, NegBackward);
 }
 
 }  // namespace micrograd::metal::ops

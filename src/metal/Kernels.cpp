@@ -215,6 +215,54 @@ kernel void tanh_op(
     C[gid] = tanh(A[gid]);
 }
 
+kernel void exp_op(
+    device const float* A [[buffer(0)]],
+    device float* C [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    C[gid] = exp(A[gid]);
+}
+
+kernel void log_op(
+    device const float* A [[buffer(0)]],
+    device float* C [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    C[gid] = log(A[gid]);
+}
+
+kernel void sqrt_op(
+    device const float* A [[buffer(0)]],
+    device float* C [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    C[gid] = sqrt(A[gid]);
+}
+
+kernel void neg_op(
+    device const float* A [[buffer(0)]],
+    device float* C [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    C[gid] = -A[gid];
+}
+
 kernel void sum_reduce(
     device const float* input [[buffer(0)]],
     device float* output [[buffer(1)]],
@@ -329,6 +377,58 @@ kernel void tanh_backward(
     }
     float t = tanh_out[gid];
     grad_x[gid] = grad_out[gid] * (1.0f - t * t);
+}
+
+kernel void exp_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* exp_out [[buffer(1)]],
+    device float* grad_x [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_x[gid] = grad_out[gid] * exp_out[gid];
+}
+
+kernel void log_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* x_data [[buffer(1)]],
+    device float* grad_x [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_x[gid] = grad_out[gid] / x_data[gid];
+}
+
+kernel void sqrt_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* sqrt_out [[buffer(1)]],
+    device float* grad_x [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_x[gid] = grad_out[gid] * 0.5f / sqrt_out[gid];
+}
+
+kernel void neg_backward(
+    device const float* grad_out [[buffer(0)]],
+    device const float* x_data [[buffer(1)]],
+    device float* grad_x [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_x[gid] = -grad_out[gid];
 }
 
 kernel void broadcast_scalar(

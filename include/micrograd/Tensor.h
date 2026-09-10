@@ -44,6 +44,10 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> relu();
   std::shared_ptr<Tensor> sigmoid();
   std::shared_ptr<Tensor> tanh();
+  std::shared_ptr<Tensor> exp();
+  std::shared_ptr<Tensor> log();
+  std::shared_ptr<Tensor> sqrt();
+  std::shared_ptr<Tensor> neg();
 
   void backward();
   void backward(const Tensor &grad_output);

@@ -29,9 +29,13 @@ enum class OpId {
   kRelu,
   kSigmoid,
   kTanh,
+  kExp,
+  kLog,
+  kSqrt,
+  kNeg,
 };
 
-inline constexpr size_t kOpCount = static_cast<size_t>(OpId::kTanh) + 1;
+inline constexpr size_t kOpCount = static_cast<size_t>(OpId::kNeg) + 1;
 inline constexpr size_t kDeviceCount = static_cast<size_t>(Device::CUDA) + 1;
 
 struct OpArgs {
