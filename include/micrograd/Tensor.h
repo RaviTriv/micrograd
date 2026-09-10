@@ -36,6 +36,9 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
   std::shared_ptr<Tensor> sum();
   std::shared_ptr<Tensor> sum(int64_t dim, bool keepdim = false);
+  std::shared_ptr<Tensor> mean(int64_t dim, bool keepdim = false);
+  std::shared_ptr<Tensor> max(int64_t dim, bool keepdim = false);
+  std::shared_ptr<Tensor> argmax(int64_t dim);
   std::shared_ptr<Tensor> matmul(const std::shared_ptr<Tensor> &b);
 
   std::shared_ptr<Tensor> relu();

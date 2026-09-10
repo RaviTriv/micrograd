@@ -13,23 +13,13 @@ using namespace micrograd;
 
 namespace {
 
-size_t argmax(const std::shared_ptr<Tensor> &row) {
-  size_t best = 0;
-  for (size_t j = 1; j < 10; j++) {
-    if (row->at({0, j}) > row->at({0, best})) {
-      best = j;
-    }
-  }
-  return best;
-}
-
 double evaluate(const MNISTData &set, Linear &l1, Linear &l2) {
   const NoGradGuard no_grad;
   size_t correct = 0;
   for (size_t i = 0; i < set.images.size(); i++) {
     auto pooled = avg_pool_2x2(set.images[i]);
     auto out = l2.forward(l1.forward(pooled)->relu());
-    if (argmax(out) == argmax(set.labels[i])) {
+    if (out->argmax(1)->data()[0] == set.labels[i]->argmax(1)->data()[0]) {
       correct++;
     }
   }
