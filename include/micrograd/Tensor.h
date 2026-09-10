@@ -48,6 +48,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> log();
   std::shared_ptr<Tensor> sqrt();
   std::shared_ptr<Tensor> neg();
+  std::shared_ptr<Tensor> softmax(int64_t dim);
+  std::shared_ptr<Tensor> log_softmax(int64_t dim);
 
   void backward();
   void backward(const Tensor &grad_output);
