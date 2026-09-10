@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
+#include <vector>
 
 #include "Tensor.h"
 
@@ -8,6 +10,9 @@ namespace micrograd {
 
 std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
                                  const std::shared_ptr<Tensor> &target);
+std::shared_ptr<Tensor> cross_entropy(
+    const std::shared_ptr<Tensor> &logits,
+    const std::vector<size_t> &target_indices);
 std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input);
 class Linear {
  public:
