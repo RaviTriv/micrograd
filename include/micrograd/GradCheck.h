@@ -18,8 +18,8 @@ namespace micrograd {
 
 struct GradCheckOptions {
   scalar_t eps = 1e-2f;
-  scalar_t rtol = 2e-2f;
-  scalar_t atol = 1e-3f;
+  scalar_t rtol = 1e-3f;
+  scalar_t atol = 1e-5f;
 };
 
 struct GradCheckMismatch {
