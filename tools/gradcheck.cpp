@@ -54,6 +54,7 @@ std::vector<Case> AllCases() {
 
   const auto signed_matrix = [] { return Ramp({2, 3}, -1.25f, 0.5f); };
   const auto positive_matrix = [] { return Ramp({2, 3}, 0.5f, 0.3f); };
+  const auto signed_cube = [] { return Ramp({2, 3, 3}, -1.1f, 0.15f); };
 
   add("add", [](const TensorList &in) { return in[0]->add(in[1]); },
       {signed_matrix(), positive_matrix()});
@@ -93,6 +94,20 @@ std::vector<Case> AllCases() {
   add("contiguous",
       [](const TensorList &in) { return in[0]->transpose(0, 1)->contiguous(); },
       {signed_matrix()});
+  add("permute_3d_201",
+      [](const TensorList &in) { return in[0]->permute({2, 0, 1}); },
+      {signed_cube()});
+  add("permute_3d_120",
+      [](const TensorList &in) { return in[0]->permute({1, 2, 0}); },
+      {signed_cube()});
+  add("transpose_3d_02",
+      [](const TensorList &in) { return in[0]->transpose(0, 2); },
+      {signed_cube()});
+  add("permute_reshape",
+      [](const TensorList &in) {
+        return in[0]->permute({2, 0, 1})->reshape({9, 2});
+      },
+      {signed_cube()});
 
   add("sum", [](const TensorList &in) { return in[0]->sum(); },
       {signed_matrix()});
