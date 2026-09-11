@@ -34,6 +34,23 @@ Tensor::Tensor(std::vector<size_t> shape, std::vector<scalar_t> values)
   compute_strides();
 }
 
+Tensor::~Tensor() {
+  backward_fn_ = nullptr;
+  std::vector<std::shared_ptr<Tensor>> pending = std::move(children_);
+  while (!pending.empty()) {
+    std::shared_ptr<Tensor> node = std::move(pending.back());
+    pending.pop_back();
+    if (node.use_count() != 1) {
+      continue;
+    }
+    node->backward_fn_ = nullptr;
+    pending.insert(pending.end(),
+                   std::make_move_iterator(node->children_.begin()),
+                   std::make_move_iterator(node->children_.end()));
+    node->children_.clear();
+  }
+}
+
 void Tensor::compute_strides() {
   strides_.resize(shape_.size());
   size_t stride = 1;

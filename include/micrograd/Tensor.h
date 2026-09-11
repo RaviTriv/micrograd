@@ -15,7 +15,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
  public:
   Tensor(std::vector<size_t> shape);
   Tensor(std::vector<size_t> shape, std::vector<scalar_t> values);
-  ~Tensor() = default;
+  ~Tensor();
 
   std::shared_ptr<Tensor> add(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> sub(const std::shared_ptr<Tensor> &b);
