@@ -55,17 +55,63 @@ std::vector<Case> AllCases() {
   const auto signed_matrix = [] { return Ramp({2, 3}, -1.25f, 0.5f); };
   const auto positive_matrix = [] { return Ramp({2, 3}, 0.5f, 0.3f); };
   const auto signed_cube = [] { return Ramp({2, 3, 3}, -1.1f, 0.15f); };
+  const auto row_vector = [] { return Ramp({3}, 0.4f, 0.7f); };
+  const auto positive_row = [] { return Ramp({3}, 0.6f, 0.5f); };
+  const auto column = [] { return Ramp({2, 1}, -0.8f, 1.3f); };
 
   add("add", [](const TensorList &in) { return in[0]->add(in[1]); },
       {signed_matrix(), positive_matrix()});
-  add("add_broadcast", [](const TensorList &in) { return in[0]->add(in[1]); },
-      {signed_matrix(), Ramp({3}, 0.4f, 0.7f)});
   add("sub", [](const TensorList &in) { return in[0]->sub(in[1]); },
       {signed_matrix(), positive_matrix()});
   add("mul", [](const TensorList &in) { return in[0]->mul(in[1]); },
       {signed_matrix(), positive_matrix()});
   add("div", [](const TensorList &in) { return in[0]->div(in[1]); },
       {signed_matrix(), positive_matrix()});
+
+  add("add_broadcast", [](const TensorList &in) { return in[0]->add(in[1]); },
+      {signed_matrix(), row_vector()});
+  add("sub_broadcast", [](const TensorList &in) { return in[0]->sub(in[1]); },
+      {signed_matrix(), row_vector()});
+  add("mul_broadcast", [](const TensorList &in) { return in[0]->mul(in[1]); },
+      {signed_matrix(), row_vector()});
+  add("div_broadcast", [](const TensorList &in) { return in[0]->div(in[1]); },
+      {signed_matrix(), positive_row()});
+  add("add_broadcast_lhs_smaller",
+      [](const TensorList &in) { return in[0]->add(in[1]); },
+      {row_vector(), signed_matrix()});
+  add("sub_broadcast_lhs_smaller",
+      [](const TensorList &in) { return in[0]->sub(in[1]); },
+      {row_vector(), signed_matrix()});
+  add("mul_broadcast_lhs_smaller",
+      [](const TensorList &in) { return in[0]->mul(in[1]); },
+      {row_vector(), signed_matrix()});
+  add("div_broadcast_lhs_smaller",
+      [](const TensorList &in) { return in[0]->div(in[1]); },
+      {row_vector(), positive_matrix()});
+  add("add_broadcast_two_sided",
+      [](const TensorList &in) { return in[0]->add(in[1]); },
+      {column(), Ramp({1, 3}, 0.4f, 0.7f)});
+  add("sub_broadcast_two_sided",
+      [](const TensorList &in) { return in[0]->sub(in[1]); },
+      {column(), Ramp({1, 3}, 0.4f, 0.7f)});
+  add("mul_broadcast_two_sided",
+      [](const TensorList &in) { return in[0]->mul(in[1]); },
+      {column(), Ramp({1, 3}, 0.4f, 0.7f)});
+  add("div_broadcast_two_sided",
+      [](const TensorList &in) { return in[0]->div(in[1]); },
+      {column(), Ramp({1, 3}, 0.4f, 0.7f)});
+  add("add_broadcast_3d",
+      [](const TensorList &in) { return in[0]->add(in[1]); },
+      {signed_cube(), Ramp({3, 1}, -0.6f, 0.5f)});
+  add("sub_broadcast_3d",
+      [](const TensorList &in) { return in[0]->sub(in[1]); },
+      {signed_cube(), Ramp({3, 1}, -0.6f, 0.5f)});
+  add("mul_broadcast_3d",
+      [](const TensorList &in) { return in[0]->mul(in[1]); },
+      {signed_cube(), Ramp({3, 1}, -0.6f, 0.5f)});
+  add("div_broadcast_3d",
+      [](const TensorList &in) { return in[0]->div(in[1]); },
+      {signed_cube(), Ramp({1, 3}, 0.5f, 0.4f)});
 
   add("add_scalar", [](const TensorList &in) { return in[0]->add(1.5f); },
       {signed_matrix()});
