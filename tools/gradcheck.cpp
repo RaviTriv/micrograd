@@ -126,6 +126,21 @@ std::vector<Case> AllCases() {
   add("max_dim_keepdim",
       [](const TensorList &in) { return in[0]->max(0, true); },
       {signed_matrix()});
+  add("sum_middle_dim", [](const TensorList &in) { return in[0]->sum(1); },
+      {signed_cube()});
+  add("sum_middle_dim_keepdim",
+      [](const TensorList &in) { return in[0]->sum(1, true); },
+      {signed_cube()});
+  add("mean_middle_dim", [](const TensorList &in) { return in[0]->mean(1); },
+      {signed_cube()});
+  add("max_middle_dim", [](const TensorList &in) { return in[0]->max(1); },
+      {signed_cube()});
+  add("sum_negative_dim", [](const TensorList &in) { return in[0]->sum(-2); },
+      {signed_cube()});
+  add("mean_negative_dim", [](const TensorList &in) { return in[0]->mean(-1); },
+      {signed_matrix()});
+  add("max_negative_dim", [](const TensorList &in) { return in[0]->max(-3); },
+      {signed_cube()});
 
   add("matmul", [](const TensorList &in) { return in[0]->matmul(in[1]); },
       {Ramp({2, 3}, -0.9f, 0.4f), Ramp({3, 4}, -1.1f, 0.2f)});
@@ -148,6 +163,13 @@ std::vector<Case> AllCases() {
       {signed_matrix()});
   add("log_softmax", [](const TensorList &in) { return in[0]->log_softmax(1); },
       {signed_matrix()});
+  add("softmax_dim0", [](const TensorList &in) { return in[0]->softmax(0); },
+      {signed_cube()});
+  add("log_softmax_dim0",
+      [](const TensorList &in) { return in[0]->log_softmax(0); },
+      {signed_cube()});
+  add("softmax_negative_dim",
+      [](const TensorList &in) { return in[0]->softmax(-2); }, {signed_cube()});
 
   add("mse_loss",
       [](const TensorList &in) { return micrograd::mse_loss(in[0], in[1]); },
