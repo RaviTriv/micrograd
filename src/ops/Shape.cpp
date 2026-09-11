@@ -110,10 +110,12 @@ std::shared_ptr<Tensor> Tensor::reshape(const std::vector<int64_t> &shape) {
     auto self_ptr = shared_from_this();
     result->children_ = {self_ptr};
     result->backward_fn_ = [source = self_ptr, out = result.get()]() {
-      source->to(Backend::CPU);
       out->to(Backend::CPU);
-      std::ranges::transform(source->grad(), out->grad(),
-                             source->grad().begin(), std::plus<>{});
+      std::span<scalar_t> source_grad(
+          static_cast<scalar_t *>(source->grad_storage().host_pointer()),
+          source->size());
+      std::ranges::transform(source_grad, out->grad(), source_grad.begin(),
+                             std::plus<>{});
     };
   }
 
@@ -142,9 +144,10 @@ std::shared_ptr<Tensor> Tensor::strided_copy(
     result->children_ = {self_ptr};
     result->backward_fn_ = [source_tensor = self_ptr, out = result.get(),
                             source_strides]() {
-      source_tensor->to(Backend::CPU);
       out->to(Backend::CPU);
-      std::span<scalar_t> gradient = source_tensor->grad();
+      std::span<scalar_t> gradient(
+          static_cast<scalar_t *>(source_tensor->grad_storage().host_pointer()),
+          source_tensor->size());
       std::span<const scalar_t> incoming = out->grad();
       ForEachStridedIndex(out->shape(), *source_strides,
                           [&](size_t linear, size_t offset) {

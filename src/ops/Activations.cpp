@@ -184,9 +184,10 @@ std::shared_ptr<Tensor> Tensor::softmax(int64_t dim) {
     result->children_ = {self_ptr};
     result->backward_fn_ = [source_tensor = self_ptr, out = result.get(),
                             layout]() {
-      source_tensor->to(Backend::CPU);
       out->to(Backend::CPU);
-      std::span<scalar_t> gradient = source_tensor->grad();
+      std::span<scalar_t> gradient(
+          static_cast<scalar_t *>(source_tensor->grad_storage().host_pointer()),
+          source_tensor->size());
       std::span<const scalar_t> outputs = out->data();
       std::span<const scalar_t> incoming = out->grad();
       for (size_t o = 0; o < layout.outer; o++) {
@@ -237,9 +238,10 @@ std::shared_ptr<Tensor> Tensor::log_softmax(int64_t dim) {
     result->children_ = {self_ptr};
     result->backward_fn_ = [source_tensor = self_ptr, out = result.get(),
                             layout]() {
-      source_tensor->to(Backend::CPU);
       out->to(Backend::CPU);
-      std::span<scalar_t> gradient = source_tensor->grad();
+      std::span<scalar_t> gradient(
+          static_cast<scalar_t *>(source_tensor->grad_storage().host_pointer()),
+          source_tensor->size());
       std::span<const scalar_t> outputs = out->data();
       std::span<const scalar_t> incoming = out->grad();
       for (size_t o = 0; o < layout.outer; o++) {

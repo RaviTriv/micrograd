@@ -106,9 +106,10 @@ std::shared_ptr<Tensor> Tensor::sum(int64_t dim, bool keepdim) {
     result->children_ = {self_ptr};
     result->backward_fn_ = [source_tensor = self_ptr, out = result.get(),
                             layout]() {
-      source_tensor->to(Backend::CPU);
       out->to(Backend::CPU);
-      std::span<scalar_t> gradient = source_tensor->grad();
+      std::span<scalar_t> gradient(
+          static_cast<scalar_t *>(source_tensor->grad_storage().host_pointer()),
+          source_tensor->size());
       std::span<const scalar_t> incoming = out->grad();
       for (size_t o = 0; o < layout.outer; o++) {
         for (size_t k = 0; k < layout.reduced; k++) {
@@ -152,9 +153,10 @@ std::shared_ptr<Tensor> Tensor::max(int64_t dim, bool keepdim) {
     result->children_ = {self_ptr};
     result->backward_fn_ = [source_tensor = self_ptr, out = result.get(),
                             layout, positions = std::move(indices)]() {
-      source_tensor->to(Backend::CPU);
       out->to(Backend::CPU);
-      std::span<scalar_t> gradient = source_tensor->grad();
+      std::span<scalar_t> gradient(
+          static_cast<scalar_t *>(source_tensor->grad_storage().host_pointer()),
+          source_tensor->size());
       std::span<const scalar_t> incoming = out->grad();
       for (size_t o = 0; o < layout.outer; o++) {
         for (size_t i = 0; i < layout.inner; i++) {

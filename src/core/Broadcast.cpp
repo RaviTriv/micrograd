@@ -140,9 +140,11 @@ std::shared_ptr<Tensor> Tensor::broadcast_to(const std::vector<size_t> &shape) {
   if (result->requires_grad_) {
     result->children_ = {self_ptr};
     result->backward_fn_ = [source = self_ptr, out = result.get()]() {
-      source->to(Backend::CPU);
       out->to(Backend::CPU);
-      ReduceBroadcastGradient(out->grad(), out->shape(), source->grad(),
+      std::span<scalar_t> source_grad(
+          static_cast<scalar_t *>(source->grad_storage().host_pointer()),
+          source->size());
+      ReduceBroadcastGradient(out->grad(), out->shape(), source_grad,
                               source->shape());
     };
   }
