@@ -76,6 +76,17 @@ std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input) {
   return std::make_shared<Tensor>(std::vector<size_t>{1, 196}, pooled);
 }
 
+std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input) {
+  constexpr scalar_t kSqrt2OverPi = 0.7978845608028654f;
+  constexpr scalar_t kCubicCoeff = 0.044715f;
+
+  auto cubed = input->pow(3.0f);
+  auto inner = input->add(cubed->mul(kCubicCoeff))->mul(kSqrt2OverPi);
+  auto gate = inner->tanh()->add(1.0f)->mul(0.5f);
+
+  return input->mul(gate);
+}
+
 Linear::Linear(size_t in_features, size_t out_features) {
   std::uniform_real_distribution<scalar_t> dis(-0.1f, 0.1f);
 
@@ -156,6 +167,31 @@ std::shared_ptr<Tensor> LayerNorm::bias() { return bias_; }
 
 std::shared_ptr<Tensor> ReLU::forward(const std::shared_ptr<Tensor> &input) {
   return input->relu();
+}
+
+Dropout::Dropout(scalar_t p) : p_(p) {
+  if (p_ < 0.0f || p_ >= 1.0f) {
+    throw std::invalid_argument("Dropout probability must be in [0, 1)");
+  }
+}
+
+std::shared_ptr<Tensor> Dropout::forward(const std::shared_ptr<Tensor> &input) {
+  if (!is_training() || p_ == 0.0f) {
+    return input;
+  }
+
+  std::bernoulli_distribution keep(1.0 - p_);
+  scalar_t scale = 1.0f / (1.0f - p_);
+
+  std::vector<scalar_t> mask_data(input->size());
+  for (auto &value : mask_data) {
+    value = keep(global_rng()) ? scale : 0.0f;
+  }
+
+  auto mask = std::make_shared<Tensor>(input->shape(), mask_data);
+  mask->to(input->backend());
+
+  return input->mul(mask);
 }
 
 Sequential::Sequential(std::vector<std::shared_ptr<nn::Module>> layers)

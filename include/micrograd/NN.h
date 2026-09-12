@@ -15,6 +15,8 @@ std::shared_ptr<Tensor> cross_entropy(
     const std::shared_ptr<Tensor> &logits,
     const std::vector<size_t> &target_indices);
 std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input);
+std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input);
+
 class Linear : public nn::Module {
  public:
   Linear(size_t in_features, size_t out_features);
@@ -58,6 +60,16 @@ class ReLU : public nn::Module {
  public:
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;
+};
+
+class Dropout : public nn::Module {
+ public:
+  explicit Dropout(scalar_t p);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+
+ private:
+  scalar_t p_;
 };
 
 class Sequential : public nn::Module {
