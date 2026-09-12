@@ -61,6 +61,14 @@ void deallocate(void *data, Device device) {
   }
 }
 
+Storage copy_via_host(const Storage &src, Device to) {
+  Storage copy(src.bytes(), to);
+  if (src.bytes() > 0) {
+    std::memcpy(copy.host_pointer(), src.host_pointer(), src.bytes());
+  }
+  return copy;
+}
+
 }  // namespace
 
 Storage::Storage(size_t bytes, Device device)
@@ -88,15 +96,22 @@ Storage &Storage::operator=(  // NOLINT(bugprone-exception-escape)
 }
 
 Storage Storage::copy_to(Device device) const {
-  if (device == Device::CUDA || device_ == Device::CUDA) {
-    throw std::runtime_error("CUDA support is not compiled in");
+  switch (device_) {
+    case Device::CPU:
+    case Device::Metal:
+      switch (device) {
+        case Device::CPU:
+        case Device::Metal:
+          return copy_via_host(*this, device);
+        case Device::CUDA:
+          throw std::runtime_error("CUDA support is not compiled in");
+      }
+      break;
+    case Device::CUDA:
+      throw std::runtime_error("CUDA support is not compiled in");
   }
 
-  Storage copy(bytes_, device);
-  if (bytes_ > 0) {
-    std::memcpy(copy.host_pointer(), host_pointer(), bytes_);
-  }
-  return copy;
+  throw std::runtime_error("Unknown device");
 }
 
 void *Storage::data() {
