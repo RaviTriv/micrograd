@@ -105,6 +105,28 @@ std::shared_ptr<Tensor> Linear::forward(const std::shared_ptr<Tensor> &input) {
 std::shared_ptr<Tensor> Linear::weights() { return weights_; }
 std::shared_ptr<Tensor> Linear::bias() { return bias_; }
 
+Embedding::Embedding(size_t num_embeddings, size_t dim) {
+  std::uniform_real_distribution<scalar_t> dis(-0.1f, 0.1f);
+
+  std::vector<scalar_t> w_data(num_embeddings * dim);
+  for (auto &w : w_data) {
+    w = dis(global_rng());
+  }
+
+  weight_ = std::make_shared<Tensor>(std::vector<size_t>{num_embeddings, dim},
+                                     w_data);
+  weight_->set_requires_grad(true);
+
+  register_parameter("weight", weight_);
+}
+
+std::shared_ptr<Tensor> Embedding::forward(
+    const std::shared_ptr<Tensor> &input) {
+  return weight_->embedding_lookup(input);
+}
+
+std::shared_ptr<Tensor> Embedding::weight() { return weight_; }
+
 std::shared_ptr<Tensor> ReLU::forward(const std::shared_ptr<Tensor> &input) {
   return input->relu();
 }

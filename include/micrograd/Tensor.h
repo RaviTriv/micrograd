@@ -40,6 +40,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> max(int64_t dim, bool keepdim = false);
   std::shared_ptr<Tensor> argmax(int64_t dim);
   std::shared_ptr<Tensor> matmul(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> embedding_lookup(
+      const std::shared_ptr<Tensor> &indices);
 
   std::shared_ptr<Tensor> relu();
   std::shared_ptr<Tensor> sigmoid();

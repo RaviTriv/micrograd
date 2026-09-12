@@ -28,6 +28,17 @@ class Linear : public nn::Module {
   std::shared_ptr<Tensor> bias_;
 };
 
+class Embedding : public nn::Module {
+ public:
+  Embedding(size_t num_embeddings, size_t dim);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+  std::shared_ptr<Tensor> weight();
+
+ private:
+  std::shared_ptr<Tensor> weight_;
+};
+
 class ReLU : public nn::Module {
  public:
   std::shared_ptr<Tensor> forward(
