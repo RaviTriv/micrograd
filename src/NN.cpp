@@ -1,5 +1,6 @@
 #include "micrograd/NN.h"
 
+#include <cmath>
 #include <cstddef>
 #include <fstream>
 #include <memory>
@@ -235,6 +236,51 @@ void SGD::step() {
       scalar_t update =
           nesterov_ ? grad + momentum_ * velocity[j] : velocity[j];
       p->data()[j] -= learning_rate_ * update;
+    }
+  }
+}
+
+AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
+             scalar_t learning_rate, std::pair<scalar_t, scalar_t> betas,
+             scalar_t eps, scalar_t weight_decay)
+    : parameters_(std::move(parameters)),
+      learning_rate_(learning_rate),
+      beta1_(betas.first),
+      beta2_(betas.second),
+      eps_(eps),
+      weight_decay_(weight_decay) {
+  m_.reserve(parameters_.size());
+  v_.reserve(parameters_.size());
+  for (auto &p : parameters_) {
+    m_.emplace_back(p->size(), scalar_t(0));
+    v_.emplace_back(p->size(), scalar_t(0));
+  }
+}
+
+void AdamW::zero_grad() {
+  for (auto &p : parameters_) {
+    p->zero_grad();
+  }
+}
+
+void AdamW::step() {
+  step_count_++;
+  scalar_t bias_correction1 =
+      1.0f - std::pow(beta1_, static_cast<scalar_t>(step_count_));
+  scalar_t bias_correction2 =
+      1.0f - std::pow(beta2_, static_cast<scalar_t>(step_count_));
+  for (size_t i = 0; i < parameters_.size(); i++) {
+    auto &p = parameters_[i];
+    auto &m = m_[i];
+    auto &v = v_[i];
+    for (size_t j = 0; j < p->size(); j++) {
+      p->data()[j] -= learning_rate_ * weight_decay_ * p->data()[j];
+      scalar_t grad = p->grad()[j];
+      m[j] = beta1_ * m[j] + (1.0f - beta1_) * grad;
+      v[j] = beta2_ * v[j] + (1.0f - beta2_) * grad * grad;
+      scalar_t m_hat = m[j] / bias_correction1;
+      scalar_t v_hat = v[j] / bias_correction2;
+      p->data()[j] -= learning_rate_ * m_hat / (std::sqrt(v_hat) + eps_);
     }
   }
 }

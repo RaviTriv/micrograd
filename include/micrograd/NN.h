@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "Tensor.h"
@@ -97,6 +98,27 @@ class SGD {
   scalar_t weight_decay_;
   bool nesterov_;
   std::vector<std::vector<scalar_t>> velocity_;
+};
+
+class AdamW {
+ public:
+  AdamW(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate,
+        std::pair<scalar_t, scalar_t> betas = {0.9f, 0.999f},
+        scalar_t eps = 1e-8f, scalar_t weight_decay = 1e-2f);
+
+  void step();
+  void zero_grad();
+
+ private:
+  std::vector<std::shared_ptr<Tensor>> parameters_;
+  scalar_t learning_rate_;
+  scalar_t beta1_;
+  scalar_t beta2_;
+  scalar_t eps_;
+  scalar_t weight_decay_;
+  size_t step_count_ = 0;
+  std::vector<std::vector<scalar_t>> m_;
+  std::vector<std::vector<scalar_t>> v_;
 };
 
 void save_model(const std::string &path, Linear &l1, Linear &l2);
