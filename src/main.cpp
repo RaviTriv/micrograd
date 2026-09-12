@@ -1,4 +1,5 @@
 #include <iostream>
+#include <memory>
 #include <string>
 
 #include "micrograd/Autograd.h"
@@ -13,12 +14,12 @@ using namespace micrograd;
 
 namespace {
 
-double evaluate(const MNISTData &set, Linear &l1, Linear &l2) {
+double evaluate(const MNISTData &set, Sequential &net) {
   const NoGradGuard no_grad;
   size_t correct = 0;
   for (size_t i = 0; i < set.images.size(); i++) {
     auto pooled = avg_pool_2x2(set.images[i]);
-    auto out = l2.forward(l1.forward(pooled)->relu());
+    auto out = net.forward(pooled);
     if (out->argmax(1)->data()[0] == set.labels[i]->argmax(1)->data()[0]) {
       correct++;
     }
@@ -38,17 +39,18 @@ int main(int argc, char **argv) {
     auto test = load_mnist(data_dir + "/t10k-images-idx3-ubyte",
                            data_dir + "/t10k-labels-idx1-ubyte", 10000);
 
-    Linear l1(196, 100);
-    Linear l2(100, 10);
+    auto l1 = std::make_shared<Linear>(196, 100);
+    auto l2 = std::make_shared<Linear>(100, 10);
+    Sequential net({l1, std::make_shared<ReLU>(), l2});
 
-    SGD optimizer({l1.weights(), l1.bias(), l2.weights(), l2.bias()}, 0.01f);
+    SGD optimizer(net.parameters(), 0.01f);
 
     for (int epoch = 0; epoch < 30; epoch++) {
       double total_loss = 0.0;
 
       for (size_t i = 0; i < train.images.size(); i++) {
         auto pooled = avg_pool_2x2(train.images[i]);
-        auto out = l2.forward(l1.forward(pooled)->relu());
+        auto out = net.forward(pooled);
         auto loss = mse_loss(out, train.labels[i]);
 
         optimizer.zero_grad();
@@ -60,10 +62,10 @@ int main(int argc, char **argv) {
 
       std::cout << "Epoch " << epoch + 1 << ": loss = "
                 << total_loss / static_cast<double>(train.images.size())
-                << ", test accuracy = " << evaluate(test, l1, l2) << "%\n";
+                << ", test accuracy = " << evaluate(test, net) << "%\n";
     }
 
-    save_model("mnist.bin", l1, l2);
+    save_model("mnist.bin", *l1, *l2);
     std::cout << "Saved trained model to mnist.bin\n";
   } catch (const std::exception &e) {
     std::cerr << "error: " << e.what() << "\n\n"

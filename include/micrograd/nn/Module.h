@@ -7,12 +7,14 @@
 
 #include "micrograd/Tensor.h"
 
-namespace micrograd {
-namespace nn {
+namespace micrograd::nn {
 
 class Module {
  public:
   virtual ~Module() = default;
+
+  virtual std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) = 0;
 
   std::vector<std::shared_ptr<Tensor>> parameters() const {
     std::vector<std::shared_ptr<Tensor>> result;
@@ -77,5 +79,4 @@ class Module {
   std::vector<std::pair<std::string, std::shared_ptr<Module>>> modules_;
 };
 
-}  // namespace nn
-}  // namespace micrograd
+}  // namespace micrograd::nn

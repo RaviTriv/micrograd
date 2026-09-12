@@ -5,6 +5,7 @@
 #include <memory>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -92,6 +93,9 @@ Linear::Linear(size_t in_features, size_t out_features) {
 
   weights_->set_requires_grad(true);
   bias_->set_requires_grad(true);
+
+  register_parameter("weight", weights_);
+  register_parameter("bias", bias_);
 }
 
 std::shared_ptr<Tensor> Linear::forward(const std::shared_ptr<Tensor> &input) {
@@ -100,6 +104,26 @@ std::shared_ptr<Tensor> Linear::forward(const std::shared_ptr<Tensor> &input) {
 
 std::shared_ptr<Tensor> Linear::weights() { return weights_; }
 std::shared_ptr<Tensor> Linear::bias() { return bias_; }
+
+std::shared_ptr<Tensor> ReLU::forward(const std::shared_ptr<Tensor> &input) {
+  return input->relu();
+}
+
+Sequential::Sequential(std::vector<std::shared_ptr<nn::Module>> layers)
+    : layers_(std::move(layers)) {
+  for (size_t i = 0; i < layers_.size(); i++) {
+    register_module(std::to_string(i), layers_[i]);
+  }
+}
+
+std::shared_ptr<Tensor> Sequential::forward(
+    const std::shared_ptr<Tensor> &input) {
+  auto output = input;
+  for (auto &layer : layers_) {
+    output = layer->forward(output);
+  }
+  return output;
+}
 
 SGD::SGD(std::vector<std::shared_ptr<Tensor>> parameters,
          scalar_t learning_rate)

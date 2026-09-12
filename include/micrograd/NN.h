@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "Tensor.h"
+#include "micrograd/nn/Module.h"
 
 namespace micrograd {
 
@@ -14,16 +15,33 @@ std::shared_ptr<Tensor> cross_entropy(
     const std::shared_ptr<Tensor> &logits,
     const std::vector<size_t> &target_indices);
 std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input);
-class Linear {
+class Linear : public nn::Module {
  public:
   Linear(size_t in_features, size_t out_features);
-  std::shared_ptr<Tensor> forward(const std::shared_ptr<Tensor> &input);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
   std::shared_ptr<Tensor> weights();
   std::shared_ptr<Tensor> bias();
 
  private:
   std::shared_ptr<Tensor> weights_;
   std::shared_ptr<Tensor> bias_;
+};
+
+class ReLU : public nn::Module {
+ public:
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+};
+
+class Sequential : public nn::Module {
+ public:
+  explicit Sequential(std::vector<std::shared_ptr<nn::Module>> layers);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+
+ private:
+  std::vector<std::shared_ptr<nn::Module>> layers_;
 };
 
 class SGD {
