@@ -2,8 +2,10 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 
@@ -33,9 +35,18 @@ enum class OpId {
   kLog,
   kSqrt,
   kNeg,
+  kSoftmax,
+  kLogSoftmax,
+  kSumDim,
+  kMean,
+  kMax,
+  kArgmax,
+  kReshape,
+  kStridedCopy,
+  kBroadcastTo,
 };
 
-inline constexpr size_t kOpCount = static_cast<size_t>(OpId::kNeg) + 1;
+inline constexpr size_t kOpCount = static_cast<size_t>(OpId::kBroadcastTo) + 1;
 inline constexpr size_t kDeviceCount = static_cast<size_t>(Device::CUDA) + 1;
 
 struct OpArgs {
@@ -43,6 +54,9 @@ struct OpArgs {
   const Tensor *rhs = nullptr;
   Tensor *out = nullptr;
   scalar_t scalar = 0;
+  int64_t dim = 0;
+  bool keepdim = false;
+  std::span<const size_t> strides = {};
 };
 
 using OpFn = void (*)(const OpArgs &);
