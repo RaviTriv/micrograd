@@ -115,6 +115,9 @@ void *Storage::host_pointer() {
 }
 
 const void *Storage::host_pointer() const {
+  if (device_ == Device::CUDA) {
+    throw std::runtime_error("Storage host_pointer is not available for CUDA");
+  }
   if (device_ != Device::Metal) {
     return data_;
   }
@@ -125,11 +128,13 @@ const void *Storage::host_pointer() const {
 #endif
 }
 
+void *Storage::device_pointer() const { return data_; }
+
 MTL::Buffer *Storage::buffer() const {
   if (device_ != Device::Metal) {
     return nullptr;
   }
-  return static_cast<MTL::Buffer *>(data_);
+  return static_cast<MTL::Buffer *>(device_pointer());
 }
 
 void Storage::release() {
