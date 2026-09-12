@@ -69,8 +69,6 @@ class OpRegistry {
     BackwardSlot(op, device) = fn;
   }
 
-  OpFn Find(OpId op, Device device) const { return Slot(op, device); }
-
   OpFn Lookup(OpId op, Device device) const {
     OpFn fn = Slot(op, device);
     if (fn == nullptr) {
@@ -121,19 +119,4 @@ void DispatchOp(OpId op, Device device, const OpArgs &args);
 std::function<void()> MakeBackward(OpId op, Device device,
                                    const GradArgs &args);
 
-class OpRegistrar {
- public:
-  OpRegistrar(OpId op, Device device, OpFn fn) {
-    OpRegistry::Instance().Register(op, device, fn);
-  }
-};
-
 }  // namespace micrograd
-
-#define MICROGRAD_OP_REGISTRAR_CONCAT_(a, b) a##b
-#define MICROGRAD_OP_REGISTRAR_NAME_(a, b) MICROGRAD_OP_REGISTRAR_CONCAT_(a, b)
-
-#define REGISTER_OP(op, device, fn)                                   \
-  static const ::micrograd::OpRegistrar MICROGRAD_OP_REGISTRAR_NAME_( \
-      micrograd_op_registrar_, __LINE__)(::micrograd::OpId::op,       \
-                                         ::micrograd::Device::device, fn)
