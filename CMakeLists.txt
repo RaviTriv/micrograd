@@ -29,6 +29,7 @@ add_library(micrograd
     src/core/Broadcast.cpp
     src/core/Random.cpp
     src/core/Storage.cpp
+    src/core/Init.cpp
 
     src/ops/Activations.cpp
     src/ops/Arithmetic.cpp

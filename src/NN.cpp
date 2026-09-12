@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "micrograd/Init.h"
 #include "micrograd/Random.h"
 
 namespace micrograd {
@@ -88,15 +89,9 @@ std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input) {
 }
 
 Linear::Linear(size_t in_features, size_t out_features) {
-  std::uniform_real_distribution<scalar_t> dis(-0.1f, 0.1f);
-
-  std::vector<scalar_t> w_data(in_features * out_features);
-  for (auto &w : w_data) {
-    w = dis(global_rng());
-  }
-
-  weights_ = std::make_shared<Tensor>(
-      std::vector<size_t>{in_features, out_features}, w_data);
+  weights_ =
+      std::make_shared<Tensor>(std::vector<size_t>{in_features, out_features});
+  init::kaiming_uniform_(weights_, in_features);
 
   std::vector<scalar_t> b_data(out_features, 0.0f);
   bias_ =
