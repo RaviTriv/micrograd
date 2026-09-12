@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
                 << ", test accuracy = " << evaluate(test, net) << "%\n";
     }
 
-    save_model("mnist.bin", *l1, *l2);
+    save("mnist.bin", net);
     std::cout << "Saved trained model to mnist.bin\n";
   } catch (const std::exception &e) {
     std::cerr << "error: " << e.what() << "\n\n"

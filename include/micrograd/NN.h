@@ -121,7 +121,7 @@ class AdamW {
   std::vector<std::vector<scalar_t>> v_;
 };
 
-void save_model(const std::string &path, Linear &l1, Linear &l2);
-void load_model(const std::string &path, Linear &l1, Linear &l2);
+void save(const std::string &path, nn::Module &module);
+void load(const std::string &path, nn::Module &module);
 
 }  // namespace micrograd
