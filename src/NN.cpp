@@ -127,6 +127,33 @@ std::shared_ptr<Tensor> Embedding::forward(
 
 std::shared_ptr<Tensor> Embedding::weight() { return weight_; }
 
+LayerNorm::LayerNorm(std::vector<size_t> normalized_shape, scalar_t eps)
+    : normalized_shape_(std::move(normalized_shape)), eps_(eps) {
+  size_t count = 1;
+  for (auto dim : normalized_shape_) {
+    count *= dim;
+  }
+
+  gain_ = std::make_shared<Tensor>(normalized_shape_,
+                                   std::vector<scalar_t>(count, 1.0f));
+  bias_ = std::make_shared<Tensor>(normalized_shape_,
+                                   std::vector<scalar_t>(count, 0.0f));
+
+  gain_->set_requires_grad(true);
+  bias_->set_requires_grad(true);
+
+  register_parameter("gain", gain_);
+  register_parameter("bias", bias_);
+}
+
+std::shared_ptr<Tensor> LayerNorm::forward(
+    const std::shared_ptr<Tensor> &input) {
+  return input->layer_norm(normalized_shape_, gain_, bias_, eps_);
+}
+
+std::shared_ptr<Tensor> LayerNorm::gain() { return gain_; }
+std::shared_ptr<Tensor> LayerNorm::bias() { return bias_; }
+
 std::shared_ptr<Tensor> ReLU::forward(const std::shared_ptr<Tensor> &input) {
   return input->relu();
 }

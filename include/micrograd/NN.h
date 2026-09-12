@@ -39,6 +39,21 @@ class Embedding : public nn::Module {
   std::shared_ptr<Tensor> weight_;
 };
 
+class LayerNorm : public nn::Module {
+ public:
+  LayerNorm(std::vector<size_t> normalized_shape, scalar_t eps = 1e-5f);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+  std::shared_ptr<Tensor> gain();
+  std::shared_ptr<Tensor> bias();
+
+ private:
+  std::vector<size_t> normalized_shape_;
+  scalar_t eps_;
+  std::shared_ptr<Tensor> gain_;
+  std::shared_ptr<Tensor> bias_;
+};
+
 class ReLU : public nn::Module {
  public:
   std::shared_ptr<Tensor> forward(
