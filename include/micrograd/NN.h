@@ -15,7 +15,8 @@ std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
 std::shared_ptr<Tensor> cross_entropy(
     const std::shared_ptr<Tensor> &logits,
     const std::vector<size_t> &target_indices);
-std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input);
+std::shared_ptr<Tensor> avg_pool2d(const std::shared_ptr<Tensor> &input,
+                                   size_t kernel);
 std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input);
 
 class Linear : public nn::Module {

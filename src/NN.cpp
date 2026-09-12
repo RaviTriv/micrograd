@@ -100,24 +100,50 @@ std::shared_ptr<Tensor> cross_entropy(
   return picked->sum()->neg()->div(static_cast<scalar_t>(batch));
 }
 
-std::shared_ptr<Tensor> avg_pool_2x2(const std::shared_ptr<Tensor> &input) {
-  std::vector<scalar_t> pooled(196);
+std::shared_ptr<Tensor> avg_pool2d(const std::shared_ptr<Tensor> &input,
+                                   size_t kernel) {
+  if (input->shape().size() != 2) {
+    throw std::invalid_argument("avg_pool2d expects rank 2 input");
+  }
+  if (kernel == 0) {
+    throw std::invalid_argument("avg_pool2d kernel must be positive");
+  }
 
-  for (size_t py = 0; py < 14; py++) {
-    for (size_t px = 0; px < 14; px++) {
-      scalar_t sum = 0.0f;
-      for (size_t dy = 0; dy < 2; dy++) {
-        for (size_t dx = 0; dx < 2; dx++) {
-          size_t y = (py * 2) + dy;
-          size_t x = (px * 2) + dx;
-          sum += input->at({0, (y * 28) + x});
+  size_t batch = input->shape()[0];
+  size_t pixels = input->shape()[1];
+  auto side =
+      static_cast<size_t>(std::lround(std::sqrt(static_cast<double>(pixels))));
+  if (side * side != pixels) {
+    throw std::invalid_argument("avg_pool2d expects a square image");
+  }
+  if (side % kernel != 0) {
+    throw std::invalid_argument(
+        "avg_pool2d kernel must evenly divide the image side");
+  }
+
+  size_t pooled_side = side / kernel;
+  size_t pooled_pixels = pooled_side * pooled_side;
+  auto divisor = static_cast<scalar_t>(kernel * kernel);
+
+  std::vector<scalar_t> pooled(batch * pooled_pixels);
+  for (size_t b = 0; b < batch; b++) {
+    for (size_t py = 0; py < pooled_side; py++) {
+      for (size_t px = 0; px < pooled_side; px++) {
+        scalar_t sum = 0.0f;
+        for (size_t dy = 0; dy < kernel; dy++) {
+          for (size_t dx = 0; dx < kernel; dx++) {
+            size_t y = (py * kernel) + dy;
+            size_t x = (px * kernel) + dx;
+            sum += input->at({b, (y * side) + x});
+          }
         }
+        pooled[(b * pooled_pixels) + (py * pooled_side) + px] = sum / divisor;
       }
-      pooled[(py * 14) + px] = sum / 4.0f;
     }
   }
 
-  return std::make_shared<Tensor>(std::vector<size_t>{1, 196}, pooled);
+  return std::make_shared<Tensor>(std::vector<size_t>{batch, pooled_pixels},
+                                  pooled);
 }
 
 std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input) {
