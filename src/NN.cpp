@@ -206,8 +206,18 @@ std::shared_ptr<Tensor> Sequential::forward(
 }
 
 SGD::SGD(std::vector<std::shared_ptr<Tensor>> parameters,
-         scalar_t learning_rate)
-    : parameters_(std::move(parameters)), learning_rate_(learning_rate) {}
+         scalar_t learning_rate, scalar_t momentum, scalar_t weight_decay,
+         bool nesterov)
+    : parameters_(std::move(parameters)),
+      learning_rate_(learning_rate),
+      momentum_(momentum),
+      weight_decay_(weight_decay),
+      nesterov_(nesterov) {
+  velocity_.reserve(parameters_.size());
+  for (auto &p : parameters_) {
+    velocity_.emplace_back(p->size(), scalar_t(0));
+  }
+}
 
 void SGD::zero_grad() {
   for (auto &p : parameters_) {
@@ -216,9 +226,15 @@ void SGD::zero_grad() {
 }
 
 void SGD::step() {
-  for (auto &p : parameters_) {
-    for (size_t i = 0; i < p->size(); i++) {
-      p->data()[i] -= learning_rate_ * p->grad()[i];
+  for (size_t i = 0; i < parameters_.size(); i++) {
+    auto &p = parameters_[i];
+    auto &velocity = velocity_[i];
+    for (size_t j = 0; j < p->size(); j++) {
+      scalar_t grad = p->grad()[j] + weight_decay_ * p->data()[j];
+      velocity[j] = momentum_ * velocity[j] + grad;
+      scalar_t update =
+          nesterov_ ? grad + momentum_ * velocity[j] : velocity[j];
+      p->data()[j] -= learning_rate_ * update;
     }
   }
 }

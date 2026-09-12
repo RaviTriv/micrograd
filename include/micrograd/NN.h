@@ -84,7 +84,8 @@ class Sequential : public nn::Module {
 
 class SGD {
  public:
-  SGD(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate);
+  SGD(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate,
+      scalar_t momentum = 0, scalar_t weight_decay = 0, bool nesterov = false);
 
   void step();
   void zero_grad();
@@ -92,6 +93,10 @@ class SGD {
  private:
   std::vector<std::shared_ptr<Tensor>> parameters_;
   scalar_t learning_rate_;
+  scalar_t momentum_;
+  scalar_t weight_decay_;
+  bool nesterov_;
+  std::vector<std::vector<scalar_t>> velocity_;
 };
 
 void save_model(const std::string &path, Linear &l1, Linear &l2);
