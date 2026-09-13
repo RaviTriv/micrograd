@@ -2,6 +2,7 @@
 
 #include <mutex>
 
+#include "micrograd/cuda/ops/Ops.h"
 #include "micrograd/metal/ops/Ops.h"
 #include "micrograd/ops/cpu/Ops.h"
 
@@ -16,6 +17,7 @@ void RegisterBuiltinKernels() {
   ops::cpu::RegisterShapeOps();
   ops::cpu::RegisterBroadcastOps();
   metal::ops::RegisterMetalOps();
+  cuda::ops::RegisterCudaOps();
 }
 
 void EnsureRegistered() {
