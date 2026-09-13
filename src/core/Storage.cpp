@@ -9,6 +9,10 @@
 #include "micrograd/metal/MetalContext.h"
 #endif
 
+#ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/cuda/CudaContext.h"
+#endif
+
 namespace micrograd {
 namespace {
 
@@ -35,14 +39,27 @@ void *allocate(size_t bytes, Device device) {
       throw std::runtime_error("Metal support is not compiled in");
 #endif
     }
-    case Device::CUDA:
+    case Device::CUDA: {
+#ifdef MICROGRAD_CUDA_ENABLED
+      auto &ctx = CudaContext::instance();
+      if (!ctx.isAvailable() && !ctx.initialize()) {
+        throw std::runtime_error("CUDA device is unavailable");
+      }
+      void *ptr = ctx.allocate(bytes);
+      if (!ptr) {
+        throw std::runtime_error("CUDA allocation failed");
+      }
+      return ptr;
+#else
       throw std::runtime_error("CUDA support is not compiled in");
+#endif
+    }
   }
 
   throw std::runtime_error("Unknown device");
 }
 
-void deallocate(void *data, Device device) {
+void deallocate(void *data, [[maybe_unused]] size_t bytes, Device device) {
   if (!data) {
     return;
   }
@@ -51,13 +68,16 @@ void deallocate(void *data, Device device) {
     case Device::CPU:
       ::operator delete(data);
       return;
-    case Device::Metal:
+    case Device::Metal:  // NOLINT(bugprone-branch-clone)
 #ifdef MICROGRAD_METAL_ENABLED
       MetalContext::instance().releaseBuffer(static_cast<MTL::Buffer *>(data));
 #endif
       return;
     case Device::CUDA:
-      throw std::runtime_error("CUDA support is not compiled in");
+#ifdef MICROGRAD_CUDA_ENABLED
+      CudaContext::instance().deallocate(data, bytes);
+#endif
+      return;
   }
 }
 
@@ -153,7 +173,7 @@ MTL::Buffer *Storage::buffer() const {
 }
 
 void Storage::release() {
-  deallocate(data_, device_);
+  deallocate(data_, bytes_, device_);
   data_ = nullptr;
   bytes_ = 0;
 }

@@ -15,8 +15,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 add_compile_options(
-    -Wall -Wextra -Wpedantic
-    -Wshadow -Wconversion -Wsign-conversion
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Wpedantic;-Wshadow;-Wconversion;-Wsign-conversion>"
 )
 
 if(APPLE)
@@ -78,7 +77,7 @@ add_library(micrograd
     src/metal/ops/Reduction.cpp
 )
 
-target_compile_options(micrograd PRIVATE -Werror)
+target_compile_options(micrograd PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Werror>)
 
 target_include_directories(micrograd PUBLIC include)
 
@@ -100,7 +99,10 @@ if(APPLE AND ENABLE_METAL)
 endif()
 
 if(ENABLE_CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    target_sources(micrograd PRIVATE src/cuda/CudaContext.cu)
     target_compile_definitions(micrograd PUBLIC MICROGRAD_CUDA_ENABLED)
+    target_link_libraries(micrograd PUBLIC CUDA::cudart)
 endif()
 
 add_executable(main src/main.cpp)
