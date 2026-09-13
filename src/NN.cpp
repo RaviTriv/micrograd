@@ -82,20 +82,28 @@ std::shared_ptr<Tensor> cross_entropy(
         "cross_entropy target count does not match the batch size");
   }
 
-  std::vector<scalar_t> selected(batch * classes, 0.0f);
+  std::vector<scalar_t> index_values(batch);
   for (size_t i = 0; i < batch; i++) {
     if (target_indices[i] >= classes) {
       throw std::out_of_range("cross_entropy target index is out of range");
     }
-    selected[(i * classes) + target_indices[i]] = 1.0f;
+    index_values[i] = static_cast<scalar_t>(target_indices[i]);
   }
+  auto indices =
+      std::make_shared<Tensor>(std::vector<size_t>{batch}, index_values);
+  indices->to(logits->backend());
 
-  auto selector =
-      std::make_shared<Tensor>(std::vector<size_t>{batch, classes}, selected);
-  selector->to(logits->backend());
+  std::vector<scalar_t> diagonal(batch * batch, 0.0f);
+  for (size_t i = 0; i < batch; i++) {
+    diagonal[(i * batch) + i] = 1.0f;
+  }
+  auto diagonal_mask =
+      std::make_shared<Tensor>(std::vector<size_t>{batch, batch}, diagonal);
+  diagonal_mask->to(logits->backend());
 
   auto log_probs = logits->log_softmax(1);
-  auto picked = log_probs->mul(selector);
+  auto gathered = log_probs->transpose(0, 1)->embedding_lookup(indices);
+  auto picked = gathered->mul(diagonal_mask);
 
   return picked->sum()->neg()->div(static_cast<scalar_t>(batch));
 }
@@ -284,7 +292,7 @@ SGD::SGD(std::vector<std::shared_ptr<Tensor>> parameters,
       nesterov_(nesterov) {
   velocity_.reserve(parameters_.size());
   for (auto &p : parameters_) {
-    velocity_.emplace_back(p->size(), scalar_t(0));
+    velocity_.emplace_back(p->size(), static_cast<scalar_t>(0));
   }
 }
 
@@ -320,8 +328,8 @@ AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
   m_.reserve(parameters_.size());
   v_.reserve(parameters_.size());
   for (auto &p : parameters_) {
-    m_.emplace_back(p->size(), scalar_t(0));
-    v_.emplace_back(p->size(), scalar_t(0));
+    m_.emplace_back(p->size(), static_cast<scalar_t>(0));
+    v_.emplace_back(p->size(), static_cast<scalar_t>(0));
   }
 }
 
@@ -457,7 +465,7 @@ void load(const std::string &path, nn::Module &module) {
     }
 
     auto data = tensor->data();
-    std::copy(values.begin(), values.end(), data.begin());
+    std::ranges::copy(values, data.begin());
   }
 }
 
