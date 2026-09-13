@@ -108,6 +108,7 @@ if(ENABLE_CUDA)
         src/cuda/ops/Activations.cu
         src/cuda/ops/Broadcast.cu
         src/cuda/ops/Reduction.cu
+        src/cuda/ops/Matmul.cu
     )
     target_compile_definitions(micrograd PUBLIC MICROGRAD_CUDA_ENABLED)
     target_link_libraries(micrograd PUBLIC CUDA::cudart)
