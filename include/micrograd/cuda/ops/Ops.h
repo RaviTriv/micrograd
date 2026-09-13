@@ -7,5 +7,6 @@ void RegisterCudaOps();
 void RegisterArithmeticOps();
 void RegisterActivationOps();
 void RegisterBroadcastOps();
+void RegisterReductionOps();
 
 }  // namespace micrograd::cuda::ops

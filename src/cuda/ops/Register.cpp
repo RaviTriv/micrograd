@@ -7,6 +7,7 @@ void RegisterCudaOps() {
   RegisterArithmeticOps();
   RegisterActivationOps();
   RegisterBroadcastOps();
+  RegisterReductionOps();
 #endif
 }
 
