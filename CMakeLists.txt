@@ -42,8 +42,10 @@ add_library(micrograd
 
     src/ops/cpu/Activations.cpp
     src/ops/cpu/Arithmetic.cpp
+    src/ops/cpu/Broadcast.cpp
     src/ops/cpu/Matmul.cpp
     src/ops/cpu/Reduction.cpp
+    src/ops/cpu/Shape.cpp
 
     src/NN.cpp
     src/MNIST.cpp

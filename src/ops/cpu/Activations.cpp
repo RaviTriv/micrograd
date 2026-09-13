@@ -1,5 +1,7 @@
 #include <cmath>
+#include <cstddef>
 #include <functional>
+#include <vector>
 
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
@@ -7,6 +9,41 @@
 
 namespace micrograd::ops::cpu {
 namespace {
+
+struct AxisLayout {
+  size_t outer = 1;
+  size_t reduced = 1;
+  size_t inner = 1;
+};
+
+AxisLayout LayoutFor(const std::vector<size_t> &shape, size_t axis) {
+  AxisLayout layout;
+  for (size_t i = 0; i < axis; i++) {
+    layout.outer *= shape[i];
+  }
+  layout.reduced = shape[axis];
+  for (size_t i = axis + 1; i < shape.size(); i++) {
+    layout.inner *= shape[i];
+  }
+  return layout;
+}
+
+size_t AxisOffset(const AxisLayout &layout, size_t outer, size_t position,
+                  size_t inner) {
+  return (((outer * layout.reduced) + position) * layout.inner) + inner;
+}
+
+scalar_t SliceMax(const scalar_t *values, const AxisLayout &layout,
+                  size_t outer, size_t inner) {
+  scalar_t largest = values[AxisOffset(layout, outer, 0, inner)];
+  for (size_t k = 1; k < layout.reduced; k++) {
+    scalar_t candidate = values[AxisOffset(layout, outer, k, inner)];
+    if (candidate > largest) {
+      largest = candidate;
+    }
+  }
+  return largest;
+}
 
 void Relu(const OpArgs &args) {
   auto lhs = args.lhs->data();
@@ -142,6 +179,94 @@ std::function<void()> NegBackward(const GradArgs &args) {
   };
 }
 
+void Softmax(const OpArgs &args) {
+  auto axis = static_cast<size_t>(args.dim);
+  AxisLayout layout = LayoutFor(args.lhs->shape(), axis);
+  auto source = args.lhs->data();
+  auto values = args.out->data();
+  for (size_t o = 0; o < layout.outer; o++) {
+    for (size_t i = 0; i < layout.inner; i++) {
+      scalar_t largest = SliceMax(source.data(), layout, o, i);
+      scalar_t total = 0;
+      for (size_t k = 0; k < layout.reduced; k++) {
+        size_t offset = AxisOffset(layout, o, k, i);
+        values[offset] = std::exp(source[offset] - largest);
+        total += values[offset];
+      }
+      for (size_t k = 0; k < layout.reduced; k++) {
+        values[AxisOffset(layout, o, k, i)] /= total;
+      }
+    }
+  }
+}
+
+std::function<void()> SoftmaxBackward(const GradArgs &args) {
+  auto axis = static_cast<size_t>(args.dim);
+  return [out = args.out, lhs = args.lhs, axis]() {
+    AxisLayout layout = LayoutFor(lhs->shape(), axis);
+    auto gradient = lhs->grad();
+    auto outputs = out->data();
+    auto incoming = out->grad();
+    for (size_t o = 0; o < layout.outer; o++) {
+      for (size_t i = 0; i < layout.inner; i++) {
+        scalar_t weighted = 0;
+        for (size_t k = 0; k < layout.reduced; k++) {
+          size_t offset = AxisOffset(layout, o, k, i);
+          weighted += incoming[offset] * outputs[offset];
+        }
+        for (size_t k = 0; k < layout.reduced; k++) {
+          size_t offset = AxisOffset(layout, o, k, i);
+          gradient[offset] += outputs[offset] * (incoming[offset] - weighted);
+        }
+      }
+    }
+  };
+}
+
+void LogSoftmax(const OpArgs &args) {
+  auto axis = static_cast<size_t>(args.dim);
+  AxisLayout layout = LayoutFor(args.lhs->shape(), axis);
+  auto source = args.lhs->data();
+  auto values = args.out->data();
+  for (size_t o = 0; o < layout.outer; o++) {
+    for (size_t i = 0; i < layout.inner; i++) {
+      scalar_t largest = SliceMax(source.data(), layout, o, i);
+      scalar_t total = 0;
+      for (size_t k = 0; k < layout.reduced; k++) {
+        total += std::exp(source[AxisOffset(layout, o, k, i)] - largest);
+      }
+      scalar_t shift = largest + std::log(total);
+      for (size_t k = 0; k < layout.reduced; k++) {
+        size_t offset = AxisOffset(layout, o, k, i);
+        values[offset] = source[offset] - shift;
+      }
+    }
+  }
+}
+
+std::function<void()> LogSoftmaxBackward(const GradArgs &args) {
+  auto axis = static_cast<size_t>(args.dim);
+  return [out = args.out, lhs = args.lhs, axis]() {
+    AxisLayout layout = LayoutFor(lhs->shape(), axis);
+    auto gradient = lhs->grad();
+    auto outputs = out->data();
+    auto incoming = out->grad();
+    for (size_t o = 0; o < layout.outer; o++) {
+      for (size_t i = 0; i < layout.inner; i++) {
+        scalar_t total = 0;
+        for (size_t k = 0; k < layout.reduced; k++) {
+          total += incoming[AxisOffset(layout, o, k, i)];
+        }
+        for (size_t k = 0; k < layout.reduced; k++) {
+          size_t offset = AxisOffset(layout, o, k, i);
+          gradient[offset] +=
+              incoming[offset] - (std::exp(outputs[offset]) * total);
+        }
+      }
+    }
+  };
+}
+
 }  // namespace
 
 void RegisterActivationOps() {
@@ -153,6 +278,8 @@ void RegisterActivationOps() {
   registry.Register(OpId::kLog, Device::CPU, Log);
   registry.Register(OpId::kSqrt, Device::CPU, Sqrt);
   registry.Register(OpId::kNeg, Device::CPU, Neg);
+  registry.Register(OpId::kSoftmax, Device::CPU, Softmax);
+  registry.Register(OpId::kLogSoftmax, Device::CPU, LogSoftmax);
   registry.RegisterBackward(OpId::kRelu, Device::CPU, ReluBackward);
   registry.RegisterBackward(OpId::kSigmoid, Device::CPU, SigmoidBackward);
   registry.RegisterBackward(OpId::kTanh, Device::CPU, TanhBackward);
@@ -160,6 +287,8 @@ void RegisterActivationOps() {
   registry.RegisterBackward(OpId::kLog, Device::CPU, LogBackward);
   registry.RegisterBackward(OpId::kSqrt, Device::CPU, SqrtBackward);
   registry.RegisterBackward(OpId::kNeg, Device::CPU, NegBackward);
+  registry.RegisterBackward(OpId::kSoftmax, Device::CPU, SoftmaxBackward);
+  registry.RegisterBackward(OpId::kLogSoftmax, Device::CPU, LogSoftmaxBackward);
 }
 
 }  // namespace micrograd::ops::cpu

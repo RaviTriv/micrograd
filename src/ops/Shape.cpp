@@ -1,7 +1,4 @@
-#include <algorithm>
 #include <cstdint>
-#include <functional>
-#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -9,6 +6,7 @@
 #include "micrograd/Autograd.h"
 #include "micrograd/Broadcast.h"
 #include "micrograd/Tensor.h"
+#include "micrograd/ops/Dispatch.h"
 
 namespace micrograd {
 namespace {
@@ -71,30 +69,6 @@ std::vector<size_t> NormalizeDims(const std::vector<int64_t> &dims,
   return resolved;
 }
 
-template <typename Visit>
-void ForEachStridedIndex(const std::vector<size_t> &shape,
-                         const std::vector<size_t> &strides, Visit visit) {
-  size_t total = 1;
-  for (size_t dim : shape) {
-    total *= dim;
-  }
-
-  std::vector<size_t> index(shape.size(), 0);
-  for (size_t linear = 0; linear < total; linear++) {
-    size_t offset = 0;
-    for (size_t d = 0; d < shape.size(); d++) {
-      offset += index[d] * strides[d];
-    }
-    visit(linear, offset);
-    for (size_t d = shape.size(); d > 0; d--) {
-      if (++index[d - 1] < shape[d - 1]) {
-        break;
-      }
-      index[d - 1] = 0;
-    }
-  }
-}
-
 }  // namespace
 
 std::shared_ptr<Tensor> Tensor::reshape(const std::vector<int64_t> &shape) {
@@ -109,14 +83,8 @@ std::shared_ptr<Tensor> Tensor::reshape(const std::vector<int64_t> &shape) {
   if (result->requires_grad_) {
     auto self_ptr = shared_from_this();
     result->children_ = {self_ptr};
-    result->backward_fn_ = [source = self_ptr, out = result.get()]() {
-      out->to(Backend::CPU);
-      std::span<scalar_t> source_grad(
-          static_cast<scalar_t *>(source->grad_storage().host_pointer()),
-          source->size());
-      std::ranges::transform(source_grad, out->grad(), source_grad.begin(),
-                             std::plus<>{});
-    };
+    result->backward_fn_ = MakeBackward(OpId::kReshape, backend(),
+                                        {.lhs = self_ptr, .out = result.get()});
   }
 
   return result;
@@ -128,32 +96,17 @@ std::shared_ptr<Tensor> Tensor::view(const std::vector<int64_t> &shape) {
 
 std::shared_ptr<Tensor> Tensor::strided_copy(
     const std::vector<size_t> &shape, const std::vector<size_t> &strides) {
-  const auto *source = static_cast<const scalar_t *>(data_.host_pointer());
-
   auto result = std::make_shared<Tensor>(shape);
-  std::span<scalar_t> values = result->data();
-  ForEachStridedIndex(shape, strides, [&](size_t linear, size_t offset) {
-    values[linear] = source[offset];
-  });
-  result->to(backend());
+  DispatchOp(OpId::kStridedCopy, backend(),
+             {.lhs = this, .out = result.get(), .strides = strides});
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
   if (result->requires_grad_) {
     auto self_ptr = shared_from_this();
-    auto source_strides = std::make_shared<const std::vector<size_t>>(strides);
     result->children_ = {self_ptr};
-    result->backward_fn_ = [source_tensor = self_ptr, out = result.get(),
-                            source_strides]() {
-      out->to(Backend::CPU);
-      std::span<scalar_t> gradient(
-          static_cast<scalar_t *>(source_tensor->grad_storage().host_pointer()),
-          source_tensor->size());
-      std::span<const scalar_t> incoming = out->grad();
-      ForEachStridedIndex(out->shape(), *source_strides,
-                          [&](size_t linear, size_t offset) {
-                            gradient[offset] += incoming[linear];
-                          });
-    };
+    result->backward_fn_ = MakeBackward(
+        OpId::kStridedCopy, backend(),
+        {.lhs = self_ptr, .out = result.get(), .strides = strides});
   }
 
   return result;

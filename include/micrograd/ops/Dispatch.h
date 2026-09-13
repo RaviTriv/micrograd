@@ -66,6 +66,8 @@ struct GradArgs {
   std::shared_ptr<Tensor> rhs = nullptr;
   Tensor *out = nullptr;
   scalar_t scalar = 0;
+  int64_t dim = 0;
+  std::span<const size_t> strides = {};
 };
 
 using GradFn = std::function<void()> (*)(const GradArgs &);

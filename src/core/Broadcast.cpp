@@ -6,6 +6,7 @@
 
 #include "micrograd/Autograd.h"
 #include "micrograd/Tensor.h"
+#include "micrograd/ops/Dispatch.h"
 
 namespace micrograd {
 namespace {
@@ -75,78 +76,20 @@ std::vector<size_t> BroadcastStrides(const std::vector<size_t> &shape,
   return result;
 }
 
-void ReduceBroadcastGradient(std::span<const scalar_t> gradient,
-                             const std::vector<size_t> &shape,
-                             std::span<scalar_t> reduced,
-                             const std::vector<size_t> &target) {
-  std::vector<size_t> strides =
-      BroadcastStrides(target, ContiguousStrides(target), shape);
-
-  std::vector<size_t> index(shape.size(), 0);
-  for (scalar_t value : gradient) {
-    size_t reduced_index = 0;
-    for (size_t d = 0; d < shape.size(); d++) {
-      reduced_index += index[d] * strides[d];
-    }
-    reduced[reduced_index] += value;
-    for (size_t d = shape.size(); d > 0; d--) {
-      if (++index[d - 1] < shape[d - 1]) {
-        break;
-      }
-      index[d - 1] = 0;
-    }
-  }
-}
-
-std::shared_ptr<Tensor> BroadcastTo(const std::shared_ptr<Tensor> &tensor,
-                                    const std::vector<size_t> &shape) {
-  if (tensor->shape() == shape) {
-    return tensor;
-  }
-
-  std::vector<size_t> strides = BroadcastStrides(
-      tensor->shape(), ContiguousStrides(tensor->shape()), shape);
-  const auto *source =
-      static_cast<const scalar_t *>(tensor->data_storage().host_pointer());
-
-  auto result = std::make_shared<Tensor>(shape);
-  std::vector<size_t> index(shape.size(), 0);
-  for (scalar_t &value : result->data()) {
-    size_t source_index = 0;
-    for (size_t d = 0; d < shape.size(); d++) {
-      source_index += index[d] * strides[d];
-    }
-    value = source[source_index];
-    for (size_t d = shape.size(); d > 0; d--) {
-      if (++index[d - 1] < shape[d - 1]) {
-        break;
-      }
-      index[d - 1] = 0;
-    }
-  }
-
-  result->to(tensor->backend());
-  return result;
-}
-
 std::shared_ptr<Tensor> Tensor::broadcast_to(const std::vector<size_t> &shape) {
   auto self_ptr = shared_from_this();
   if (shape_ == shape) {
     return self_ptr;
   }
 
-  auto result = BroadcastTo(self_ptr, shape);
+  auto result = std::make_shared<Tensor>(shape);
+  DispatchOp(OpId::kBroadcastTo, backend(), {.lhs = this, .out = result.get()});
+
   result->requires_grad_ = GradEnabled() && requires_grad_;
   if (result->requires_grad_) {
     result->children_ = {self_ptr};
-    result->backward_fn_ = [source = self_ptr, out = result.get()]() {
-      out->to(Backend::CPU);
-      std::span<scalar_t> source_grad(
-          static_cast<scalar_t *>(source->grad_storage().host_pointer()),
-          source->size());
-      ReduceBroadcastGradient(out->grad(), out->shape(), source_grad,
-                              source->shape());
-    };
+    result->backward_fn_ = MakeBackward(OpId::kBroadcastTo, backend(),
+                                        {.lhs = self_ptr, .out = result.get()});
   }
 
   return result;

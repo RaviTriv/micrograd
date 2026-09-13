@@ -13,6 +13,8 @@ void RegisterBuiltinKernels() {
   ops::cpu::RegisterMatmulOps();
   ops::cpu::RegisterReductionOps();
   ops::cpu::RegisterActivationOps();
+  ops::cpu::RegisterShapeOps();
+  ops::cpu::RegisterBroadcastOps();
   metal::ops::RegisterMetalOps();
 }
 
