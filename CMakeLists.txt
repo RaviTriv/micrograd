@@ -22,6 +22,24 @@ add_compile_options(
 if(APPLE)
     option(ENABLE_METAL "Metal GPU acceleration" ON)
 endif()
+option(ENABLE_CUDA "CUDA GPU acceleration" OFF)
+
+if(ENABLE_METAL AND ENABLE_CUDA)
+    message(FATAL_ERROR "ENABLE_METAL and ENABLE_CUDA are mutually exclusive")
+endif()
+
+if(ENABLE_CUDA)
+    include(CheckLanguage)
+    check_language(CUDA)
+    if(CMAKE_CUDA_COMPILER)
+        if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+            set(CMAKE_CUDA_ARCHITECTURES native)
+        endif()
+        enable_language(CUDA)
+    else()
+        message(FATAL_ERROR "ENABLE_CUDA requested but no CUDA compiler was found")
+    endif()
+endif()
 
 add_library(micrograd
     src/core/Tensor.cpp
@@ -79,6 +97,10 @@ if(APPLE AND ENABLE_METAL)
         "-framework Metal"
         "-framework Foundation"
     )
+endif()
+
+if(ENABLE_CUDA)
+    target_compile_definitions(micrograd PUBLIC MICROGRAD_CUDA_ENABLED)
 endif()
 
 add_executable(main src/main.cpp)
