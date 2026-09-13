@@ -123,6 +123,12 @@ endif()
 add_executable(main src/main.cpp)
 target_link_libraries(main PRIVATE micrograd)
 
+add_library(gpt_bpe
+    examples/gpt/BPE.cpp
+)
+target_include_directories(gpt_bpe PUBLIC .)
+target_compile_options(gpt_bpe PRIVATE -Werror)
+
 option(FETCH_MNIST "Download the MNIST dataset" ON)
 if(FETCH_MNIST)
     set(MNIST_DATA_DIR "${CMAKE_BINARY_DIR}/mnist-data")
