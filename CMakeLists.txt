@@ -106,6 +106,7 @@ if(ENABLE_CUDA)
         src/cuda/CudaContext.cu
         src/cuda/ops/Arithmetic.cu
         src/cuda/ops/Activations.cu
+        src/cuda/ops/Broadcast.cu
     )
     target_compile_definitions(micrograd PUBLIC MICROGRAD_CUDA_ENABLED)
     target_link_libraries(micrograd PUBLIC CUDA::cudart)

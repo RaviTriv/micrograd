@@ -6,6 +6,7 @@ void RegisterCudaOps() {
 #ifdef MICROGRAD_CUDA_ENABLED
   RegisterArithmeticOps();
   RegisterActivationOps();
+  RegisterBroadcastOps();
 #endif
 }
 
