@@ -36,6 +36,14 @@ bool CudaContext::initialize() {
     return false;
   }
 
+#ifdef MICROGRAD_CUBLAS_ENABLED
+  if (cublasCreate(&cublas_handle_) != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "Failed to create cuBLAS handle.\n";
+    return false;
+  }
+  cublasSetStream(cublas_handle_, stream_);
+#endif
+
   initialized_ = true;
   return true;
 }
@@ -81,6 +89,13 @@ void CudaContext::shutdown() {
   }
   free_blocks_.clear();
 
+#ifdef MICROGRAD_CUBLAS_ENABLED
+  if (cublas_handle_) {
+    cublasDestroy(cublas_handle_);
+  }
+  cublas_handle_ = nullptr;
+#endif
+
   if (stream_) {
     cudaStreamDestroy(stream_);
   }
@@ -95,6 +110,10 @@ bool CudaContext::isAvailable() const {
 
 cudaStream_t CudaContext::stream() const { return stream_; }
 int CudaContext::device() const { return device_; }
+
+#ifdef MICROGRAD_CUBLAS_ENABLED
+cublasHandle_t CudaContext::cublasHandle() const { return cublas_handle_; }
+#endif
 
 }  // namespace micrograd
 

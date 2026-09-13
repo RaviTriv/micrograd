@@ -2,6 +2,10 @@
 
 #ifdef MICROGRAD_CUDA_ENABLED
 
+#ifdef MICROGRAD_CUBLAS_ENABLED
+#include <cublas_v2.h>
+#endif
+
 #include <cstddef>
 #include <functional>
 
@@ -135,6 +139,21 @@ scalar_t *GradPtr(Tensor *t) {
   return static_cast<scalar_t *>(t->grad_storage().device_pointer());
 }
 
+#ifdef MICROGRAD_CUBLAS_ENABLED
+void MatmulCublas(const OpArgs &args, size_t batch, size_t m, size_t k,
+                  size_t n) {
+  const scalar_t alpha = 1.0f;
+  const scalar_t beta = 0.0f;
+  cublasSgemmStridedBatched(
+      CudaContext::instance().cublasHandle(), CUBLAS_OP_N, CUBLAS_OP_N,
+      static_cast<int>(n), static_cast<int>(m), static_cast<int>(k), &alpha,
+      DataPtr(args.rhs), static_cast<int>(n), static_cast<long long>(k * n),
+      DataPtr(args.lhs), static_cast<int>(k), static_cast<long long>(m * k),
+      &beta, DataPtr(args.out), static_cast<int>(n),
+      static_cast<long long>(m * n), static_cast<int>(batch));
+}
+#endif
+
 void Matmul(const OpArgs &args) {
   args.out->to(Backend::CUDA);
 
@@ -146,10 +165,14 @@ void Matmul(const OpArgs &args) {
   const size_t k = lhs_shape[rank - 1];
   const size_t n = rhs_shape[rank - 1];
 
+#ifdef MICROGRAD_CUBLAS_ENABLED
+  MatmulCublas(args, batch, m, k, n);
+#else
   const dim3 block(kTile, kTile);
   const dim3 grid(GridDim(n), GridDim(m), static_cast<unsigned int>(batch));
   MatmulNNKernel<<<grid, block, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), m, k, n);
+#endif
 }
 
 std::function<void()> MatmulBackward(const GradArgs &args) {

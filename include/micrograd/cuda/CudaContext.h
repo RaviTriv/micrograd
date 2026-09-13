@@ -4,6 +4,10 @@
 
 #include <cuda_runtime.h>
 
+#ifdef MICROGRAD_CUBLAS_ENABLED
+#include <cublas_v2.h>
+#endif
+
 #include <cstddef>
 #include <unordered_map>
 #include <vector>
@@ -27,6 +31,10 @@ class CudaContext {
   cudaStream_t stream() const;
   int device() const;
 
+#ifdef MICROGRAD_CUBLAS_ENABLED
+  cublasHandle_t cublasHandle() const;
+#endif
+
   void synchronize();
 
  private:
@@ -37,6 +45,9 @@ class CudaContext {
 
   int device_ = 0;
   cudaStream_t stream_ = nullptr;
+#ifdef MICROGRAD_CUBLAS_ENABLED
+  cublasHandle_t cublas_handle_ = nullptr;
+#endif
   std::unordered_map<size_t, std::vector<void *>> free_blocks_;
   bool initialized_ = false;
 };
