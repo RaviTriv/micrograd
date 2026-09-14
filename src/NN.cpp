@@ -414,6 +414,135 @@ void AdamW::step() {
   }
 }
 
+namespace {
+
+std::vector<scalar_t> transpose_matrix(const std::vector<scalar_t> &m,
+                                       size_t rows, size_t cols) {
+  std::vector<scalar_t> result(rows * cols);
+  for (size_t i = 0; i < rows; i++) {
+    for (size_t j = 0; j < cols; j++) {
+      result[j * rows + i] = m[i * cols + j];
+    }
+  }
+  return result;
+}
+
+void matmul_transpose_b(const std::vector<scalar_t> &a, size_t a_rows,
+                        size_t a_cols, const std::vector<scalar_t> &b,
+                        size_t b_rows, std::vector<scalar_t> &out) {
+  for (size_t i = 0; i < a_rows; i++) {
+    for (size_t j = 0; j < b_rows; j++) {
+      scalar_t sum = 0;
+      for (size_t k = 0; k < a_cols; k++) {
+        sum += a[i * a_cols + k] * b[j * a_cols + k];
+      }
+      out[i * b_rows + j] = sum;
+    }
+  }
+}
+
+void matmul(const std::vector<scalar_t> &a, size_t a_rows, size_t a_cols,
+            const std::vector<scalar_t> &b, size_t b_cols,
+            std::vector<scalar_t> &out) {
+  for (size_t i = 0; i < a_rows; i++) {
+    for (size_t j = 0; j < b_cols; j++) {
+      scalar_t sum = 0;
+      for (size_t k = 0; k < a_cols; k++) {
+        sum += a[i * a_cols + k] * b[k * b_cols + j];
+      }
+      out[i * b_cols + j] = sum;
+    }
+  }
+}
+
+std::vector<scalar_t> zeropower_via_newton_schulz5(
+    const std::vector<scalar_t> &g, size_t rows, size_t cols, size_t steps) {
+  constexpr scalar_t a = 3.4445f;
+  constexpr scalar_t b = -4.7750f;
+  constexpr scalar_t c = 2.0315f;
+
+  scalar_t norm = 0;
+  for (auto v : g) {
+    norm += v * v;
+  }
+  norm = std::sqrt(norm) + static_cast<scalar_t>(1e-7);
+
+  bool wide = rows <= cols;
+  size_t r = wide ? rows : cols;
+  size_t cc = wide ? cols : rows;
+  std::vector<scalar_t> x = wide ? g : transpose_matrix(g, rows, cols);
+  for (auto &v : x) {
+    v /= norm;
+  }
+
+  std::vector<scalar_t> a_mat(r * r);
+  std::vector<scalar_t> a2(r * r);
+  std::vector<scalar_t> b_mat(r * r);
+  std::vector<scalar_t> bx(r * cc);
+  for (size_t step = 0; step < steps; step++) {
+    matmul_transpose_b(x, r, cc, x, r, a_mat);
+    matmul(a_mat, r, r, a_mat, r, a2);
+    for (size_t i = 0; i < r * r; i++) {
+      b_mat[i] = b * a_mat[i] + c * a2[i];
+    }
+    matmul(b_mat, r, r, x, cc, bx);
+    for (size_t i = 0; i < r * cc; i++) {
+      x[i] = a * x[i] + bx[i];
+    }
+  }
+  return wide ? x : transpose_matrix(x, r, cc);
+}
+
+}  // namespace
+
+Muon::Muon(std::vector<std::shared_ptr<Tensor>> parameters,
+           scalar_t learning_rate, scalar_t momentum, scalar_t weight_decay,
+           bool nesterov, size_t ns_steps)
+    : parameters_(std::move(parameters)),
+      learning_rate_(learning_rate),
+      momentum_(momentum),
+      weight_decay_(weight_decay),
+      nesterov_(nesterov),
+      ns_steps_(ns_steps) {
+  momentum_buffer_.reserve(parameters_.size());
+  for (auto &p : parameters_) {
+    if (p->shape().size() != 2) {
+      throw std::invalid_argument("Muon requires 2-D parameters");
+    }
+    momentum_buffer_.emplace_back(p->size(), static_cast<scalar_t>(0));
+  }
+}
+
+void Muon::zero_grad() {
+  for (auto &p : parameters_) {
+    p->zero_grad();
+  }
+}
+
+void Muon::step() {
+  for (size_t i = 0; i < parameters_.size(); i++) {
+    auto &p = parameters_[i];
+    auto &buf = momentum_buffer_[i];
+    size_t rows = p->shape()[0];
+    size_t cols = p->shape()[1];
+    std::vector<scalar_t> update(p->size());
+    for (size_t j = 0; j < p->size(); j++) {
+      scalar_t grad = p->grad()[j];
+      buf[j] = momentum_ * buf[j] + (1.0f - momentum_) * grad;
+      update[j] =
+          nesterov_ ? momentum_ * buf[j] + (1.0f - momentum_) * grad : buf[j];
+    }
+    update = zeropower_via_newton_schulz5(update, rows, cols, ns_steps_);
+    scalar_t scale = std::sqrt(
+        std::max(static_cast<scalar_t>(1),
+                 static_cast<scalar_t>(rows) / static_cast<scalar_t>(cols)));
+    for (size_t j = 0; j < p->size(); j++) {
+      p->data()[j] -= learning_rate_ * weight_decay_ * p->data()[j];
+      p->data()[j] -= learning_rate_ * scale * update[j];
+    }
+  }
+}
+
 void save(const std::string &path, nn::Module &module) {
   std::ofstream file(path, std::ios::binary);
   if (!file.is_open()) {

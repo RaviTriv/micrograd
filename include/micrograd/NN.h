@@ -151,6 +151,25 @@ class AdamW {
   std::vector<std::vector<scalar_t>> v_;
 };
 
+class Muon {
+ public:
+  Muon(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate,
+       scalar_t momentum = 0.95f, scalar_t weight_decay = 0.01f,
+       bool nesterov = true, size_t ns_steps = 5);
+
+  void step();
+  void zero_grad();
+
+ private:
+  std::vector<std::shared_ptr<Tensor>> parameters_;
+  scalar_t learning_rate_;
+  scalar_t momentum_;
+  scalar_t weight_decay_;
+  bool nesterov_;
+  size_t ns_steps_;
+  std::vector<std::vector<scalar_t>> momentum_buffer_;
+};
+
 void save(const std::string &path, nn::Module &module);
 void load(const std::string &path, nn::Module &module);
 
