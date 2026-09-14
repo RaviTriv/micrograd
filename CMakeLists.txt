@@ -127,8 +127,9 @@ target_link_libraries(main PRIVATE micrograd)
 
 add_library(gpt_bpe
     examples/gpt/BPE.cpp
+    examples/gpt/GPTConfig.cpp
 )
-target_include_directories(gpt_bpe PUBLIC .)
+target_include_directories(gpt_bpe PUBLIC . include)
 target_compile_options(gpt_bpe PRIVATE -Werror)
 
 option(FETCH_MNIST "Download the MNIST dataset" ON)
