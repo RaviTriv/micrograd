@@ -46,6 +46,9 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
       const std::vector<size_t> &normalized_shape,
       const std::shared_ptr<Tensor> &gain, const std::shared_ptr<Tensor> &bias,
       scalar_t eps);
+  std::shared_ptr<Tensor> rms_norm(const std::vector<size_t> &normalized_shape,
+                                   const std::shared_ptr<Tensor> &gain,
+                                   scalar_t eps);
   std::shared_ptr<Tensor> rotary_embedding(scalar_t base = 10000.0f);
 
   std::shared_ptr<Tensor> relu();

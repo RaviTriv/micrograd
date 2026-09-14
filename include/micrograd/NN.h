@@ -58,6 +58,19 @@ class LayerNorm : public nn::Module {
   std::shared_ptr<Tensor> bias_;
 };
 
+class RMSNorm : public nn::Module {
+ public:
+  RMSNorm(std::vector<size_t> normalized_shape, scalar_t eps = 1e-5f);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+  std::shared_ptr<Tensor> gain();
+
+ private:
+  std::vector<size_t> normalized_shape_;
+  scalar_t eps_;
+  std::shared_ptr<Tensor> gain_;
+};
+
 class ReLU : public nn::Module {
  public:
   std::shared_ptr<Tensor> forward(

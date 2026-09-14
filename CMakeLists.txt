@@ -55,6 +55,7 @@ add_library(micrograd
     src/ops/LayerNorm.cpp
     src/ops/Matmul.cpp
     src/ops/Reduction.cpp
+    src/ops/RmsNorm.cpp
     src/ops/Rotary.cpp
     src/ops/Shape.cpp
 

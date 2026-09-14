@@ -237,6 +237,26 @@ std::shared_ptr<Tensor> LayerNorm::forward(
 std::shared_ptr<Tensor> LayerNorm::gain() { return gain_; }
 std::shared_ptr<Tensor> LayerNorm::bias() { return bias_; }
 
+RMSNorm::RMSNorm(std::vector<size_t> normalized_shape, scalar_t eps)
+    : normalized_shape_(std::move(normalized_shape)), eps_(eps) {
+  size_t count = 1;
+  for (auto dim : normalized_shape_) {
+    count *= dim;
+  }
+
+  gain_ = std::make_shared<Tensor>(normalized_shape_,
+                                   std::vector<scalar_t>(count, 1.0f));
+  gain_->set_requires_grad(true);
+
+  register_parameter("gain", gain_);
+}
+
+std::shared_ptr<Tensor> RMSNorm::forward(const std::shared_ptr<Tensor> &input) {
+  return input->rms_norm(normalized_shape_, gain_, eps_);
+}
+
+std::shared_ptr<Tensor> RMSNorm::gain() { return gain_; }
+
 std::shared_ptr<Tensor> ReLU::forward(const std::shared_ptr<Tensor> &input) {
   return input->relu();
 }
