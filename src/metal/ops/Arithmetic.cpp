@@ -1,6 +1,5 @@
 #ifdef MICROGRAD_METAL_ENABLED
 
-#include <algorithm>
 #include <functional>
 
 #include "micrograd/Tensor.h"
@@ -55,36 +54,10 @@ void MulScalar(const OpArgs &args) { LaunchScalar("mul_scalar", args); }
 void DivScalar(const OpArgs &args) { LaunchScalar("div_scalar", args); }
 void Pow(const OpArgs &args) { LaunchScalar("pow_op", args); }
 
-std::function<void()> AddBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
-    lhs->to(Backend::CPU);
-    rhs->to(Backend::CPU);
-    out->to(Backend::CPU);
-
-    auto a_grad = lhs->grad();
-    auto b_grad = rhs->grad();
-    auto out_grad = out->grad();
-    for (size_t i = 0; i < a_grad.size(); i++) {
-      a_grad[i] += out_grad[i];
-      b_grad[i] += out_grad[i];
-    }
-  };
-}
-
-std::function<void()> SubBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
-    lhs->to(Backend::CPU);
-    rhs->to(Backend::CPU);
-    out->to(Backend::CPU);
-
-    auto a_grad = lhs->grad();
-    auto b_grad = rhs->grad();
-    auto out_grad = out->grad();
-    for (size_t i = 0; i < a_grad.size(); i++) {
-      a_grad[i] += out_grad[i];
-      b_grad[i] -= out_grad[i];
-    }
-  };
+ScopedBuffer SizeBuffer(MetalContext &ctx, size_t n) {
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufSize.set(static_cast<uint32_t>(n));
+  return bufSize;
 }
 
 std::function<void()> MakeBinaryBackward(const char *kernel,
@@ -93,96 +66,79 @@ std::function<void()> MakeBinaryBackward(const char *kernel,
     auto &ctx = MetalContext::instance();
     size_t n = lhs->size();
 
-    out->to(Backend::CPU);
-    ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(out->grad().data(), n,
-                static_cast<scalar_t *>(gradOutBuf.get()->contents()));
+    ElementwiseKernelLauncher(ctx, kernel, n)
+        .buffer(out->grad_storage().buffer())
+        .buffer(lhs->grad_storage().buffer())
+        .buffer(rhs->grad_storage().buffer())
+        .buffer(SizeBuffer(ctx, n))
+        .launch();
+  };
+}
 
-    ScopedBuffer gradABuf(ctx, n * sizeof(scalar_t));
-    ScopedBuffer gradBBuf(ctx, n * sizeof(scalar_t));
-    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
-    bufSize.set(static_cast<uint32_t>(n));
+std::function<void()> MakeBinaryDataBackward(const char *kernel,
+                                             const GradArgs &args) {
+  return [kernel, out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    auto &ctx = MetalContext::instance();
+    size_t n = lhs->size();
 
     ElementwiseKernelLauncher(ctx, kernel, n)
-        .buffer(gradOutBuf)
+        .buffer(out->grad_storage().buffer())
         .buffer(lhs->data_storage().buffer())
         .buffer(rhs->data_storage().buffer())
-        .buffer(gradABuf)
-        .buffer(gradBBuf)
-        .buffer(bufSize)
+        .buffer(lhs->grad_storage().buffer())
+        .buffer(rhs->grad_storage().buffer())
+        .buffer(SizeBuffer(ctx, n))
         .launch();
-
-    auto *gradAPtr = static_cast<scalar_t *>(gradABuf.get()->contents());
-    auto *gradBPtr = static_cast<scalar_t *>(gradBBuf.get()->contents());
-    auto *gpuGradAPtr =
-        static_cast<scalar_t *>(lhs->grad_storage().host_pointer());
-    auto *gpuGradBPtr =
-        static_cast<scalar_t *>(rhs->grad_storage().host_pointer());
-    for (size_t i = 0; i < n; i++) {
-      gpuGradAPtr[i] += gradAPtr[i];
-      gpuGradBPtr[i] += gradBPtr[i];
-    }
   };
+}
+
+std::function<void()> MakeScaledBackward(scalar_t scale, const GradArgs &args) {
+  return [scale, out = args.out, lhs = args.lhs]() {
+    auto &ctx = MetalContext::instance();
+    size_t n = lhs->size();
+
+    ScopedBuffer bufScale(ctx, sizeof(scalar_t));
+    bufScale.set(scale);
+
+    ElementwiseKernelLauncher(ctx, "accumulate_scaled", n)
+        .buffer(out->grad_storage().buffer())
+        .buffer(lhs->grad_storage().buffer())
+        .buffer(bufScale)
+        .buffer(SizeBuffer(ctx, n))
+        .launch();
+  };
+}
+
+std::function<void()> AddBackward(const GradArgs &args) {
+  return MakeBinaryBackward("add_backward", args);
+}
+
+std::function<void()> SubBackward(const GradArgs &args) {
+  return MakeBinaryBackward("sub_backward", args);
 }
 
 std::function<void()> MulBackward(const GradArgs &args) {
-  return MakeBinaryBackward("mul_backward", args);
+  return MakeBinaryDataBackward("mul_backward", args);
 }
 
 std::function<void()> DivBackward(const GradArgs &args) {
-  return MakeBinaryBackward("div_backward", args);
+  return MakeBinaryDataBackward("div_backward", args);
 }
 
 std::function<void()> AddScalarBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs]() {
-    lhs->to(Backend::CPU);
-    out->to(Backend::CPU);
-
-    auto a_grad = lhs->grad();
-    auto out_grad = out->grad();
-    for (size_t i = 0; i < a_grad.size(); i++) {
-      a_grad[i] += out_grad[i];
-    }
-  };
+  return MakeScaledBackward(1.0f, args);
 }
 
 std::function<void()> SubScalarBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs]() {
-    lhs->to(Backend::CPU);
-    out->to(Backend::CPU);
-
-    auto a_grad = lhs->grad();
-    auto out_grad = out->grad();
-    for (size_t i = 0; i < a_grad.size(); i++) {
-      a_grad[i] += out_grad[i];
-    }
-  };
+  return MakeScaledBackward(1.0f, args);
 }
 
 std::function<void()> MulScalarBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs, scalar = args.scalar]() {
-    lhs->to(Backend::CPU);
-    out->to(Backend::CPU);
-
-    auto a_grad = lhs->grad();
-    auto out_grad = out->grad();
-    for (size_t i = 0; i < a_grad.size(); i++) {
-      a_grad[i] += out_grad[i] * scalar;
-    }
-  };
+  return MakeScaledBackward(args.scalar, args);
 }
 
 std::function<void()> DivScalarBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs, scalar = args.scalar]() {
-    lhs->to(Backend::CPU);
-    out->to(Backend::CPU);
-
-    auto a_grad = lhs->grad();
-    auto out_grad = out->grad();
-    for (size_t i = 0; i < a_grad.size(); i++) {
-      a_grad[i] += out_grad[i] / scalar;
-    }
-  };
+  return MakeScaledBackward(1.0f / args.scalar, args);
 }
 
 std::function<void()> PowBackward(const GradArgs &args) {
@@ -190,31 +146,16 @@ std::function<void()> PowBackward(const GradArgs &args) {
     auto &ctx = MetalContext::instance();
     size_t n = lhs->size();
 
-    out->to(Backend::CPU);
-    ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(out->grad().data(), n,
-                static_cast<scalar_t *>(gradOutBuf.get()->contents()));
-
-    ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
     ScopedBuffer bufExp(ctx, sizeof(scalar_t));
-    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
     bufExp.set(exponent);
-    bufSize.set(static_cast<uint32_t>(n));
 
     ElementwiseKernelLauncher(ctx, "pow_backward", n)
-        .buffer(gradOutBuf)
+        .buffer(out->grad_storage().buffer())
         .buffer(lhs->data_storage().buffer())
-        .buffer(gradXBuf)
+        .buffer(lhs->grad_storage().buffer())
         .buffer(bufExp)
-        .buffer(bufSize)
+        .buffer(SizeBuffer(ctx, n))
         .launch();
-
-    auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr =
-        static_cast<scalar_t *>(lhs->grad_storage().host_pointer());
-    for (size_t i = 0; i < n; i++) {
-      gpuGradPtr[i] += gradXPtr[i];
-    }
   };
 }
 

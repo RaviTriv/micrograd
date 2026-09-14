@@ -1,6 +1,5 @@
 #ifdef MICROGRAD_METAL_ENABLED
 
-#include <algorithm>
 #include <functional>
 
 #include "micrograd/Tensor.h"
@@ -35,40 +34,19 @@ std::function<void()> MatmulBackward(const GradArgs &args) {
     const size_t n = rhs->shape()[1];
 
     auto &ctx = MetalContext::instance();
+    MTL::Buffer *gradC = out->grad_storage().buffer();
 
-    out->to(Backend::CPU);
-
-    ScopedBuffer gradCBuf(ctx, m * n * sizeof(scalar_t));
-    std::copy_n(out->grad().data(), m * n,
-                static_cast<scalar_t *>(gradCBuf.get()->contents()));
-
-    ScopedBuffer gradABuf(ctx, m * k * sizeof(scalar_t));
     MatmulKernelLauncher(ctx, "matmul_nt", m, n, k)
-        .A(gradCBuf.get())
+        .A(gradC)
         .B(rhs->data_storage().buffer())
-        .C(gradABuf.get())
+        .C(lhs->grad_storage().buffer())
         .launch();
 
-    ScopedBuffer gradBBuf(ctx, k * n * sizeof(scalar_t));
     MatmulKernelLauncher(ctx, "matmul_tn", m, k, n, k)
         .A(lhs->data_storage().buffer())
-        .B(gradCBuf.get())
-        .C(gradBBuf.get())
+        .B(gradC)
+        .C(rhs->grad_storage().buffer())
         .launch();
-
-    auto *gradAPtr = static_cast<scalar_t *>(gradABuf.get()->contents());
-    auto *gradBPtr = static_cast<scalar_t *>(gradBBuf.get()->contents());
-    auto *gpuGradAPtr =
-        static_cast<scalar_t *>(lhs->grad_storage().host_pointer());
-    auto *gpuGradBPtr =
-        static_cast<scalar_t *>(rhs->grad_storage().host_pointer());
-
-    for (size_t i = 0; i < m * k; i++) {
-      gpuGradAPtr[i] += gradAPtr[i];
-    }
-    for (size_t i = 0; i < k * n; i++) {
-      gpuGradBPtr[i] += gradBPtr[i];
-    }
   };
 }
 

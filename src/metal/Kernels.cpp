@@ -40,7 +40,7 @@ kernel void matmul_nt(
     for (uint k = 0; k < K; k++) {
         sum += A[gid.y * K + k] * B[gid.x * K + k];
     }
-    C[gid.y * N + gid.x] = sum;
+    C[gid.y * N + gid.x] += sum;
 }
 
 kernel void matmul_tn(
@@ -59,7 +59,7 @@ kernel void matmul_tn(
     for (uint m = 0; m < M; m++) {
         sum += A[m * K + gid.y] * B[m * N + gid.x];
     }
-    C[gid.y * N + gid.x] = sum;
+    C[gid.y * N + gid.x] += sum;
 }
 
 kernel void add(
@@ -302,8 +302,8 @@ kernel void mul_backward(
     if (gid >= size) {
         return;
     }
-    grad_a[gid] = grad_out[gid] * b_data[gid];
-    grad_b[gid] = grad_out[gid] * a_data[gid];
+    grad_a[gid] += grad_out[gid] * b_data[gid];
+    grad_b[gid] += grad_out[gid] * a_data[gid];
 }
 
 kernel void div_backward(
@@ -318,8 +318,8 @@ kernel void div_backward(
     if (gid >= size) {
         return;
     }
-    grad_a[gid] = grad_out[gid] / b_data[gid];
-    grad_b[gid] = -grad_out[gid] * a_data[gid] / (b_data[gid] * b_data[gid]);
+    grad_a[gid] += grad_out[gid] / b_data[gid];
+    grad_b[gid] += -grad_out[gid] * a_data[gid] / (b_data[gid] * b_data[gid]);
 }
 
 kernel void pow_backward(
@@ -333,7 +333,7 @@ kernel void pow_backward(
     if (gid >= size) {
         return;
     }
-    grad_x[gid] = grad_out[gid] * exponent * pow(x_data[gid], exponent - 1.0f);
+    grad_x[gid] += grad_out[gid] * exponent * pow(x_data[gid], exponent - 1.0f);
 }
 
 kernel void relu_backward(
@@ -346,7 +346,7 @@ kernel void relu_backward(
     if (gid >= size) {
         return;
     }
-    grad_x[gid] = (x_data[gid] > 0.0f) ? grad_out[gid] : 0.0f;
+    grad_x[gid] += (x_data[gid] > 0.0f) ? grad_out[gid] : 0.0f;
 }
 
 // sigmoid backward: grad = grad_out * sigmoid(x) * (1 - sigmoid(x))
@@ -362,7 +362,7 @@ kernel void sigmoid_backward(
         return;
     }
     float s = sigmoid_out[gid];
-    grad_x[gid] = grad_out[gid] * s * (1.0f - s);
+    grad_x[gid] += grad_out[gid] * s * (1.0f - s);
 }
 
 kernel void tanh_backward(
@@ -376,7 +376,7 @@ kernel void tanh_backward(
         return;
     }
     float t = tanh_out[gid];
-    grad_x[gid] = grad_out[gid] * (1.0f - t * t);
+    grad_x[gid] += grad_out[gid] * (1.0f - t * t);
 }
 
 kernel void exp_backward(
@@ -389,7 +389,7 @@ kernel void exp_backward(
     if (gid >= size) {
         return;
     }
-    grad_x[gid] = grad_out[gid] * exp_out[gid];
+    grad_x[gid] += grad_out[gid] * exp_out[gid];
 }
 
 kernel void log_backward(
@@ -402,7 +402,7 @@ kernel void log_backward(
     if (gid >= size) {
         return;
     }
-    grad_x[gid] = grad_out[gid] / x_data[gid];
+    grad_x[gid] += grad_out[gid] / x_data[gid];
 }
 
 kernel void sqrt_backward(
@@ -415,7 +415,7 @@ kernel void sqrt_backward(
     if (gid >= size) {
         return;
     }
-    grad_x[gid] = grad_out[gid] * 0.5f / sqrt_out[gid];
+    grad_x[gid] += grad_out[gid] * 0.5f / sqrt_out[gid];
 }
 
 kernel void neg_backward(
@@ -428,19 +428,72 @@ kernel void neg_backward(
     if (gid >= size) {
         return;
     }
-    grad_x[gid] = -grad_out[gid];
+    grad_x[gid] += -grad_out[gid];
 }
 
-kernel void broadcast_scalar(
-    device float* output [[buffer(0)]],
-    constant float& scalar [[buffer(1)]],
+kernel void add_backward(
+    device const float* grad_out [[buffer(0)]],
+    device float* grad_a [[buffer(1)]],
+    device float* grad_b [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_a[gid] += grad_out[gid];
+    grad_b[gid] += grad_out[gid];
+}
+
+kernel void sub_backward(
+    device const float* grad_out [[buffer(0)]],
+    device float* grad_a [[buffer(1)]],
+    device float* grad_b [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_a[gid] += grad_out[gid];
+    grad_b[gid] -= grad_out[gid];
+}
+
+kernel void accumulate(
+    device const float* grad_out [[buffer(0)]],
+    device float* grad_x [[buffer(1)]],
     constant uint& size [[buffer(2)]],
     uint gid [[thread_position_in_grid]])
 {
     if (gid >= size) {
         return;
     }
-    output[gid] = scalar;
+    grad_x[gid] += grad_out[gid];
+}
+
+kernel void accumulate_scaled(
+    device const float* grad_out [[buffer(0)]],
+    device float* grad_x [[buffer(1)]],
+    constant float& scale [[buffer(2)]],
+    constant uint& size [[buffer(3)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_x[gid] += grad_out[gid] * scale;
+}
+
+kernel void accumulate_broadcast(
+    device const float* grad_out [[buffer(0)]],
+    device float* grad_x [[buffer(1)]],
+    constant uint& size [[buffer(2)]],
+    uint gid [[thread_position_in_grid]])
+{
+    if (gid >= size) {
+        return;
+    }
+    grad_x[gid] += grad_out[0];
 }
 )";
 }

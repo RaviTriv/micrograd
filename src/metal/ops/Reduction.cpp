@@ -12,6 +12,8 @@ namespace micrograd::metal::ops {
 namespace {
 
 void Sum(const OpArgs &args) {
+  args.out->to(Backend::Metal);
+
   auto &ctx = MetalContext::instance();
   auto pipeline = ctx.getPipeline("sum_reduce");
 
@@ -21,10 +23,16 @@ void Sum(const OpArgs &args) {
       (currentSize + threadgroupSize - 1) / threadgroupSize;
 
   MTL::Buffer *sourceBuf = args.lhs->data_storage().buffer();
+  MTL::Buffer *resultBuf = args.out->data_storage().buffer();
   MTL::Buffer *inputBuf = sourceBuf;
-  MTL::Buffer *outputBuf = ctx.createBuffer(numThreadgroups * sizeof(scalar_t));
+  MTL::Buffer *outputBuf =
+      numThreadgroups == 1
+          ? resultBuf
+          : ctx.createBuffer(numThreadgroups * sizeof(scalar_t));
 
-  while (currentSize > 1) {
+  // Each pass folds `currentSize` values into one partial sum per threadgroup;
+  // the last pass has a single threadgroup and writes straight into the output.
+  do {
     ScopedBuffer bufSize(ctx, sizeof(uint32_t));
     bufSize.set(currentSize);
 
@@ -44,24 +52,16 @@ void Sum(const OpArgs &args) {
     cmdBuf->commit();
     cmdBuf->waitUntilCompleted();
 
+    if (inputBuf != sourceBuf) {
+      ctx.releaseBuffer(inputBuf);
+    }
+    inputBuf = outputBuf;
     currentSize = numThreadgroups;
     numThreadgroups = (currentSize + threadgroupSize - 1) / threadgroupSize;
-
-    if (currentSize > 1) {
-      if (inputBuf != sourceBuf) {
-        ctx.releaseBuffer(inputBuf);
-      }
-      inputBuf = outputBuf;
-      outputBuf = ctx.createBuffer(numThreadgroups * sizeof(scalar_t));
-    }
-  }
-
-  args.out->data()[0] = *static_cast<scalar_t *>(outputBuf->contents());
-
-  if (inputBuf != sourceBuf) {
-    ctx.releaseBuffer(inputBuf);
-  }
-  ctx.releaseBuffer(outputBuf);
+    outputBuf = numThreadgroups == 1
+                    ? resultBuf
+                    : ctx.createBuffer(numThreadgroups * sizeof(scalar_t));
+  } while (inputBuf != resultBuf);
 }
 
 std::function<void()> SumBackward(const GradArgs &args) {
@@ -69,26 +69,14 @@ std::function<void()> SumBackward(const GradArgs &args) {
     auto &ctx = MetalContext::instance();
     size_t n = lhs->size();
 
-    scalar_t gradScalar = out->grad()[0];
-
-    ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
-    ScopedBuffer bufScalar(ctx, sizeof(scalar_t));
     ScopedBuffer bufSize(ctx, sizeof(uint32_t));
-    bufScalar.set(gradScalar);
     bufSize.set(static_cast<uint32_t>(n));
 
-    ElementwiseKernelLauncher(ctx, "broadcast_scalar", n)
-        .buffer(gradXBuf)
-        .buffer(bufScalar)
+    ElementwiseKernelLauncher(ctx, "accumulate_broadcast", n)
+        .buffer(out->grad_storage().buffer())
+        .buffer(lhs->grad_storage().buffer())
         .buffer(bufSize)
         .launch();
-
-    auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr =
-        static_cast<scalar_t *>(lhs->grad_storage().host_pointer());
-    for (size_t i = 0; i < n; i++) {
-      gpuGradPtr[i] += gradXPtr[i];
-    }
   };
 }
 

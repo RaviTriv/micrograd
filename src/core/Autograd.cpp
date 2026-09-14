@@ -1,7 +1,6 @@
 
 #include "micrograd/Autograd.h"
 
-#include <algorithm>
 #include <ranges>
 #include <stdexcept>
 #include <unordered_set>
@@ -28,8 +27,9 @@ void Tensor::backward() {
         "instead");
   }
 
-  to(Backend::CPU);
-  grad()[0] = 1.0f;
+  Storage seed(sizeof(scalar_t), Device::CPU);
+  *static_cast<scalar_t *>(seed.data()) = 1.0f;
+  grad_ = seed.copy_to(backend());
   propagate_gradients();
 }
 
@@ -38,10 +38,7 @@ void Tensor::backward(const Tensor &grad_output) {
     throw std::invalid_argument("Gradient and tensor shape mismatch");
   }
 
-  to(Backend::CPU);
-  const auto *seed =
-      static_cast<const scalar_t *>(grad_output.data_storage().host_pointer());
-  std::copy_n(seed, size(), grad().begin());
+  grad_ = grad_output.data_storage().copy_to(backend());
   propagate_gradients();
 }
 

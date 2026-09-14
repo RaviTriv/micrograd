@@ -161,6 +161,7 @@ int main(int argc, char **argv) {
         loss->backward();
         optimizer.step();
 
+        loss->to(Device::CPU);
         total_loss +=
             static_cast<double>(loss->at({0})) * static_cast<double>(count);
       }

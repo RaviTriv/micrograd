@@ -1,6 +1,5 @@
 #ifdef MICROGRAD_METAL_ENABLED
 
-#include <algorithm>
 #include <functional>
 
 #include "micrograd/Tensor.h"
@@ -34,100 +33,38 @@ void Log(const OpArgs &args) { LaunchUnary("log_op", args); }
 void Sqrt(const OpArgs &args) { LaunchUnary("sqrt_op", args); }
 void Neg(const OpArgs &args) { LaunchUnary("neg_op", args); }
 
-std::function<void()> ReluBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs]() {
-    auto &ctx = MetalContext::instance();
-    size_t n = lhs->size();
+void LaunchUnaryBackward(const char *kernel, const Storage &source,
+                         const Tensor &out, Tensor &input) {
+  auto &ctx = MetalContext::instance();
+  size_t n = input.size();
 
-    out->to(Backend::CPU);
-    ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(out->grad().data(), n,
-                static_cast<scalar_t *>(gradOutBuf.get()->contents()));
+  ScopedBuffer bufSize(ctx, sizeof(uint32_t));
+  bufSize.set(static_cast<uint32_t>(n));
 
-    ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
-    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
-    bufSize.set(static_cast<uint32_t>(n));
-
-    ElementwiseKernelLauncher(ctx, "relu_backward", n)
-        .buffer(gradOutBuf)
-        .buffer(lhs->data_storage().buffer())
-        .buffer(gradXBuf)
-        .buffer(bufSize)
-        .launch();
-
-    auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr =
-        static_cast<scalar_t *>(lhs->grad_storage().host_pointer());
-    for (size_t i = 0; i < n; i++) {
-      gpuGradPtr[i] += gradXPtr[i];
-    }
-  };
+  ElementwiseKernelLauncher(ctx, kernel, n)
+      .buffer(out.grad_storage().buffer())
+      .buffer(source.buffer())
+      .buffer(input.grad_storage().buffer())
+      .buffer(bufSize)
+      .launch();
 }
 
 std::function<void()> MakeInputBackward(const char *kernel,
                                         const GradArgs &args) {
   return [kernel, out = args.out, lhs = args.lhs]() {
-    auto &ctx = MetalContext::instance();
-    size_t n = lhs->size();
-
-    out->to(Backend::CPU);
-    ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(out->grad().data(), n,
-                static_cast<scalar_t *>(gradOutBuf.get()->contents()));
-
-    ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
-    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
-    bufSize.set(static_cast<uint32_t>(n));
-
-    ElementwiseKernelLauncher(ctx, kernel, n)
-        .buffer(gradOutBuf)
-        .buffer(lhs->data_storage().buffer())
-        .buffer(gradXBuf)
-        .buffer(bufSize)
-        .launch();
-
-    auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr =
-        static_cast<scalar_t *>(lhs->grad_storage().host_pointer());
-    for (size_t i = 0; i < n; i++) {
-      gpuGradPtr[i] += gradXPtr[i];
-    }
+    LaunchUnaryBackward(kernel, lhs->data_storage(), *out, *lhs);
   };
 }
 
 std::function<void()> MakeOutputBackward(const char *kernel,
                                          const GradArgs &args) {
   return [kernel, out = args.out, lhs = args.lhs]() {
-    auto &ctx = MetalContext::instance();
-    size_t n = lhs->size();
-
-    out->to(Backend::CPU);
-    ScopedBuffer gradOutBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(out->grad().data(), n,
-                static_cast<scalar_t *>(gradOutBuf.get()->contents()));
-
-    ScopedBuffer outBuf(ctx, n * sizeof(scalar_t));
-    std::copy_n(out->data().data(), n,
-                static_cast<scalar_t *>(outBuf.get()->contents()));
-
-    ScopedBuffer gradXBuf(ctx, n * sizeof(scalar_t));
-    ScopedBuffer bufSize(ctx, sizeof(uint32_t));
-    bufSize.set(static_cast<uint32_t>(n));
-
-    ElementwiseKernelLauncher(ctx, kernel, n)
-        .buffer(gradOutBuf)
-        .buffer(outBuf)
-        .buffer(gradXBuf)
-        .buffer(bufSize)
-        .launch();
-
-    auto *gradXPtr = static_cast<scalar_t *>(gradXBuf.get()->contents());
-    auto *gpuGradPtr =
-        static_cast<scalar_t *>(lhs->grad_storage().host_pointer());
-    for (size_t i = 0; i < n; i++) {
-      gpuGradPtr[i] += gradXPtr[i];
-    }
+    LaunchUnaryBackward(kernel, out->data_storage(), *out, *lhs);
   };
+}
+
+std::function<void()> ReluBackward(const GradArgs &args) {
+  return MakeInputBackward("relu_backward", args);
 }
 
 std::function<void()> SigmoidBackward(const GradArgs &args) {

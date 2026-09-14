@@ -386,5 +386,6 @@ TEST(TensorTest, SumMetalTimeComparison) {
 
   auto y = x->sum();
 
+  y->to(Backend::CPU);
   EXPECT_NEAR(y->data()[0], expected, 1e-1);
 }
