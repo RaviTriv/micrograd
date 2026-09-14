@@ -130,6 +130,7 @@ add_library(gpt_bpe
     examples/gpt/Chat.cpp
     examples/gpt/Conversation.cpp
     examples/gpt/ConversationDataset.cpp
+    examples/gpt/CoreEval.cpp
     examples/gpt/GPTConfig.cpp
     examples/gpt/KVCache.cpp
 )
@@ -187,4 +188,9 @@ if(BUILD_TESTS)
     target_link_libraries(bpe_roundtrip PRIVATE gpt_bpe)
     target_compile_options(bpe_roundtrip PRIVATE -Werror)
     add_test(NAME bpe_roundtrip COMMAND bpe_roundtrip)
+
+    add_executable(core_eval tools/core_eval.cpp)
+    target_link_libraries(core_eval PRIVATE gpt_bpe)
+    target_compile_options(core_eval PRIVATE -Werror)
+    add_test(NAME core_eval COMMAND core_eval)
 endif()
