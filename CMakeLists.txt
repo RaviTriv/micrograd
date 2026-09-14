@@ -127,6 +127,7 @@ target_link_libraries(main PRIVATE micrograd)
 
 add_library(gpt_bpe
     examples/gpt/BPE.cpp
+    examples/gpt/Chat.cpp
     examples/gpt/Conversation.cpp
     examples/gpt/ConversationDataset.cpp
     examples/gpt/GPTConfig.cpp
