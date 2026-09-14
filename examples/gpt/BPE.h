@@ -23,6 +23,9 @@ class BPE {
 
   size_t vocab_size() const { return id_to_token_.size(); }
 
+  static const std::vector<std::string> &special_tokens();
+  int32_t special_token_id(const std::string &token) const;
+
  private:
   BPE();
   void load_vocab(const std::string &vocab_path);

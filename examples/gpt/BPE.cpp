@@ -413,6 +413,13 @@ struct SymbolPairHash {
 
 BPE BPE::train(const std::vector<std::string> &corpus,
                size_t target_vocab_size) {
+  const std::vector<std::string> &specials = special_tokens();
+  if (target_vocab_size <= specials.size()) {
+    throw std::invalid_argument(
+        "BPE: target_vocab_size too small to hold special tokens");
+  }
+  const size_t merge_vocab_size = target_vocab_size - specials.size();
+
   BPE bpe;
   for (uint32_t byte = 0; byte < 256; ++byte) {
     std::string token;
@@ -450,7 +457,7 @@ BPE BPE::train(const std::vector<std::string> &corpus,
   }
 
   int32_t rank = 0;
-  while (bpe.id_to_token_.size() < target_vocab_size) {
+  while (bpe.id_to_token_.size() < merge_vocab_size) {
     std::unordered_map<SymbolPair, size_t, SymbolPairHash> pair_counts;
     for (const auto &chunk : chunks) {
       for (size_t i = 0; i + 1 < chunk.symbols.size(); ++i) {
@@ -494,7 +501,31 @@ BPE BPE::train(const std::vector<std::string> &corpus,
     }
   }
 
+  for (const std::string &token : specials) {
+    bpe.token_to_id_[token] = static_cast<int32_t>(bpe.id_to_token_.size());
+    bpe.id_to_token_.push_back(token);
+  }
+
   return bpe;
+}
+
+const std::vector<std::string> &BPE::special_tokens() {
+  static const std::vector<std::string> kSpecialTokens = {
+      "<|bos|>",           "<|user_start|>",
+      "<|user_end|>",      "<|assistant_start|>",
+      "<|assistant_end|>", "<|python_start|>",
+      "<|python_end|>",    "<|output_start|>",
+      "<|output_end|>",
+  };
+  return kSpecialTokens;
+}
+
+int32_t BPE::special_token_id(const std::string &token) const {
+  auto it = token_to_id_.find(token);
+  if (it == token_to_id_.end()) {
+    throw std::runtime_error("BPE: special token not found in vocab: " + token);
+  }
+  return it->second;
 }
 
 std::vector<int32_t> BPE::encode(const std::string &text) const {
