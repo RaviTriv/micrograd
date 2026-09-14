@@ -46,6 +46,19 @@ class Embedding : public nn::Module {
   std::shared_ptr<Tensor> weight_;
 };
 
+class LMHead : public nn::Module {
+ public:
+  LMHead(std::shared_ptr<Tensor> embedding_weight, bool tied);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+  std::shared_ptr<Tensor> weight();
+
+ private:
+  std::shared_ptr<Tensor> embedding_weight_;
+  std::shared_ptr<Tensor> weight_;
+  bool tied_;
+};
+
 class LayerNorm : public nn::Module {
  public:
   LayerNorm(std::vector<size_t> normalized_shape, scalar_t eps = 1e-5f);

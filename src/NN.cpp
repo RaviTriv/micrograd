@@ -222,6 +222,27 @@ std::shared_ptr<Tensor> Embedding::forward(
 
 std::shared_ptr<Tensor> Embedding::weight() { return weight_; }
 
+LMHead::LMHead(std::shared_ptr<Tensor> embedding_weight, bool tied)
+    : embedding_weight_(std::move(embedding_weight)), tied_(tied) {
+  if (!tied_) {
+    auto shape = embedding_weight_->shape();
+    weight_ = std::make_shared<Tensor>(shape);
+    init::kaiming_uniform_(weight_, shape[1]);
+    weight_->set_requires_grad(true);
+
+    register_parameter("weight", weight_);
+  }
+}
+
+std::shared_ptr<Tensor> LMHead::forward(const std::shared_ptr<Tensor> &input) {
+  const auto &weight = tied_ ? embedding_weight_ : weight_;
+  return input->matmul(weight->transpose(0, 1));
+}
+
+std::shared_ptr<Tensor> LMHead::weight() {
+  return tied_ ? embedding_weight_ : weight_;
+}
+
 LayerNorm::LayerNorm(std::vector<size_t> normalized_shape, scalar_t eps)
     : normalized_shape_(std::move(normalized_shape)), eps_(eps) {
   size_t count = 1;
