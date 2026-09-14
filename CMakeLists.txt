@@ -130,8 +130,10 @@ add_library(gpt_bpe
     examples/gpt/Conversation.cpp
     examples/gpt/ConversationDataset.cpp
     examples/gpt/GPTConfig.cpp
+    examples/gpt/KVCache.cpp
 )
 target_include_directories(gpt_bpe PUBLIC . include)
+target_link_libraries(gpt_bpe PUBLIC micrograd)
 target_compile_options(gpt_bpe PRIVATE -Werror)
 
 option(FETCH_MNIST "Download the MNIST dataset" ON)
