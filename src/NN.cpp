@@ -165,6 +165,18 @@ std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input) {
   return input->mul(gate);
 }
 
+std::shared_ptr<Tensor> relu_squared(const std::shared_ptr<Tensor> &input) {
+  return input->relu()->pow(2.0f);
+}
+
+std::shared_ptr<Tensor> qk_norm(const std::shared_ptr<Tensor> &input,
+                                scalar_t eps) {
+  int64_t last_dim = static_cast<int64_t>(input->shape().size()) - 1;
+  auto mean_square = input->pow(2.0f)->mean(last_dim, true);
+  auto rms = mean_square->add(eps)->sqrt();
+  return input->div(rms);
+}
+
 Linear::Linear(size_t in_features, size_t out_features) {
   weights_ =
       std::make_shared<Tensor>(std::vector<size_t>{in_features, out_features});

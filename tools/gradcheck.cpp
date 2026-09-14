@@ -217,6 +217,12 @@ std::vector<Case> AllCases() {
   add("softmax_negative_dim",
       [](const TensorList &in) { return in[0]->softmax(-2); }, {signed_cube()});
 
+  add("relu_squared",
+      [](const TensorList &in) { return micrograd::relu_squared(in[0]); },
+      {signed_matrix()});
+  add("qk_norm", [](const TensorList &in) { return micrograd::qk_norm(in[0]); },
+      {signed_matrix()});
+
   add("mse_loss",
       [](const TensorList &in) { return micrograd::mse_loss(in[0], in[1]); },
       {signed_matrix(), positive_matrix()});
