@@ -11,7 +11,12 @@ namespace micrograd::gpt {
 
 class BPE {
  public:
+  static constexpr size_t kNanochatVocabSize = 65536;
+
   BPE(const std::string &vocab_path, const std::string &merges_path);
+
+  static BPE train(const std::vector<std::string> &corpus,
+                   size_t target_vocab_size = kNanochatVocabSize);
 
   std::vector<int32_t> encode(const std::string &text) const;
   std::string decode(const std::vector<int32_t> &ids) const;
@@ -19,6 +24,7 @@ class BPE {
   size_t vocab_size() const { return id_to_token_.size(); }
 
  private:
+  BPE();
   void load_vocab(const std::string &vocab_path);
   void load_merges(const std::string &merges_path);
   std::string encode_bytes(const std::string &chunk) const;

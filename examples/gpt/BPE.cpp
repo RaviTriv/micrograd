@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -191,11 +192,14 @@ std::string parse_json_string(const std::string &data, size_t &pos) {
 
 }  // namespace
 
-BPE::BPE(const std::string &vocab_path, const std::string &merges_path)
-    : byte_encoder_(build_byte_encoder()) {
+BPE::BPE() : byte_encoder_(build_byte_encoder()) {
   for (size_t b = 0; b < byte_encoder_.size(); ++b) {
     byte_decoder_[byte_encoder_[b]] = static_cast<uint8_t>(b);
   }
+}
+
+BPE::BPE(const std::string &vocab_path, const std::string &merges_path)
+    : BPE() {
   load_vocab(vocab_path);
   load_merges(merges_path);
 }
@@ -387,6 +391,110 @@ std::vector<std::string> BPE::bpe_merge(
     symbols.erase(symbols.begin() + static_cast<ptrdiff_t>(best_index) + 1);
   }
   return symbols;
+}
+
+namespace {
+
+struct ChunkCount {
+  std::vector<std::string> symbols;
+  size_t count;
+};
+
+using SymbolPair = std::pair<std::string, std::string>;
+
+struct SymbolPairHash {
+  size_t operator()(const SymbolPair &pair) const {
+    return std::hash<std::string>()(pair.first) ^
+           (std::hash<std::string>()(pair.second) << 1);
+  }
+};
+
+}  // namespace
+
+BPE BPE::train(const std::vector<std::string> &corpus,
+               size_t target_vocab_size) {
+  BPE bpe;
+  for (uint32_t byte = 0; byte < 256; ++byte) {
+    std::string token;
+    append_utf8(token, bpe.byte_encoder_[byte]);
+    bpe.token_to_id_[token] = static_cast<int32_t>(byte);
+    bpe.id_to_token_.push_back(token);
+  }
+
+  std::unordered_map<std::string, size_t> chunk_index;
+  std::vector<ChunkCount> chunks;
+  for (const auto &text : corpus) {
+    size_t pos = 0;
+    while (pos < text.size()) {
+      size_t chunk_len = next_chunk_length(text, pos);
+      std::string byte_chars = bpe.encode_bytes(text.substr(pos, chunk_len));
+      pos += chunk_len;
+
+      auto existing = chunk_index.find(byte_chars);
+      if (existing != chunk_index.end()) {
+        chunks[existing->second].count++;
+        continue;
+      }
+
+      std::vector<std::string> symbols;
+      size_t p = 0;
+      while (p < byte_chars.size()) {
+        size_t len =
+            utf8_char_length(static_cast<unsigned char>(byte_chars[p]));
+        symbols.push_back(byte_chars.substr(p, len));
+        p += len;
+      }
+      chunk_index[byte_chars] = chunks.size();
+      chunks.push_back({std::move(symbols), 1});
+    }
+  }
+
+  int32_t rank = 0;
+  while (bpe.id_to_token_.size() < target_vocab_size) {
+    std::unordered_map<SymbolPair, size_t, SymbolPairHash> pair_counts;
+    for (const auto &chunk : chunks) {
+      for (size_t i = 0; i + 1 < chunk.symbols.size(); ++i) {
+        pair_counts[{chunk.symbols[i], chunk.symbols[i + 1]}] += chunk.count;
+      }
+    }
+    if (pair_counts.empty()) {
+      break;
+    }
+
+    const SymbolPair *best = nullptr;
+    size_t best_count = 0;
+    for (const auto &entry : pair_counts) {
+      if (best == nullptr || entry.second > best_count ||
+          (entry.second == best_count && entry.first < *best)) {
+        best = &entry.first;
+        best_count = entry.second;
+      }
+    }
+
+    std::string merged = best->first + best->second;
+    bpe.merge_ranks_[best->first + " " + best->second] = rank++;
+    bpe.token_to_id_[merged] = static_cast<int32_t>(bpe.id_to_token_.size());
+    bpe.id_to_token_.push_back(merged);
+
+    for (auto &chunk : chunks) {
+      std::vector<std::string> merged_symbols;
+      merged_symbols.reserve(chunk.symbols.size());
+      size_t i = 0;
+      while (i < chunk.symbols.size()) {
+        if (i + 1 < chunk.symbols.size() && chunk.symbols[i] == best->first &&
+            chunk.symbols[i + 1] == best->second) {
+          merged_symbols.push_back(merged);
+          i += 2;
+        } else {
+          merged_symbols.push_back(chunk.symbols[i]);
+          i += 1;
+        }
+      }
+      chunk.symbols = std::move(merged_symbols);
+    }
+  }
+
+  return bpe;
 }
 
 std::vector<int32_t> BPE::encode(const std::string &text) const {
