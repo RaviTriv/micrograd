@@ -1,0 +1,8 @@
+cpu: Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz
+cmake: -DBUILD_TESTS=OFF -DFETCH_MNIST=OFF -DENABLE_NATIVE_ARCH=OFF
+command: ./build/bench
+matmul n=512 iterations=3 seconds_per_iter=0.527785 gflops=0.508608
+matmul n=512 iterations=3 seconds_per_iter=0.265367 gflops=1.01156
+matmul n=512 iterations=3 seconds_per_iter=0.211624 gflops=1.26845
+matmul n=512 iterations=3 seconds_per_iter=0.225651 gflops=1.18961
+matmul n=512 iterations=3 seconds_per_iter=0.209785 gflops=1.27957

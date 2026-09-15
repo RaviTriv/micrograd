@@ -57,4 +57,5 @@ compile_commands.json
 # macOS
 .DS_Store
 
-data/
+data/*
+!data/march-native-*/

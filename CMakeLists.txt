@@ -18,6 +18,11 @@ add_compile_options(
     "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Wpedantic;-Wshadow;-Wconversion;-Wsign-conversion>"
 )
 
+option(ENABLE_NATIVE_ARCH "Build with -march=native" OFF)
+if(ENABLE_NATIVE_ARCH)
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-march=native>")
+endif()
+
 if(APPLE)
     option(ENABLE_METAL "Metal GPU acceleration" ON)
 endif()
@@ -124,6 +129,10 @@ endif()
 
 add_executable(main src/main.cpp)
 target_link_libraries(main PRIVATE micrograd)
+
+add_executable(bench bench/bench.cpp)
+target_link_libraries(bench PRIVATE micrograd)
+target_compile_options(bench PRIVATE -Werror)
 
 add_library(gpt_bpe
     examples/gpt/BPE.cpp
