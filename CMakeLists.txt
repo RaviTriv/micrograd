@@ -132,6 +132,7 @@ add_library(gpt_bpe
     examples/gpt/ConversationDataset.cpp
     examples/gpt/CoreEval.cpp
     examples/gpt/GPTConfig.cpp
+    examples/gpt/GRPO.cpp
     examples/gpt/KVCache.cpp
 )
 target_include_directories(gpt_bpe PUBLIC . include)
@@ -193,4 +194,9 @@ if(BUILD_TESTS)
     target_link_libraries(core_eval PRIVATE gpt_bpe)
     target_compile_options(core_eval PRIVATE -Werror)
     add_test(NAME core_eval COMMAND core_eval)
+
+    add_executable(grpo_check tools/grpo_check.cpp)
+    target_link_libraries(grpo_check PRIVATE gpt_bpe)
+    target_compile_options(grpo_check PRIVATE -Werror)
+    add_test(NAME grpo_check COMMAND grpo_check)
 endif()

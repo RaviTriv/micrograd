@@ -19,6 +19,11 @@ std::shared_ptr<Tensor> masked_cross_entropy(
     const std::shared_ptr<Tensor> &logits,
     const std::vector<size_t> &target_indices,
     const std::vector<bool> &loss_mask);
+std::shared_ptr<Tensor> grpo_loss(
+    const std::shared_ptr<Tensor> &logits,
+    const std::vector<size_t> &target_indices,
+    const std::vector<scalar_t> &advantages,
+    const std::vector<scalar_t> &reference_log_probs, scalar_t kl_coeff);
 std::shared_ptr<Tensor> avg_pool2d(const std::shared_ptr<Tensor> &input,
                                    size_t kernel);
 std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input);
