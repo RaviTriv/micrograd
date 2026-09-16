@@ -138,6 +138,7 @@ if(BUILD_BENCH)
 endif()
 
 add_library(gpt_bpe
+    examples/gpt/Attention.cpp
     examples/gpt/BPE.cpp
     examples/gpt/Chat.cpp
     examples/gpt/Conversation.cpp
