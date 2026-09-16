@@ -74,9 +74,9 @@ MatmulKernelLauncher &MatmulKernelLauncher::C(MTL::Buffer *buf) {
 
 void MatmulKernelLauncher::launch() {
   constexpr size_t kTileSize = 16;
-  MTL::Size gridSize(n_, rows_, 1);
-  MTL::Size threadGroupSize(std::min(n_, kTileSize), std::min(rows_, kTileSize),
-                            1);
+  MTL::Size threadGroupSize(kTileSize, kTileSize, 1);
+  MTL::Size gridSize(((n_ + kTileSize - 1) / kTileSize) * kTileSize,
+                     ((rows_ + kTileSize - 1) / kTileSize) * kTileSize, 1);
   encoder_->dispatchThreads(gridSize, threadGroupSize);
 
   encoder_->endEncoding();

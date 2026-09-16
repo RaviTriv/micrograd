@@ -5,6 +5,8 @@ const char *KERNEL_SOURCE = R"(
 #include <metal_stdlib>
 using namespace metal;
 
+constant uint kTileSize = 16;
+
 kernel void matmul(
     device const float* A [[buffer(0)]],
     device const float* B [[buffer(1)]],
@@ -12,16 +14,30 @@ kernel void matmul(
     constant uint& M [[buffer(3)]],
     constant uint& K [[buffer(4)]],
     constant uint& N [[buffer(5)]],
-    uint2 gid [[thread_position_in_grid]])
+    uint2 gid [[thread_position_in_grid]],
+    uint2 tid [[thread_position_in_threadgroup]])
 {
-    if (gid.y >= M || gid.x >= N) {
-        return;
-    }
+    threadgroup float tileA[kTileSize][kTileSize];
+    threadgroup float tileB[kTileSize][kTileSize];
+
+    const uint row = gid.y;
+    const uint col = gid.x;
     float sum = 0.0f;
-    for (uint k = 0; k < K; k++) {
-        sum += A[gid.y * K + k] * B[k * N + gid.x];
+    const uint numTiles = (K + kTileSize - 1) / kTileSize;
+    for (uint t = 0; t < numTiles; t++) {
+        const uint aCol = t * kTileSize + tid.x;
+        const uint bRow = t * kTileSize + tid.y;
+        tileA[tid.y][tid.x] = (row < M && aCol < K) ? A[row * K + aCol] : 0.0f;
+        tileB[tid.y][tid.x] = (bRow < K && col < N) ? B[bRow * N + col] : 0.0f;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint k = 0; k < kTileSize; k++) {
+            sum += tileA[tid.y][k] * tileB[k][tid.x];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    C[gid.y * N + gid.x] = sum;
+    if (row < M && col < N) {
+        C[row * N + col] = sum;
+    }
 }
 
 kernel void matmul_nt(
@@ -31,16 +47,30 @@ kernel void matmul_nt(
     constant uint& M [[buffer(3)]],
     constant uint& K [[buffer(4)]],
     constant uint& N [[buffer(5)]],
-    uint2 gid [[thread_position_in_grid]])
+    uint2 gid [[thread_position_in_grid]],
+    uint2 tid [[thread_position_in_threadgroup]])
 {
-    if (gid.y >= M || gid.x >= N) {
-        return;
-    }
+    threadgroup float tileA[kTileSize][kTileSize];
+    threadgroup float tileB[kTileSize][kTileSize];
+
+    const uint row = gid.y;
+    const uint col = gid.x;
     float sum = 0.0f;
-    for (uint k = 0; k < K; k++) {
-        sum += A[gid.y * K + k] * B[gid.x * K + k];
+    const uint numTiles = (K + kTileSize - 1) / kTileSize;
+    for (uint t = 0; t < numTiles; t++) {
+        const uint aCol = t * kTileSize + tid.x;
+        const uint bCol = t * kTileSize + tid.y;
+        tileA[tid.y][tid.x] = (row < M && aCol < K) ? A[row * K + aCol] : 0.0f;
+        tileB[tid.y][tid.x] = (col < N && bCol < K) ? B[col * K + bCol] : 0.0f;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint k = 0; k < kTileSize; k++) {
+            sum += tileA[tid.y][k] * tileB[k][tid.x];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    C[gid.y * N + gid.x] += sum;
+    if (row < M && col < N) {
+        C[row * N + col] += sum;
+    }
 }
 
 kernel void matmul_tn(
@@ -50,16 +80,30 @@ kernel void matmul_tn(
     constant uint& M [[buffer(3)]],
     constant uint& K [[buffer(4)]],
     constant uint& N [[buffer(5)]],
-    uint2 gid [[thread_position_in_grid]])
+    uint2 gid [[thread_position_in_grid]],
+    uint2 tid [[thread_position_in_threadgroup]])
 {
-    if (gid.y >= K || gid.x >= N) {
-        return;
-    }
+    threadgroup float tileA[kTileSize][kTileSize];
+    threadgroup float tileB[kTileSize][kTileSize];
+
+    const uint row = gid.y;
+    const uint col = gid.x;
     float sum = 0.0f;
-    for (uint m = 0; m < M; m++) {
-        sum += A[m * K + gid.y] * B[m * N + gid.x];
+    const uint numTiles = (M + kTileSize - 1) / kTileSize;
+    for (uint t = 0; t < numTiles; t++) {
+        const uint aRow = t * kTileSize + tid.x;
+        const uint bRow = t * kTileSize + tid.y;
+        tileA[tid.y][tid.x] = (row < K && aRow < M) ? A[aRow * K + row] : 0.0f;
+        tileB[tid.y][tid.x] = (bRow < M && col < N) ? B[bRow * N + col] : 0.0f;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint k = 0; k < kTileSize; k++) {
+            sum += tileA[tid.y][k] * tileB[k][tid.x];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    C[gid.y * N + gid.x] += sum;
+    if (row < K && col < N) {
+        C[row * N + col] += sum;
+    }
 }
 
 kernel void add(
