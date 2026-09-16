@@ -143,6 +143,7 @@ add_library(gpt_bpe
     examples/gpt/Conversation.cpp
     examples/gpt/ConversationDataset.cpp
     examples/gpt/CoreEval.cpp
+    examples/gpt/Dataset.cpp
     examples/gpt/GPTConfig.cpp
     examples/gpt/GRPO.cpp
     examples/gpt/KVCache.cpp
@@ -173,6 +174,22 @@ if(FETCH_MNIST)
     add_dependencies(main mnist-data)
 
     target_compile_definitions(main PRIVATE MNIST_DATA_DIR="${MNIST_DATA_DIR}")
+endif()
+
+option(FETCH_CORPUS "Download the Shakespeare corpus" OFF)
+if(FETCH_CORPUS)
+    set(CORPUS_DATA_DIR "${CMAKE_BINARY_DIR}/corpus-data")
+    set(CORPUS_DATA_FILE "${CORPUS_DATA_DIR}/input.txt")
+
+    add_custom_command(
+        OUTPUT ${CORPUS_DATA_FILE}
+        COMMAND ${CMAKE_COMMAND} -DCORPUS_DATA_DIR=${CORPUS_DATA_DIR}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchCorpus.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchCorpus.cmake"
+        COMMENT "Downloading Shakespeare corpus"
+        VERBATIM
+    )
+    add_custom_target(corpus-data DEPENDS ${CORPUS_DATA_FILE})
 endif()
 
 option(BUILD_TESTS "Unit tests" ON)
