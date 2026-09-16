@@ -130,9 +130,12 @@ endif()
 add_executable(main src/main.cpp)
 target_link_libraries(main PRIVATE micrograd)
 
-add_executable(bench bench/bench.cpp)
-target_link_libraries(bench PRIVATE micrograd)
-target_compile_options(bench PRIVATE -Werror)
+option(BUILD_BENCH "Benchmark harness" OFF)
+if(BUILD_BENCH)
+    add_executable(bench bench/bench.cpp)
+    target_link_libraries(bench PRIVATE micrograd)
+    target_compile_options(bench PRIVATE -Werror)
+endif()
 
 add_library(gpt_bpe
     examples/gpt/BPE.cpp
