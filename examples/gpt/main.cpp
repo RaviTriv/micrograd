@@ -1,6 +1,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <numbers>
@@ -42,6 +43,7 @@ struct TrainConfig {
   std::string data_path = CORPUS_DATA_PATH;
   std::string checkpoint_path = "gpt.bin";
   std::string resume_path;
+  std::string log_path = "training.log";
   double val_fraction = 0.1;
   size_t batch_size = 64;
   size_t grad_accum_steps = 1;
@@ -96,6 +98,8 @@ TrainConfig parse_args(int argc, char **argv) {
       config.checkpoint_path = next_value();
     } else if (arg == "--resume") {
       config.resume_path = next_value();
+    } else if (arg == "--log") {
+      config.log_path = next_value();
     } else if (arg == "--val-fraction") {
       config.val_fraction = std::stod(next_value());
     } else if (arg == "--batch-size") {
@@ -220,6 +224,16 @@ scalar_t LrAt(size_t it, const TrainConfig &config) {
   return config.min_lr + (coeff * (config.learning_rate - config.min_lr));
 }
 
+void write_u64(std::ostream &out, uint64_t value) {
+  out.write(reinterpret_cast<const char *>(&value), sizeof(value));
+}
+
+uint64_t read_u64(std::istream &in) {
+  uint64_t value = 0;
+  in.read(reinterpret_cast<char *>(&value), sizeof(value));
+  return value;
+}
+
 class TrainOptimizer {
  public:
   TrainOptimizer(std::vector<std::shared_ptr<Tensor>> parameters,
@@ -240,6 +254,28 @@ class TrainOptimizer {
   void zero_grad() {
     for (auto &p : parameters_) {
       p->zero_grad();
+    }
+  }
+
+  size_t step_count() const { return step_count_; }
+
+  void write_state(std::ostream &out) const {
+    write_u64(out, static_cast<uint64_t>(step_count_));
+    for (size_t i = 0; i < parameters_.size(); i++) {
+      out.write(reinterpret_cast<const char *>(m_[i].data()),
+                static_cast<std::streamsize>(m_[i].size() * sizeof(scalar_t)));
+      out.write(reinterpret_cast<const char *>(v_[i].data()),
+                static_cast<std::streamsize>(v_[i].size() * sizeof(scalar_t)));
+    }
+  }
+
+  void read_state(std::istream &in) {
+    step_count_ = static_cast<size_t>(read_u64(in));
+    for (size_t i = 0; i < parameters_.size(); i++) {
+      in.read(reinterpret_cast<char *>(m_[i].data()),
+              static_cast<std::streamsize>(m_[i].size() * sizeof(scalar_t)));
+      in.read(reinterpret_cast<char *>(v_[i].data()),
+              static_cast<std::streamsize>(v_[i].size() * sizeof(scalar_t)));
     }
   }
 
@@ -279,6 +315,30 @@ class TrainOptimizer {
   std::vector<std::vector<scalar_t>> m_;
   std::vector<std::vector<scalar_t>> v_;
 };
+
+std::string optimizer_state_path(const std::string &checkpoint_path) {
+  return checkpoint_path + ".opt";
+}
+
+void save_optimizer_state(const std::string &path,
+                          const TrainOptimizer &optimizer) {
+  std::ofstream file(path, std::ios::binary);
+  if (!file.is_open()) {
+    throw std::runtime_error("Could not open file for saving: " + path);
+  }
+  optimizer.write_state(file);
+  if (!file) {
+    throw std::runtime_error("Failed while writing optimizer state: " + path);
+  }
+}
+
+void load_optimizer_state(const std::string &path, TrainOptimizer &optimizer) {
+  std::ifstream file(path, std::ios::binary);
+  if (!file.is_open()) {
+    throw std::runtime_error("Could not open file for loading: " + path);
+  }
+  optimizer.read_state(file);
+}
 
 double estimate_loss(Model &model, const Dataset &dataset, Dataset::Split split,
                      const TrainConfig &config, std::mt19937_64 &rng) {
@@ -320,14 +380,28 @@ int main(int argc, char **argv) {
       p->to(config.device);
     }
 
-    if (!config.resume_path.empty()) {
-      load(config.resume_path, model);
-    }
-
     TrainOptimizer optimizer(parameters, config.weight_decay, config.beta1,
                              config.beta2, 1e-8f);
 
-    for (size_t it = 0; it < config.max_iters; it++) {
+    size_t start_iter = 0;
+    if (!config.resume_path.empty()) {
+      load(config.resume_path, model);
+      load_optimizer_state(optimizer_state_path(config.resume_path), optimizer);
+      start_iter = optimizer.step_count();
+    }
+
+    std::ofstream log_file(config.log_path,
+                           config.resume_path.empty()
+                               ? std::ios::out
+                               : std::ios::out | std::ios::app);
+    if (!log_file.is_open()) {
+      throw std::runtime_error("Could not open log file: " + config.log_path);
+    }
+    if (config.resume_path.empty()) {
+      log_file << "step,train_loss,val_loss\n";
+    }
+
+    for (size_t it = start_iter; it < config.max_iters; it++) {
       if (config.eval_interval > 0 && it % config.eval_interval == 0) {
         double train_loss = estimate_loss(
             model, dataset, Dataset::Split::kTrain, config, global_rng());
@@ -335,11 +409,15 @@ int main(int argc, char **argv) {
                                         config, global_rng());
         std::cout << "step " << it << ": train loss " << train_loss
                   << ", val loss " << val_loss << "\n";
+        log_file << it << "," << train_loss << "," << val_loss << "\n";
+        log_file.flush();
       }
 
       if (config.checkpoint_interval > 0 && it > 0 &&
           it % config.checkpoint_interval == 0) {
         save(config.checkpoint_path, model);
+        save_optimizer_state(optimizer_state_path(config.checkpoint_path),
+                             optimizer);
       }
 
       model.train();
@@ -369,6 +447,8 @@ int main(int argc, char **argv) {
     std::cout << "final val loss " << final_val_loss << "\n";
 
     save(config.checkpoint_path, model);
+    save_optimizer_state(optimizer_state_path(config.checkpoint_path),
+                         optimizer);
     std::cout << "Saved trained model to " << config.checkpoint_path << "\n";
   } catch (const std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
