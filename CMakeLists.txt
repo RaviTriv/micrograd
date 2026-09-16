@@ -140,6 +140,7 @@ endif()
 add_library(gpt_bpe
     examples/gpt/Attention.cpp
     examples/gpt/BPE.cpp
+    examples/gpt/Block.cpp
     examples/gpt/Chat.cpp
     examples/gpt/Conversation.cpp
     examples/gpt/ConversationDataset.cpp
@@ -148,6 +149,7 @@ add_library(gpt_bpe
     examples/gpt/GPTConfig.cpp
     examples/gpt/GRPO.cpp
     examples/gpt/KVCache.cpp
+    examples/gpt/Model.cpp
 )
 target_include_directories(gpt_bpe PUBLIC . include)
 target_link_libraries(gpt_bpe PUBLIC micrograd)
