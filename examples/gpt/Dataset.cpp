@@ -26,10 +26,11 @@ Dataset::Dataset(const std::string &path, double val_fraction) {
     seen[static_cast<unsigned char>(c)] = true;
   }
 
-  std::array<size_t, 256> byte_to_index{};
+  byte_to_index_.fill(-1);
   for (size_t byte = 0; byte < 256; byte++) {
     if (seen[byte]) {
-      byte_to_index[byte] = vocab_size_;
+      byte_to_index_[byte] = static_cast<int64_t>(vocab_size_);
+      itos_.push_back(static_cast<uint8_t>(byte));
       vocab_size_++;
     }
   }
@@ -37,7 +38,7 @@ Dataset::Dataset(const std::string &path, double val_fraction) {
   tokens_.resize(text.size());
   for (size_t i = 0; i < text.size(); i++) {
     tokens_[i] = static_cast<uint8_t>(
-        byte_to_index[static_cast<unsigned char>(text[i])]);
+        byte_to_index_[static_cast<unsigned char>(text[i])]);
   }
 
   auto val_size =
@@ -73,6 +74,26 @@ Dataset::Batch Dataset::sample(size_t batch_size, size_t block_size,
     }
   }
   return batch;
+}
+
+std::vector<size_t> Dataset::encode(const std::string &text) const {
+  std::vector<size_t> tokens;
+  tokens.reserve(text.size());
+  for (char c : text) {
+    int64_t index = byte_to_index_[static_cast<unsigned char>(c)];
+    if (index < 0) {
+      throw std::invalid_argument("Dataset::encode: byte not in vocabulary");
+    }
+    tokens.push_back(static_cast<size_t>(index));
+  }
+  return tokens;
+}
+
+char Dataset::decode(size_t token) const {
+  if (token >= itos_.size()) {
+    throw std::invalid_argument("Dataset::decode: token out of range");
+  }
+  return static_cast<char>(itos_[token]);
 }
 
 }  // namespace micrograd::gpt

@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -8,8 +10,10 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
+#include "examples/gpt/Chat.h"
 #include "examples/gpt/Dataset.h"
 #include "examples/gpt/GPTConfig.h"
 #include "examples/gpt/Model.h"
@@ -38,6 +42,7 @@ using micrograd::Tensor;
 using micrograd::gpt::Dataset;
 using micrograd::gpt::GPTConfig;
 using micrograd::gpt::Model;
+using micrograd::gpt::sample_token;
 
 struct TrainConfig {
   std::string data_path = CORPUS_DATA_PATH;
@@ -65,6 +70,12 @@ struct TrainConfig {
   size_t checkpoint_interval = 250;
   Device device = Device::CPU;
   uint64_t seed = 1337;
+  bool sample = false;
+  std::string prompt = "\n";
+  size_t max_new_tokens = 500;
+  scalar_t temperature = 0.8f;
+  size_t top_k = 200;
+  size_t sample_delay_ms = 20;
 };
 
 Device parse_device(const std::string &value) {
@@ -143,6 +154,18 @@ TrainConfig parse_args(int argc, char **argv) {
       config.device = parse_device(next_value());
     } else if (arg == "--seed") {
       config.seed = std::stoull(next_value());
+    } else if (arg == "--sample") {
+      config.sample = true;
+    } else if (arg == "--prompt") {
+      config.prompt = next_value();
+    } else if (arg == "--max-new-tokens") {
+      config.max_new_tokens = static_cast<size_t>(std::stoul(next_value()));
+    } else if (arg == "--temperature") {
+      config.temperature = std::stof(next_value());
+    } else if (arg == "--top-k") {
+      config.top_k = static_cast<size_t>(std::stoul(next_value()));
+    } else if (arg == "--sample-delay-ms") {
+      config.sample_delay_ms = static_cast<size_t>(std::stoul(next_value()));
     } else {
       throw std::invalid_argument("Unknown flag: " + arg);
     }
@@ -364,12 +387,69 @@ double estimate_loss(Model &model, const Dataset &dataset, Dataset::Split split,
   return total / static_cast<double>(config.eval_iters);
 }
 
+void run_sample(const TrainConfig &config) {
+  Dataset dataset(config.data_path, config.val_fraction);
+  GPTConfig model_config = build_model_config(config);
+  Model model(dataset.vocab_size(), model_config);
+
+  std::vector<std::shared_ptr<Tensor>> parameters = model.parameters();
+  for (auto &p : parameters) {
+    p->to(config.device);
+  }
+  load(config.checkpoint_path, model);
+
+  const NoGradGuard no_grad;
+  model.eval();
+
+  std::mt19937_64 rng(config.seed);
+  std::vector<size_t> context = dataset.encode(config.prompt);
+  if (context.empty()) {
+    throw std::runtime_error("run_sample: prompt encodes to no tokens");
+  }
+
+  for (size_t token : context) {
+    std::cout << dataset.decode(token);
+  }
+  std::cout.flush();
+
+  for (size_t i = 0; i < config.max_new_tokens; i++) {
+    size_t seq_len = std::min(context.size(), config.block_size);
+    std::vector<size_t> window(context.end() - static_cast<int64_t>(seq_len),
+                               context.end());
+    auto input = token_tensor(window, 1, seq_len, config.device);
+    auto logits = model.forward(input);
+    logits->to(Device::CPU);
+
+    std::vector<scalar_t> last_step(dataset.vocab_size());
+    for (size_t v = 0; v < dataset.vocab_size(); v++) {
+      last_step[v] = logits->at({0, seq_len - 1, v});
+    }
+    auto step_logits = std::make_shared<Tensor>(
+        std::vector<size_t>{dataset.vocab_size()}, std::move(last_step));
+
+    int32_t token =
+        sample_token(step_logits, config.temperature, config.top_k, rng);
+    context.push_back(static_cast<size_t>(token));
+
+    std::cout << dataset.decode(static_cast<size_t>(token));
+    std::cout.flush();
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(config.sample_delay_ms));
+  }
+  std::cout << "\n";
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
   try {
     TrainConfig config = parse_args(argc, argv);
     manual_seed(config.seed);
+
+    if (config.sample) {
+      run_sample(config);
+      return 0;
+    }
 
     Dataset dataset(config.data_path, config.val_fraction);
     GPTConfig model_config = build_model_config(config);
