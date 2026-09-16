@@ -44,6 +44,7 @@ struct TrainConfig {
   std::string resume_path;
   double val_fraction = 0.1;
   size_t batch_size = 64;
+  size_t grad_accum_steps = 1;
   size_t block_size = 256;
   size_t n_layer = 6;
   size_t n_head = 6;
@@ -99,6 +100,8 @@ TrainConfig parse_args(int argc, char **argv) {
       config.val_fraction = std::stod(next_value());
     } else if (arg == "--batch-size") {
       config.batch_size = static_cast<size_t>(std::stoul(next_value()));
+    } else if (arg == "--grad-accum-steps") {
+      config.grad_accum_steps = static_cast<size_t>(std::stoul(next_value()));
     } else if (arg == "--block-size") {
       config.block_size = static_cast<size_t>(std::stoul(next_value()));
     } else if (arg == "--n-layer") {
@@ -340,19 +343,23 @@ int main(int argc, char **argv) {
       }
 
       model.train();
-      Dataset::Batch batch =
-          dataset.sample(config.batch_size, config.block_size,
-                         Dataset::Split::kTrain, global_rng());
-      auto input = token_tensor(batch.inputs, config.batch_size,
-                                config.block_size, config.device);
-      auto logits = model.forward(input);
-      auto flat_logits = logits->reshape(
-          {static_cast<int64_t>(config.batch_size * config.block_size),
-           static_cast<int64_t>(dataset.vocab_size())});
-      auto loss = cross_entropy(flat_logits, batch.targets);
-
       optimizer.zero_grad();
-      loss->backward();
+      for (size_t micro_step = 0; micro_step < config.grad_accum_steps;
+           micro_step++) {
+        Dataset::Batch batch =
+            dataset.sample(config.batch_size, config.block_size,
+                           Dataset::Split::kTrain, global_rng());
+        auto input = token_tensor(batch.inputs, config.batch_size,
+                                  config.block_size, config.device);
+        auto logits = model.forward(input);
+        auto flat_logits = logits->reshape(
+            {static_cast<int64_t>(config.batch_size * config.block_size),
+             static_cast<int64_t>(dataset.vocab_size())});
+        auto loss = cross_entropy(flat_logits, batch.targets);
+        auto scaled_loss =
+            loss->div(static_cast<scalar_t>(config.grad_accum_steps));
+        scaled_loss->backward();
+      }
       ClipGradNorm(parameters, config.grad_clip);
       optimizer.step(LrAt(it, config));
     }
