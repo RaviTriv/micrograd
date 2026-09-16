@@ -1,4 +1,7 @@
+#include <algorithm>
 #include <functional>
+#include <thread>
+#include <vector>
 
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
@@ -6,6 +9,56 @@
 
 namespace micrograd::ops::cpu {
 namespace {
+
+constexpr size_t kBlock = 64;
+
+void MatmulRows(const scalar_t *lhs_b, const scalar_t *rhs_b, scalar_t *out_b,
+                size_t k, size_t n, size_t row_begin, size_t row_end) {
+  for (size_t i = row_begin; i < row_end; i++) {
+    for (size_t j = 0; j < n; j++) {
+      out_b[i * n + j] = 0.0f;
+    }
+  }
+  for (size_t ii = row_begin; ii < row_end; ii += kBlock) {
+    const size_t i_max = std::min(ii + kBlock, row_end);
+    for (size_t kk = 0; kk < k; kk += kBlock) {
+      const size_t k_max = std::min(kk + kBlock, k);
+      for (size_t jj = 0; jj < n; jj += kBlock) {
+        const size_t j_max = std::min(jj + kBlock, n);
+        for (size_t i = ii; i < i_max; i++) {
+          for (size_t p = kk; p < k_max; p++) {
+            const scalar_t a = lhs_b[i * k + p];
+            for (size_t j = jj; j < j_max; j++) {
+              out_b[i * n + j] += a * rhs_b[p * n + j];
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+void MatmulBatch(const scalar_t *lhs_b, const scalar_t *rhs_b, scalar_t *out_b,
+                 size_t m, size_t k, size_t n) {
+  const size_t threads =
+      std::max<size_t>(1, std::thread::hardware_concurrency());
+  const size_t rows_per_thread = (m + threads - 1) / threads;
+  if (threads == 1 || rows_per_thread == 0) {
+    MatmulRows(lhs_b, rhs_b, out_b, k, n, 0, m);
+    return;
+  }
+
+  std::vector<std::jthread> pool;
+  for (size_t t = 0; t < threads; t++) {
+    const size_t row_begin = t * rows_per_thread;
+    if (row_begin >= m) {
+      break;
+    }
+    const size_t row_end = std::min(row_begin + rows_per_thread, m);
+    pool.emplace_back(MatmulRows, lhs_b, rhs_b, out_b, k, n, row_begin,
+                      row_end);
+  }
+}
 
 void Matmul(const OpArgs &args) {
   const auto &lhs_shape = args.lhs->shape();
@@ -23,15 +76,7 @@ void Matmul(const OpArgs &args) {
     const scalar_t *lhs_b = lhs.data() + bidx * m * k;
     const scalar_t *rhs_b = rhs.data() + bidx * k * n;
     scalar_t *out_b = out.data() + bidx * m * n;
-    for (size_t i = 0; i < m; i++) {
-      for (size_t j = 0; j < n; j++) {
-        scalar_t sum = 0.0f;
-        for (size_t p = 0; p < k; p++) {
-          sum += lhs_b[i * k + p] * rhs_b[p * n + j];
-        }
-        out_b[i * n + j] = sum;
-      }
-    }
+    MatmulBatch(lhs_b, rhs_b, out_b, m, k, n);
   }
 }
 
