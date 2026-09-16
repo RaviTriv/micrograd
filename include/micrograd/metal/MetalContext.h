@@ -50,6 +50,7 @@ class MetalContext {
 
   MTL::ComputePipelineState *getPipeline(const std::string &name);
   MTL::CommandQueue *commandQueue();
+  MTL::CommandBuffer *commandBuffer();
   MTL::Device *device();
 
   void synchronize();
@@ -60,6 +61,7 @@ class MetalContext {
 
   MTL::Device *device_ = nullptr;
   MTL::CommandQueue *command_queue_ = nullptr;
+  MTL::CommandBuffer *pending_command_buffer_ = nullptr;
   MTL::Library *library_ = nullptr;
 
   std::unordered_map<std::string, MTL::ComputePipelineState *> pipelines_;

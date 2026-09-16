@@ -15,6 +15,7 @@ void Sum(const OpArgs &args) {
   args.out->to(Backend::Metal);
 
   auto &ctx = MetalContext::instance();
+  ctx.synchronize();
   auto pipeline = ctx.getPipeline("sum_reduce");
 
   const uint32_t threadgroupSize = 256;

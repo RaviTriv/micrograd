@@ -11,8 +11,7 @@ ElementwiseKernelLauncher::ElementwiseKernelLauncher(MetalContext &ctx,
                                                      size_t size)
     : ctx_(ctx), size_(size) {
   pipeline_ = ctx_.getPipeline(kernel);
-  cmdBuf_ = ctx_.commandQueue()->commandBuffer();
-  encoder_ = cmdBuf_->computeCommandEncoder();
+  encoder_ = ctx_.commandBuffer()->computeCommandEncoder();
   encoder_->setComputePipelineState(pipeline_);
 }
 
@@ -34,8 +33,6 @@ void ElementwiseKernelLauncher::launch() {
   encoder_->dispatchThreads(gridSize, threadGroupSize);
 
   encoder_->endEncoding();
-  cmdBuf_->commit();
-  cmdBuf_->waitUntilCompleted();
 }
 
 MatmulKernelLauncher::MatmulKernelLauncher(MetalContext &ctx,
@@ -49,8 +46,7 @@ MatmulKernelLauncher::MatmulKernelLauncher(MetalContext &ctx,
       bufK_(ctx, sizeof(uint32_t)),
       bufN_(ctx, sizeof(uint32_t)) {
   pipeline_ = ctx_.getPipeline(kernel);
-  cmdBuf_ = ctx_.commandQueue()->commandBuffer();
-  encoder_ = cmdBuf_->computeCommandEncoder();
+  encoder_ = ctx_.commandBuffer()->computeCommandEncoder();
   encoder_->setComputePipelineState(pipeline_);
 
   bufM_.set(static_cast<uint32_t>(m));
@@ -84,8 +80,6 @@ void MatmulKernelLauncher::launch() {
   encoder_->dispatchThreads(gridSize, threadGroupSize);
 
   encoder_->endEncoding();
-  cmdBuf_->commit();
-  cmdBuf_->waitUntilCompleted();
 }
 
 }  // namespace micrograd

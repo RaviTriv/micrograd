@@ -23,7 +23,6 @@ class ElementwiseKernelLauncher {
  private:
   MetalContext &ctx_;
   MTL::ComputePipelineState *pipeline_;
-  MTL::CommandBuffer *cmdBuf_;
   MTL::ComputeCommandEncoder *encoder_;
   size_t size_;
   uint32_t bufferIndex_ = 0;
@@ -43,7 +42,6 @@ class MatmulKernelLauncher {
  private:
   MetalContext &ctx_;
   MTL::ComputePipelineState *pipeline_;
-  MTL::CommandBuffer *cmdBuf_;
   MTL::ComputeCommandEncoder *encoder_;
   size_t rows_, n_;
   ScopedBuffer bufM_, bufK_, bufN_;

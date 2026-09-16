@@ -157,6 +157,7 @@ const void *Storage::host_pointer() const {
     return data_;
   }
 #ifdef MICROGRAD_METAL_ENABLED
+  MetalContext::instance().synchronize();
   return static_cast<MTL::Buffer *>(data_)->contents();
 #else
   return nullptr;

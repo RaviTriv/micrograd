@@ -54,8 +54,20 @@ bool MetalContext::initialize() {
   return true;
 }
 
+MTL::CommandBuffer *MetalContext::commandBuffer() {
+  if (!pending_command_buffer_) {
+    pending_command_buffer_ = command_queue_->commandBuffer();
+  }
+  return pending_command_buffer_;
+}
+
 void MetalContext::synchronize() {
-  MTL::CommandBuffer *command_buffer = command_queue_->commandBuffer();
+  if (!pending_command_buffer_) {
+    return;
+  }
+
+  MTL::CommandBuffer *command_buffer = pending_command_buffer_;
+  pending_command_buffer_ = nullptr;
   command_buffer->commit();
   command_buffer->waitUntilCompleted();
 }
@@ -121,6 +133,7 @@ void MetalContext::shutdown() {
   }
 
   command_queue_ = nullptr;
+  pending_command_buffer_ = nullptr;
   device_ = nullptr;
   library_ = nullptr;
   initialized_ = false;
