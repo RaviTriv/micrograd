@@ -155,6 +155,10 @@ target_include_directories(gpt_bpe PUBLIC . include)
 target_link_libraries(gpt_bpe PUBLIC micrograd)
 target_compile_options(gpt_bpe PRIVATE -Werror)
 
+add_executable(gpt examples/gpt/main.cpp)
+target_link_libraries(gpt PRIVATE gpt_bpe)
+target_compile_options(gpt PRIVATE -Werror)
+
 option(FETCH_MNIST "Download the MNIST dataset" ON)
 if(FETCH_MNIST)
     set(MNIST_DATA_DIR "${CMAKE_BINARY_DIR}/mnist-data")
@@ -193,6 +197,9 @@ if(FETCH_CORPUS)
         VERBATIM
     )
     add_custom_target(corpus-data DEPENDS ${CORPUS_DATA_FILE})
+    add_dependencies(gpt corpus-data)
+
+    target_compile_definitions(gpt PRIVATE CORPUS_DATA_PATH="${CORPUS_DATA_FILE}")
 endif()
 
 option(BUILD_TESTS "Unit tests" ON)
