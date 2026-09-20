@@ -202,6 +202,34 @@ if(FETCH_CORPUS)
     target_compile_definitions(gpt PRIVATE CORPUS_DATA_PATH="${CORPUS_DATA_FILE}")
 endif()
 
+option(FETCH_FINEWEB "Download a FineWeb sample as pre-tokenized shards" OFF)
+if(FETCH_FINEWEB)
+    set(FINEWEB_DATA_DIR "${CMAKE_BINARY_DIR}/fineweb-data")
+    set(FINEWEB_TRAIN_SHARD_COUNT 8)
+
+    set(FINEWEB_DATA_FILES "${FINEWEB_DATA_DIR}/edufineweb_val_000000.bin")
+    foreach(shard RANGE 1 ${FINEWEB_TRAIN_SHARD_COUNT})
+        list(APPEND FINEWEB_DATA_FILES
+            "${FINEWEB_DATA_DIR}/edufineweb_train_${shard}.bin")
+    endforeach()
+
+    add_custom_command(
+        OUTPUT ${FINEWEB_DATA_FILES}
+        COMMAND ${CMAKE_COMMAND} -DFINEWEB_DATA_DIR=${FINEWEB_DATA_DIR}
+                -DFINEWEB_TRAIN_SHARD_COUNT=${FINEWEB_TRAIN_SHARD_COUNT}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchFineWeb.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchFineWeb.cmake"
+        COMMENT "Downloading FineWeb sample shards"
+        VERBATIM
+    )
+    add_custom_target(fineweb-data DEPENDS ${FINEWEB_DATA_FILES})
+    add_dependencies(gpt fineweb-data)
+
+    target_compile_definitions(gpt PRIVATE
+        FINEWEB_DATA_DIR="${FINEWEB_DATA_DIR}"
+        FINEWEB_TRAIN_SHARD_COUNT=${FINEWEB_TRAIN_SHARD_COUNT})
+endif()
+
 option(BUILD_TESTS "Unit tests" ON)
 if(BUILD_TESTS)
     include(FetchContent)
