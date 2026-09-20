@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -51,6 +52,18 @@ class Module {
     modules_.emplace_back(name, std::move(module));
   }
 
+  void set_checkpointing(bool enabled = true) { checkpointing_ = enabled; }
+
+  std::shared_ptr<Tensor> maybe_checkpoint(
+      const std::shared_ptr<Tensor> &input,
+      const std::function<
+          std::shared_ptr<Tensor>(const std::shared_ptr<Tensor> &)> &fn) const {
+    if (checkpointing_) {
+      return Tensor::checkpoint(input, fn);
+    }
+    return fn(input);
+  }
+
  private:
   void collect_parameters(std::vector<std::shared_ptr<Tensor>> &result) const {
     for (const auto &entry : parameters_) {
@@ -75,6 +88,7 @@ class Module {
   }
 
   bool training_ = true;
+  bool checkpointing_ = false;
   std::vector<std::pair<std::string, std::shared_ptr<Tensor>>> parameters_;
   std::vector<std::pair<std::string, std::shared_ptr<Module>>> modules_;
 };

@@ -73,6 +73,7 @@ add_library(micrograd
 
     src/NN.cpp
     src/MNIST.cpp
+    src/nn/Checkpoint.cpp
     src/metal/MetalContext.cpp
     src/metal/Kernels.cpp
     src/metal/Dispatch.cpp

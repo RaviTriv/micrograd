@@ -67,6 +67,11 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   bool requires_grad() const;
   void set_requires_grad(bool requires_grad);
 
+  static std::shared_ptr<Tensor> checkpoint(
+      const std::shared_ptr<Tensor> &input,
+      const std::function<
+          std::shared_ptr<Tensor>(const std::shared_ptr<Tensor> &)> &recompute);
+
   const std::vector<size_t> &shape() const;
   size_t size() const;
   scalar_t &at(const std::vector<size_t> &indices);

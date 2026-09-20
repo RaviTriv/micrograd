@@ -24,15 +24,19 @@ Block::Block(size_t n_embd, size_t n_head, scalar_t dropout) {
   register_module("mlp_fc", mlp_fc_);
   register_module("mlp_proj", mlp_proj_);
   register_module("mlp_dropout", mlp_dropout_);
+
+  set_checkpointing();
 }
 
 std::shared_ptr<Tensor> Block::forward(const std::shared_ptr<Tensor> &input) {
-  std::shared_ptr<Tensor> x = input->add(attn_->forward(ln1_->forward(input)));
+  return maybe_checkpoint(input, [this](const std::shared_ptr<Tensor> &x) {
+    std::shared_ptr<Tensor> residual = x->add(attn_->forward(ln1_->forward(x)));
 
-  std::shared_ptr<Tensor> mlp_out = mlp_dropout_->forward(
-      mlp_proj_->forward(gelu(mlp_fc_->forward(ln2_->forward(x)))));
+    std::shared_ptr<Tensor> mlp_out = mlp_dropout_->forward(
+        mlp_proj_->forward(gelu(mlp_fc_->forward(ln2_->forward(residual)))));
 
-  return x->add(mlp_out);
+    return residual->add(mlp_out);
+  });
 }
 
 }  // namespace micrograd::gpt
