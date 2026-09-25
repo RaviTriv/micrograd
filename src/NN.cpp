@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <memory>
 #include <random>
@@ -495,6 +496,33 @@ void SGD::step() {
   }
 }
 
+namespace {
+
+scalar_t read_master_weight(const Storage &storage, size_t index) {
+  if (storage.dtype() == DType::kBFloat16) {
+    uint16_t bits = static_cast<const uint16_t *>(storage.data())[index];
+    uint32_t widened = static_cast<uint32_t>(bits) << 16;
+    scalar_t value = 0;
+    std::memcpy(&value, &widened, sizeof(value));
+    return value;
+  }
+  return static_cast<const scalar_t *>(storage.data())[index];
+}
+
+void write_master_weight(Storage &storage, size_t index, scalar_t value) {
+  if (storage.dtype() == DType::kBFloat16) {
+    uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    uint32_t rounded = bits + 0x7fffu + ((bits >> 16) & 1u);
+    static_cast<uint16_t *>(storage.data())[index] =
+        static_cast<uint16_t>(rounded >> 16);
+    return;
+  }
+  static_cast<scalar_t *>(storage.data())[index] = value;
+}
+
+}  // namespace
+
 AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
              scalar_t learning_rate, std::pair<scalar_t, scalar_t> betas,
              scalar_t eps, scalar_t weight_decay)
@@ -506,9 +534,16 @@ AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
       weight_decay_(weight_decay) {
   m_.reserve(parameters_.size());
   v_.reserve(parameters_.size());
+  master_.reserve(parameters_.size());
   for (auto &p : parameters_) {
     m_.emplace_back(p->size(), static_cast<scalar_t>(0));
     v_.emplace_back(p->size(), static_cast<scalar_t>(0));
+    std::vector<scalar_t> weights(p->size());
+    const Storage &storage = p->data_storage();
+    for (size_t j = 0; j < p->size(); j++) {
+      weights[j] = read_master_weight(storage, j);
+    }
+    master_.push_back(std::move(weights));
   }
 }
 
@@ -528,14 +563,19 @@ void AdamW::step() {
     auto &p = parameters_[i];
     auto &m = m_[i];
     auto &v = v_[i];
+    auto &weights = master_[i];
+    Storage &storage = p->data_storage();
     for (size_t j = 0; j < p->size(); j++) {
-      p->data()[j] -= learning_rate_ * weight_decay_ * p->data()[j];
+      scalar_t weight =
+          weights[j] - learning_rate_ * weight_decay_ * weights[j];
       scalar_t grad = p->grad()[j];
       m[j] = beta1_ * m[j] + (1.0f - beta1_) * grad;
       v[j] = beta2_ * v[j] + (1.0f - beta2_) * grad * grad;
       scalar_t m_hat = m[j] / bias_correction1;
       scalar_t v_hat = v[j] / bias_correction2;
-      p->data()[j] -= learning_rate_ * m_hat / (std::sqrt(v_hat) + eps_);
+      weight -= learning_rate_ * m_hat / (std::sqrt(v_hat) + eps_);
+      weights[j] = weight;
+      write_master_weight(storage, j, weight);
     }
   }
 }

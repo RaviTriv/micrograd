@@ -158,6 +158,7 @@ class AdamW {
   size_t step_count_ = 0;
   std::vector<std::vector<scalar_t>> m_;
   std::vector<std::vector<scalar_t>> v_;
+  std::vector<std::vector<scalar_t>> master_;
 };
 
 class Muon {
