@@ -127,6 +127,8 @@ void Tensor::to(Backend device) {
 
 Backend Tensor::backend() const { return data_.device(); }
 
+DType Tensor::dtype() const { return data_.dtype(); }
+
 Storage &Tensor::data_storage() { return data_; }
 
 const Storage &Tensor::data_storage() const { return data_; }

@@ -82,7 +82,7 @@ void deallocate(void *data, [[maybe_unused]] size_t bytes, Device device) {
 }
 
 Storage copy_via_host(const Storage &src, Device to) {
-  Storage copy(src.bytes(), to);
+  Storage copy(src.bytes(), to, src.dtype());
   if (src.bytes() > 0) {
     std::memcpy(copy.host_pointer(), src.host_pointer(), src.bytes());
   }
@@ -91,13 +91,19 @@ Storage copy_via_host(const Storage &src, Device to) {
 
 }  // namespace
 
-Storage::Storage(size_t bytes, Device device)
-    : data_(allocate(bytes, device)), bytes_(bytes), device_(device) {}
+Storage::Storage(size_t bytes, Device device, DType dtype)
+    : data_(allocate(bytes, device)),
+      bytes_(bytes),
+      device_(device),
+      dtype_(dtype) {}
 
 Storage::~Storage() { release(); }  // NOLINT(bugprone-exception-escape)
 
 Storage::Storage(Storage &&other) noexcept
-    : data_(other.data_), bytes_(other.bytes_), device_(other.device_) {
+    : data_(other.data_),
+      bytes_(other.bytes_),
+      device_(other.device_),
+      dtype_(other.dtype_) {
   other.data_ = nullptr;
   other.bytes_ = 0;
 }
@@ -109,6 +115,7 @@ Storage &Storage::operator=(  // NOLINT(bugprone-exception-escape)
     data_ = other.data_;
     bytes_ = other.bytes_;
     device_ = other.device_;
+    dtype_ = other.dtype_;
     other.data_ = nullptr;
     other.bytes_ = 0;
   }

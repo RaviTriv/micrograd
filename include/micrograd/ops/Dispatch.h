@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "micrograd/DType.h"
 #include "micrograd/Device.h"
 #include "micrograd/Scalar.h"
 
@@ -79,30 +80,37 @@ class OpRegistry {
     return registry;
   }
 
-  void Register(OpId op, Device device, OpFn fn) { Slot(op, device) = fn; }
-
-  void RegisterBackward(OpId op, Device device, GradFn fn) {
-    BackwardSlot(op, device) = fn;
+  void Register(OpId op, Device device, OpFn fn,
+                DType dtype = DType::kFloat32) {
+    Slot(op, device, dtype) = fn;
   }
 
-  OpFn Lookup(OpId op, Device device) const {
-    OpFn fn = Slot(op, device);
+  void RegisterBackward(OpId op, Device device, GradFn fn,
+                        DType dtype = DType::kFloat32) {
+    BackwardSlot(op, device, dtype) = fn;
+  }
+
+  OpFn Lookup(OpId op, Device device, DType dtype = DType::kFloat32) const {
+    OpFn fn = Slot(op, device, dtype);
     if (fn == nullptr) {
-      throw std::runtime_error("No kernel registered for op " +
-                               std::to_string(static_cast<size_t>(op)) +
-                               " on device " +
-                               std::to_string(static_cast<size_t>(device)));
+      throw std::runtime_error(
+          "No kernel registered for op " +
+          std::to_string(static_cast<size_t>(op)) + " on device " +
+          std::to_string(static_cast<size_t>(device)) + " dtype " +
+          std::to_string(static_cast<size_t>(dtype)));
     }
     return fn;
   }
 
-  GradFn LookupBackward(OpId op, Device device) const {
-    GradFn fn = BackwardSlot(op, device);
+  GradFn LookupBackward(OpId op, Device device,
+                        DType dtype = DType::kFloat32) const {
+    GradFn fn = BackwardSlot(op, device, dtype);
     if (fn == nullptr) {
-      throw std::runtime_error("No backward kernel registered for op " +
-                               std::to_string(static_cast<size_t>(op)) +
-                               " on device " +
-                               std::to_string(static_cast<size_t>(device)));
+      throw std::runtime_error(
+          "No backward kernel registered for op " +
+          std::to_string(static_cast<size_t>(op)) + " on device " +
+          std::to_string(static_cast<size_t>(device)) + " dtype " +
+          std::to_string(static_cast<size_t>(dtype)));
     }
     return fn;
   }
@@ -110,24 +118,29 @@ class OpRegistry {
  private:
   OpRegistry() = default;
 
-  static size_t Index(OpId op, Device device) {
-    return static_cast<size_t>(op) * kDeviceCount + static_cast<size_t>(device);
+  static size_t Index(OpId op, Device device, DType dtype) {
+    return (static_cast<size_t>(op) * kDeviceCount +
+            static_cast<size_t>(device)) *
+               kDTypeCount +
+           static_cast<size_t>(dtype);
   }
 
-  OpFn &Slot(OpId op, Device device) { return table_[Index(op, device)]; }
-  const OpFn &Slot(OpId op, Device device) const {
-    return table_[Index(op, device)];
+  OpFn &Slot(OpId op, Device device, DType dtype) {
+    return table_[Index(op, device, dtype)];
+  }
+  const OpFn &Slot(OpId op, Device device, DType dtype) const {
+    return table_[Index(op, device, dtype)];
   }
 
-  GradFn &BackwardSlot(OpId op, Device device) {
-    return backward_table_[Index(op, device)];
+  GradFn &BackwardSlot(OpId op, Device device, DType dtype) {
+    return backward_table_[Index(op, device, dtype)];
   }
-  const GradFn &BackwardSlot(OpId op, Device device) const {
-    return backward_table_[Index(op, device)];
+  const GradFn &BackwardSlot(OpId op, Device device, DType dtype) const {
+    return backward_table_[Index(op, device, dtype)];
   }
 
-  std::array<OpFn, kOpCount * kDeviceCount> table_{};
-  std::array<GradFn, kOpCount * kDeviceCount> backward_table_{};
+  std::array<OpFn, kOpCount * kDeviceCount * kDTypeCount> table_{};
+  std::array<GradFn, kOpCount * kDeviceCount * kDTypeCount> backward_table_{};
 };
 
 void DispatchOp(OpId op, Device device, const OpArgs &args);

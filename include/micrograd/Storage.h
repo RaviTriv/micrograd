@@ -2,6 +2,7 @@
 
 #include <cstddef>
 
+#include "micrograd/DType.h"
 #include "micrograd/Device.h"
 
 namespace MTL {
@@ -13,7 +14,7 @@ namespace micrograd {
 class Storage {
  public:
   Storage() = default;
-  Storage(size_t bytes, Device device);
+  Storage(size_t bytes, Device device, DType dtype = DType::kFloat32);
   ~Storage();
 
   Storage(const Storage &) = delete;
@@ -31,6 +32,7 @@ class Storage {
   MTL::Buffer *buffer() const;
   size_t bytes() const { return bytes_; }
   Device device() const { return device_; }
+  DType dtype() const { return dtype_; }
 
  private:
   void release();
@@ -38,6 +40,7 @@ class Storage {
   void *data_ = nullptr;
   size_t bytes_ = 0;
   Device device_ = Device::CPU;
+  DType dtype_ = DType::kFloat32;
 };
 
 }  // namespace micrograd

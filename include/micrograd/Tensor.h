@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "micrograd/Backend.h"
+#include "micrograd/DType.h"
 #include "micrograd/Scalar.h"
 #include "micrograd/Storage.h"
 
@@ -84,6 +85,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::span<const scalar_t> grad() const;
   void to(Backend device);
   Backend backend() const;
+  DType dtype() const;
   Storage &data_storage();
   const Storage &data_storage() const;
   Storage &grad_storage();

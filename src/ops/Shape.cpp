@@ -76,7 +76,7 @@ std::shared_ptr<Tensor> Tensor::reshape(const std::vector<int64_t> &shape) {
 
   auto result = std::make_shared<Tensor>(resolved);
   result->data_ = data_.copy_to(backend());
-  result->grad_ = Storage(grad_.bytes(), backend());
+  result->grad_ = Storage(grad_.bytes(), backend(), grad_.dtype());
   result->zero_grad();
 
   result->requires_grad_ = GradEnabled() && requires_grad_;

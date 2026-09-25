@@ -2,6 +2,7 @@
 
 #include <mutex>
 
+#include "micrograd/Tensor.h"
 #include "micrograd/cuda/ops/Ops.h"
 #include "micrograd/metal/ops/Ops.h"
 #include "micrograd/ops/cpu/Ops.h"
@@ -29,13 +30,17 @@ void EnsureRegistered() {
 
 void DispatchOp(OpId op, Device device, const OpArgs &args) {
   EnsureRegistered();
-  OpRegistry::Instance().Lookup(op, device)(args);
+  const Tensor *typed = args.out != nullptr ? args.out : args.lhs;
+  DType dtype = typed != nullptr ? typed->dtype() : DType::kFloat32;
+  OpRegistry::Instance().Lookup(op, device, dtype)(args);
 }
 
 std::function<void()> MakeBackward(OpId op, Device device,
                                    const GradArgs &args) {
   EnsureRegistered();
-  return OpRegistry::Instance().LookupBackward(op, device)(args);
+  const Tensor *typed = args.out != nullptr ? args.out : args.lhs.get();
+  DType dtype = typed != nullptr ? typed->dtype() : DType::kFloat32;
+  return OpRegistry::Instance().LookupBackward(op, device, dtype)(args);
 }
 
 }  // namespace micrograd
