@@ -160,6 +160,10 @@ add_executable(gpt examples/gpt/main.cpp)
 target_link_libraries(gpt PRIVATE gpt_bpe)
 target_compile_options(gpt PRIVATE -Werror)
 
+add_executable(hellaswag tools/hellaswag.cpp)
+target_link_libraries(hellaswag PRIVATE gpt_bpe)
+target_compile_options(hellaswag PRIVATE -Werror)
+
 option(FETCH_MNIST "Download the MNIST dataset" ON)
 if(FETCH_MNIST)
     set(MNIST_DATA_DIR "${CMAKE_BINARY_DIR}/mnist-data")
