@@ -731,9 +731,9 @@ void save(const std::string &path, nn::Module &module) {
       write_u64(file, static_cast<uint64_t>(dim));
     }
 
-    auto data = tensor->data();
-    file.write(reinterpret_cast<const char *>(data.data()),
-               static_cast<std::streamsize>(data.size() * sizeof(scalar_t)));
+    Storage host_data = tensor->data_storage().copy_to(Device::CPU);
+    file.write(static_cast<const char *>(host_data.data()),
+               static_cast<std::streamsize>(host_data.bytes()));
   }
 
   if (!file) {

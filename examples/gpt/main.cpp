@@ -21,7 +21,9 @@
 #include "micrograd/NN.h"
 #include "micrograd/Random.h"
 #include "micrograd/Scalar.h"
+#include "micrograd/Storage.h"
 #include "micrograd/Tensor.h"
+#include "micrograd/ops/Optimizer.h"
 
 #ifndef CORPUS_DATA_PATH
 #define CORPUS_DATA_PATH "data/input.txt"
@@ -38,6 +40,7 @@ using micrograd::manual_seed;
 using micrograd::NoGradGuard;
 using micrograd::save;
 using micrograd::scalar_t;
+using micrograd::Storage;
 using micrograd::Tensor;
 using micrograd::gpt::Dataset;
 using micrograd::gpt::gpt2_124m;
@@ -206,9 +209,7 @@ scalar_t GlobalGradNorm(
     const std::vector<std::shared_ptr<Tensor>> &parameters) {
   double sum_sq = 0.0;
   for (const auto &p : parameters) {
-    for (scalar_t g : p->grad()) {
-      sum_sq += static_cast<double>(g) * static_cast<double>(g);
-    }
+    sum_sq += static_cast<double>(micrograd::ops::GradNormSquared(*p));
   }
   return static_cast<scalar_t>(std::sqrt(sum_sq));
 }
@@ -224,9 +225,7 @@ void ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &parameters,
   }
   scalar_t scale = max_norm / (norm + 1e-6f);
   for (const auto &p : parameters) {
-    for (scalar_t &g : p->grad()) {
-      g *= scale;
-    }
+    micrograd::ops::ScaleGrad(*p, scale);
   }
 }
 
@@ -270,8 +269,8 @@ class TrainOptimizer {
         eps_(eps) {
     for (const auto &p : parameters_) {
       decay_.push_back(p->shape().size() >= 2);
-      m_.emplace_back(p->size(), scalar_t{0});
-      v_.emplace_back(p->size(), scalar_t{0});
+      m_.push_back(make_moment(*p));
+      v_.push_back(make_moment(*p));
     }
   }
 
@@ -286,20 +285,16 @@ class TrainOptimizer {
   void write_state(std::ostream &out) const {
     write_u64(out, static_cast<uint64_t>(step_count_));
     for (size_t i = 0; i < parameters_.size(); i++) {
-      out.write(reinterpret_cast<const char *>(m_[i].data()),
-                static_cast<std::streamsize>(m_[i].size() * sizeof(scalar_t)));
-      out.write(reinterpret_cast<const char *>(v_[i].data()),
-                static_cast<std::streamsize>(v_[i].size() * sizeof(scalar_t)));
+      write_tensor(out, *m_[i]);
+      write_tensor(out, *v_[i]);
     }
   }
 
   void read_state(std::istream &in) {
     step_count_ = static_cast<size_t>(read_u64(in));
     for (size_t i = 0; i < parameters_.size(); i++) {
-      in.read(reinterpret_cast<char *>(m_[i].data()),
-              static_cast<std::streamsize>(m_[i].size() * sizeof(scalar_t)));
-      in.read(reinterpret_cast<char *>(v_[i].data()),
-              static_cast<std::streamsize>(v_[i].size() * sizeof(scalar_t)));
+      read_tensor(in, m_[i]);
+      read_tensor(in, v_[i]);
     }
   }
 
@@ -310,25 +305,34 @@ class TrainOptimizer {
     scalar_t bias_correction2 =
         1.0f - std::pow(beta2_, static_cast<scalar_t>(step_count_));
     for (size_t i = 0; i < parameters_.size(); i++) {
-      auto &p = parameters_[i];
-      auto data = p->data();
-      auto grad = p->grad();
-      auto &m = m_[i];
-      auto &v = v_[i];
-      for (size_t j = 0; j < data.size(); j++) {
-        if (decay_[i]) {
-          data[j] -= learning_rate * weight_decay_ * data[j];
-        }
-        m[j] = (beta1_ * m[j]) + ((1.0f - beta1_) * grad[j]);
-        v[j] = (beta2_ * v[j]) + ((1.0f - beta2_) * grad[j] * grad[j]);
-        scalar_t m_hat = m[j] / bias_correction1;
-        scalar_t v_hat = v[j] / bias_correction2;
-        data[j] -= learning_rate * m_hat / (std::sqrt(v_hat) + eps_);
-      }
+      micrograd::ops::AdamWStep(*parameters_[i], *m_[i], *v_[i], learning_rate,
+                                beta1_, beta2_, eps_, weight_decay_, decay_[i],
+                                bias_correction1, bias_correction2);
     }
   }
 
  private:
+  static std::shared_ptr<Tensor> make_moment(const Tensor &param) {
+    auto moment = std::make_shared<Tensor>(param.shape());
+    moment->to(param.backend());
+    return moment;
+  }
+
+  static void write_tensor(std::ostream &out, const Tensor &tensor) {
+    Storage host = tensor.data_storage().copy_to(Device::CPU);
+    out.write(static_cast<const char *>(host.data()),
+              static_cast<std::streamsize>(host.bytes()));
+  }
+
+  static void read_tensor(std::istream &in, std::shared_ptr<Tensor> &tensor) {
+    std::vector<scalar_t> values(tensor->size());
+    in.read(reinterpret_cast<char *>(values.data()),
+            static_cast<std::streamsize>(values.size() * sizeof(scalar_t)));
+    auto loaded = std::make_shared<Tensor>(tensor->shape(), std::move(values));
+    loaded->to(tensor->backend());
+    tensor = loaded;
+  }
+
   std::vector<std::shared_ptr<Tensor>> parameters_;
   std::vector<bool> decay_;
   scalar_t weight_decay_;
@@ -336,8 +340,8 @@ class TrainOptimizer {
   scalar_t beta2_;
   scalar_t eps_;
   size_t step_count_ = 0;
-  std::vector<std::vector<scalar_t>> m_;
-  std::vector<std::vector<scalar_t>> v_;
+  std::vector<std::shared_ptr<Tensor>> m_;
+  std::vector<std::shared_ptr<Tensor>> v_;
 };
 
 std::string optimizer_state_path(const std::string &checkpoint_path) {

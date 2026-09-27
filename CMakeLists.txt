@@ -59,6 +59,7 @@ add_library(micrograd
     src/ops/Embedding.cpp
     src/ops/LayerNorm.cpp
     src/ops/Matmul.cpp
+    src/ops/Optimizer.cpp
     src/ops/Reduction.cpp
     src/ops/RmsNorm.cpp
     src/ops/Rotary.cpp
@@ -119,6 +120,7 @@ if(ENABLE_CUDA)
         src/cuda/ops/Broadcast.cu
         src/cuda/ops/Embedding.cu
         src/cuda/ops/LayerNorm.cu
+        src/cuda/ops/Optimizer.cu
         src/cuda/ops/Reduction.cu
         src/cuda/ops/Matmul.cu
         src/cuda/ops/Shape.cu
