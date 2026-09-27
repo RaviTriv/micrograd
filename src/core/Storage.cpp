@@ -89,6 +89,47 @@ Storage copy_via_host(const Storage &src, Device to) {
   return copy;
 }
 
+#ifdef MICROGRAD_CUDA_ENABLED
+void checkCuda(cudaError_t status) {
+  if (status != cudaSuccess) {
+    throw std::runtime_error(cudaGetErrorString(status));
+  }
+}
+
+Storage copy_host_to_cuda(const Storage &src) {
+  Storage copy(src.bytes(), Device::CUDA, src.dtype());
+  if (src.bytes() > 0) {
+    checkCuda(cudaMemcpyAsync(copy.device_pointer(), src.host_pointer(),
+                              src.bytes(), cudaMemcpyHostToDevice,
+                              CudaContext::instance().stream()));
+    CudaContext::instance().synchronize();
+  }
+  return copy;
+}
+
+Storage copy_cuda_to_host(const Storage &src, Device to) {
+  Storage copy(src.bytes(), to, src.dtype());
+  if (src.bytes() > 0) {
+    checkCuda(cudaMemcpyAsync(copy.host_pointer(), src.device_pointer(),
+                              src.bytes(), cudaMemcpyDeviceToHost,
+                              CudaContext::instance().stream()));
+    CudaContext::instance().synchronize();
+  }
+  return copy;
+}
+
+Storage copy_cuda_to_cuda(const Storage &src) {
+  Storage copy(src.bytes(), Device::CUDA, src.dtype());
+  if (src.bytes() > 0) {
+    checkCuda(cudaMemcpyAsync(copy.device_pointer(), src.device_pointer(),
+                              src.bytes(), cudaMemcpyDeviceToDevice,
+                              CudaContext::instance().stream()));
+    CudaContext::instance().synchronize();
+  }
+  return copy;
+}
+#endif
+
 }  // namespace
 
 Storage::Storage(size_t bytes, Device device, DType dtype)
@@ -131,11 +172,30 @@ Storage Storage::copy_to(Device device) const {
         case Device::Metal:
           return copy_via_host(*this, device);
         case Device::CUDA:
+#ifdef MICROGRAD_CUDA_ENABLED
+          return copy_host_to_cuda(*this);
+#else
           throw std::runtime_error("CUDA support is not compiled in");
+#endif
       }
       break;
     case Device::CUDA:
-      throw std::runtime_error("CUDA support is not compiled in");
+      switch (device) {
+        case Device::CPU:
+        case Device::Metal:
+#ifdef MICROGRAD_CUDA_ENABLED
+          return copy_cuda_to_host(*this, device);
+#else
+          throw std::runtime_error("CUDA support is not compiled in");
+#endif
+        case Device::CUDA:
+#ifdef MICROGRAD_CUDA_ENABLED
+          return copy_cuda_to_cuda(*this);
+#else
+          throw std::runtime_error("CUDA support is not compiled in");
+#endif
+      }
+      break;
   }
 
   throw std::runtime_error("Unknown device");
