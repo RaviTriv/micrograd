@@ -18,6 +18,7 @@ void RegisterBuiltinKernels() {
   ops::cpu::RegisterShapeOps();
   ops::cpu::RegisterBroadcastOps();
   ops::cpu::RegisterEmbeddingOps();
+  ops::cpu::RegisterLayerNormOps();
   metal::ops::RegisterMetalOps();
   cuda::ops::RegisterCudaOps();
 }

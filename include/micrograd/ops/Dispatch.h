@@ -46,15 +46,16 @@ enum class OpId {
   kStridedCopy,
   kBroadcastTo,
   kEmbeddingLookup,
+  kLayerNorm,
 };
 
-inline constexpr size_t kOpCount =
-    static_cast<size_t>(OpId::kEmbeddingLookup) + 1;
+inline constexpr size_t kOpCount = static_cast<size_t>(OpId::kLayerNorm) + 1;
 inline constexpr size_t kDeviceCount = static_cast<size_t>(Device::CUDA) + 1;
 
 struct OpArgs {
   const Tensor *lhs = nullptr;
   const Tensor *rhs = nullptr;
+  const Tensor *extra = nullptr;
   Tensor *out = nullptr;
   scalar_t scalar = 0;
   int64_t dim = 0;
@@ -67,6 +68,7 @@ using OpFn = void (*)(const OpArgs &);
 struct GradArgs {
   std::shared_ptr<Tensor> lhs = nullptr;
   std::shared_ptr<Tensor> rhs = nullptr;
+  std::shared_ptr<Tensor> extra = nullptr;
   Tensor *out = nullptr;
   scalar_t scalar = 0;
   int64_t dim = 0;

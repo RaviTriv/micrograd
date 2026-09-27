@@ -68,6 +68,7 @@ add_library(micrograd
     src/ops/cpu/Arithmetic.cpp
     src/ops/cpu/Broadcast.cpp
     src/ops/cpu/Embedding.cpp
+    src/ops/cpu/LayerNorm.cpp
     src/ops/cpu/Matmul.cpp
     src/ops/cpu/Reduction.cpp
     src/ops/cpu/Shape.cpp
@@ -117,6 +118,7 @@ if(ENABLE_CUDA)
         src/cuda/ops/Activations.cu
         src/cuda/ops/Broadcast.cu
         src/cuda/ops/Embedding.cu
+        src/cuda/ops/LayerNorm.cu
         src/cuda/ops/Reduction.cu
         src/cuda/ops/Matmul.cu
         src/cuda/ops/Shape.cu

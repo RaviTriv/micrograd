@@ -200,6 +200,12 @@ std::vector<Case> AllCases() {
   add("matmul", [](const TensorList &in) { return in[0]->matmul(in[1]); },
       {Ramp({2, 3}, -0.9f, 0.4f), Ramp({3, 4}, -1.1f, 0.2f)});
 
+  add("layer_norm",
+      [](const TensorList &in) {
+        return in[0]->layer_norm({3}, in[1], in[2], 1e-5f);
+      },
+      {signed_matrix(), positive_row(), row_vector()});
+
   add("relu", [](const TensorList &in) { return in[0]->relu(); },
       {signed_matrix()});
   add("sigmoid", [](const TensorList &in) { return in[0]->sigmoid(); },
