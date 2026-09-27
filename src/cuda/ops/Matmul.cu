@@ -3,7 +3,9 @@
 #ifdef MICROGRAD_CUDA_ENABLED
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
+#include <cublasLt.h>
 #include <cublas_v2.h>
+#include <cuda_bf16.h>
 #endif
 
 #include <cstddef>
@@ -140,6 +142,14 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
+const __nv_bfloat16 *DataPtrBf16(const Tensor *t) {
+  return static_cast<const __nv_bfloat16 *>(t->data_storage().device_pointer());
+}
+
+__nv_bfloat16 *DataPtrBf16(Tensor *t) {
+  return static_cast<__nv_bfloat16 *>(t->data_storage().device_pointer());
+}
+
 void MatmulCublas(const OpArgs &args, size_t batch, size_t m, size_t k,
                   size_t n) {
   const scalar_t alpha = 1.0f;
@@ -151,6 +161,91 @@ void MatmulCublas(const OpArgs &args, size_t batch, size_t m, size_t k,
       DataPtr(args.lhs), static_cast<int>(k), static_cast<long long>(m * k),
       &beta, DataPtr(args.out), static_cast<int>(n),
       static_cast<long long>(m * n), static_cast<int>(batch));
+}
+
+constexpr size_t kCublasLtWorkspaceBytes = 4 * 1024 * 1024;
+
+cublasLtMatrixLayout_t MakeBf16BatchLayout(uint64_t rows, uint64_t cols,
+                                           int64_t ld, int64_t stride,
+                                           int32_t batch) {
+  cublasLtMatrixLayout_t layout = nullptr;
+  cublasLtMatrixLayoutCreate(&layout, CUDA_R_16BF, rows, cols, ld);
+  cublasLtMatrixLayoutSetAttribute(layout, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT,
+                                   &batch, sizeof(batch));
+  cublasLtMatrixLayoutSetAttribute(layout,
+                                   CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET,
+                                   &stride, sizeof(stride));
+  return layout;
+}
+
+void MatmulCublasLtBf16(const OpArgs &args, size_t batch, size_t m, size_t k,
+                        size_t n) {
+  CudaContext &ctx = CudaContext::instance();
+
+  cublasLtMatmulDesc_t op_desc = nullptr;
+  cublasLtMatmulDescCreate(&op_desc, CUBLAS_COMPUTE_32F, CUDA_R_32F);
+  const cublasOperation_t no_trans = CUBLAS_OP_N;
+  cublasLtMatmulDescSetAttribute(op_desc, CUBLASLT_MATMUL_DESC_TRANSA,
+                                 &no_trans, sizeof(no_trans));
+  cublasLtMatmulDescSetAttribute(op_desc, CUBLASLT_MATMUL_DESC_TRANSB,
+                                 &no_trans, sizeof(no_trans));
+
+  const int32_t batch_count = static_cast<int32_t>(batch);
+  cublasLtMatrixLayout_t rhs_layout = MakeBf16BatchLayout(
+      n, k, static_cast<int64_t>(n), static_cast<int64_t>(k * n), batch_count);
+  cublasLtMatrixLayout_t lhs_layout = MakeBf16BatchLayout(
+      k, m, static_cast<int64_t>(k), static_cast<int64_t>(m * k), batch_count);
+  cublasLtMatrixLayout_t out_layout = MakeBf16BatchLayout(
+      n, m, static_cast<int64_t>(n), static_cast<int64_t>(m * n), batch_count);
+
+  cublasLtMatmulPreference_t preference = nullptr;
+  cublasLtMatmulPreferenceCreate(&preference);
+  size_t max_workspace_bytes = kCublasLtWorkspaceBytes;
+  cublasLtMatmulPreferenceSetAttribute(
+      preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
+      &max_workspace_bytes, sizeof(max_workspace_bytes));
+
+  cublasLtMatmulHeuristicResult_t heuristic{};
+  int result_count = 0;
+  cublasLtMatmulAlgoGetHeuristic(ctx.cublasLtHandle(), op_desc, rhs_layout,
+                                 lhs_layout, out_layout, out_layout, preference,
+                                 1, &heuristic, &result_count);
+
+  const scalar_t alpha = 1.0f;
+  const scalar_t beta = 0.0f;
+  void *workspace = result_count > 0 && heuristic.workspaceSize > 0
+                        ? ctx.allocate(heuristic.workspaceSize)
+                        : nullptr;
+
+  cublasLtMatmul(ctx.cublasLtHandle(), op_desc, &alpha, DataPtrBf16(args.rhs),
+                 rhs_layout, DataPtrBf16(args.lhs), lhs_layout, &beta,
+                 DataPtrBf16(args.out), out_layout, DataPtrBf16(args.out),
+                 out_layout, result_count > 0 ? &heuristic.algo : nullptr,
+                 workspace, workspace != nullptr ? heuristic.workspaceSize : 0,
+                 ctx.stream());
+
+  if (workspace != nullptr) {
+    ctx.deallocate(workspace, heuristic.workspaceSize);
+  }
+  cublasLtMatmulPreferenceDestroy(preference);
+  cublasLtMatrixLayoutDestroy(out_layout);
+  cublasLtMatrixLayoutDestroy(lhs_layout);
+  cublasLtMatrixLayoutDestroy(rhs_layout);
+  cublasLtMatmulDescDestroy(op_desc);
+}
+
+void MatmulBf16(const OpArgs &args) {
+  args.out->to(Backend::CUDA);
+
+  const auto &lhs_shape = args.lhs->shape();
+  const auto &rhs_shape = args.rhs->shape();
+  const size_t rank = lhs_shape.size();
+  const size_t batch = rank == 3 ? lhs_shape[0] : 1;
+  const size_t m = lhs_shape[rank - 2];
+  const size_t k = lhs_shape[rank - 1];
+  const size_t n = rhs_shape[rank - 1];
+
+  MatmulCublasLtBf16(args, batch, m, k, n);
 }
 #endif
 
@@ -204,6 +299,9 @@ void RegisterMatmulOps() {
   OpRegistry &registry = OpRegistry::Instance();
   registry.Register(OpId::kMatmul, Device::CUDA, Matmul);
   registry.RegisterBackward(OpId::kMatmul, Device::CUDA, MatmulBackward);
+#ifdef MICROGRAD_CUBLAS_ENABLED
+  registry.Register(OpId::kMatmul, Device::CUDA, MatmulBf16, DType::kBFloat16);
+#endif
 }
 
 }  // namespace micrograd::cuda::ops

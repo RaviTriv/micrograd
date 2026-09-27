@@ -5,6 +5,7 @@
 #include <cuda_runtime.h>
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
+#include <cublasLt.h>
 #include <cublas_v2.h>
 #endif
 
@@ -33,6 +34,7 @@ class CudaContext {
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
   cublasHandle_t cublasHandle() const;
+  cublasLtHandle_t cublasLtHandle() const;
 #endif
 
   void synchronize();
@@ -47,6 +49,7 @@ class CudaContext {
   cudaStream_t stream_ = nullptr;
 #ifdef MICROGRAD_CUBLAS_ENABLED
   cublasHandle_t cublas_handle_ = nullptr;
+  cublasLtHandle_t cublas_lt_handle_ = nullptr;
 #endif
   std::unordered_map<size_t, std::vector<void *>> free_blocks_;
   bool initialized_ = false;

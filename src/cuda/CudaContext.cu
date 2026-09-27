@@ -42,6 +42,11 @@ bool CudaContext::initialize() {
     return false;
   }
   cublasSetStream(cublas_handle_, stream_);
+
+  if (cublasLtCreate(&cublas_lt_handle_) != CUBLAS_STATUS_SUCCESS) {
+    std::cerr << "Failed to create cuBLASLt handle.\n";
+    return false;
+  }
 #endif
 
   initialized_ = true;
@@ -90,6 +95,11 @@ void CudaContext::shutdown() {
   free_blocks_.clear();
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
+  if (cublas_lt_handle_) {
+    cublasLtDestroy(cublas_lt_handle_);
+  }
+  cublas_lt_handle_ = nullptr;
+
   if (cublas_handle_) {
     cublasDestroy(cublas_handle_);
   }
@@ -113,6 +123,9 @@ int CudaContext::device() const { return device_; }
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
 cublasHandle_t CudaContext::cublasHandle() const { return cublas_handle_; }
+cublasLtHandle_t CudaContext::cublasLtHandle() const {
+  return cublas_lt_handle_;
+}
 #endif
 
 }  // namespace micrograd

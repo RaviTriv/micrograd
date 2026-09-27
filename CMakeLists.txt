@@ -135,7 +135,7 @@ if(ENABLE_CUDA)
     option(ENABLE_CUBLAS "Use cuBLAS for the CUDA matmul path" OFF)
     if(ENABLE_CUBLAS)
         target_compile_definitions(micrograd PUBLIC MICROGRAD_CUBLAS_ENABLED)
-        target_link_libraries(micrograd PUBLIC CUDA::cublas)
+        target_link_libraries(micrograd PUBLIC CUDA::cublas CUDA::cublasLt)
     endif()
 endif()
 
