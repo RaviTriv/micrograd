@@ -8,5 +8,6 @@ void RegisterReductionOps();
 void RegisterActivationOps();
 void RegisterShapeOps();
 void RegisterBroadcastOps();
+void RegisterEmbeddingOps();
 
 }  // namespace micrograd::ops::cpu

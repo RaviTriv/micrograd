@@ -45,9 +45,11 @@ enum class OpId {
   kReshape,
   kStridedCopy,
   kBroadcastTo,
+  kEmbeddingLookup,
 };
 
-inline constexpr size_t kOpCount = static_cast<size_t>(OpId::kBroadcastTo) + 1;
+inline constexpr size_t kOpCount =
+    static_cast<size_t>(OpId::kEmbeddingLookup) + 1;
 inline constexpr size_t kDeviceCount = static_cast<size_t>(Device::CUDA) + 1;
 
 struct OpArgs {

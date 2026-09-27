@@ -10,5 +10,6 @@ void RegisterBroadcastOps();
 void RegisterReductionOps();
 void RegisterMatmulOps();
 void RegisterShapeOps();
+void RegisterEmbeddingOps();
 
 }  // namespace micrograd::cuda::ops
