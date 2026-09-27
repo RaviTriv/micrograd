@@ -42,6 +42,34 @@ __global__ void TanhKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
   }
 }
 
+__global__ void ExpKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    out[i] = expf(lhs[i]);
+  }
+}
+
+__global__ void LogKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    out[i] = logf(lhs[i]);
+  }
+}
+
+__global__ void SqrtKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    out[i] = sqrtf(lhs[i]);
+  }
+}
+
+__global__ void NegKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    out[i] = -lhs[i];
+  }
+}
+
 __global__ void ReluBackwardKernel(const scalar_t *out_grad,
                                    const scalar_t *a_data, scalar_t *a_grad,
                                    size_t n) {
@@ -68,6 +96,41 @@ __global__ void TanhBackwardKernel(const scalar_t *out_grad,
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
     scalar_t tanh_val = out_data[i];
     a_grad[i] += out_grad[i] * (1.0f - tanh_val * tanh_val);
+  }
+}
+
+__global__ void ExpBackwardKernel(const scalar_t *out_grad,
+                                  const scalar_t *out_data, scalar_t *a_grad,
+                                  size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    a_grad[i] += out_grad[i] * out_data[i];
+  }
+}
+
+__global__ void LogBackwardKernel(const scalar_t *out_grad,
+                                  const scalar_t *a_data, scalar_t *a_grad,
+                                  size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    a_grad[i] += out_grad[i] / a_data[i];
+  }
+}
+
+__global__ void SqrtBackwardKernel(const scalar_t *out_grad,
+                                   const scalar_t *out_data, scalar_t *a_grad,
+                                   size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    a_grad[i] += out_grad[i] * 0.5f / out_data[i];
+  }
+}
+
+__global__ void NegBackwardKernel(const scalar_t *out_grad, scalar_t *a_grad,
+                                  size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    a_grad[i] -= out_grad[i];
   }
 }
 
@@ -105,6 +168,34 @@ void Tanh(const OpArgs &args) {
       DataPtr(args.lhs), DataPtr(args.out), n);
 }
 
+void Exp(const OpArgs &args) {
+  args.out->to(Backend::CUDA);
+  size_t n = args.lhs->size();
+  ExpKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.out), n);
+}
+
+void Log(const OpArgs &args) {
+  args.out->to(Backend::CUDA);
+  size_t n = args.lhs->size();
+  LogKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.out), n);
+}
+
+void Sqrt(const OpArgs &args) {
+  args.out->to(Backend::CUDA);
+  size_t n = args.lhs->size();
+  SqrtKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.out), n);
+}
+
+void Neg(const OpArgs &args) {
+  args.out->to(Backend::CUDA);
+  size_t n = args.lhs->size();
+  NegKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.out), n);
+}
+
 std::function<void()> ReluBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
@@ -132,6 +223,42 @@ std::function<void()> TanhBackward(const GradArgs &args) {
   };
 }
 
+std::function<void()> ExpBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    size_t n = lhs->size();
+    ExpBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                        CudaContext::instance().stream()>>>(
+        GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+  };
+}
+
+std::function<void()> LogBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    size_t n = lhs->size();
+    LogBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                        CudaContext::instance().stream()>>>(
+        GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), n);
+  };
+}
+
+std::function<void()> SqrtBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    size_t n = lhs->size();
+    SqrtBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                         CudaContext::instance().stream()>>>(
+        GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+  };
+}
+
+std::function<void()> NegBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    size_t n = lhs->size();
+    NegBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                        CudaContext::instance().stream()>>>(
+        GradPtr(out), GradPtr(lhs.get()), n);
+  };
+}
+
 }  // namespace
 
 void RegisterActivationOps() {
@@ -139,9 +266,17 @@ void RegisterActivationOps() {
   registry.Register(OpId::kRelu, Device::CUDA, Relu);
   registry.Register(OpId::kSigmoid, Device::CUDA, Sigmoid);
   registry.Register(OpId::kTanh, Device::CUDA, Tanh);
+  registry.Register(OpId::kExp, Device::CUDA, Exp);
+  registry.Register(OpId::kLog, Device::CUDA, Log);
+  registry.Register(OpId::kSqrt, Device::CUDA, Sqrt);
+  registry.Register(OpId::kNeg, Device::CUDA, Neg);
   registry.RegisterBackward(OpId::kRelu, Device::CUDA, ReluBackward);
   registry.RegisterBackward(OpId::kSigmoid, Device::CUDA, SigmoidBackward);
   registry.RegisterBackward(OpId::kTanh, Device::CUDA, TanhBackward);
+  registry.RegisterBackward(OpId::kExp, Device::CUDA, ExpBackward);
+  registry.RegisterBackward(OpId::kLog, Device::CUDA, LogBackward);
+  registry.RegisterBackward(OpId::kSqrt, Device::CUDA, SqrtBackward);
+  registry.RegisterBackward(OpId::kNeg, Device::CUDA, NegBackward);
 }
 
 }  // namespace micrograd::cuda::ops
