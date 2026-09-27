@@ -4,6 +4,10 @@
 #include <stdexcept>
 #include <utility>
 
+#ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/cuda/CudaContext.h"
+#endif
+
 namespace micrograd {
 
 Tensor::Tensor(std::vector<size_t> shape) : shape_(std::move(shape)) {
@@ -105,7 +109,16 @@ std::span<const scalar_t> Tensor::grad() const {
 }
 
 void Tensor::zero_grad() {
-  std::fill_n(static_cast<scalar_t *>(grad_.host_pointer()), size(), 0.0f);
+  if (grad_.device() != Device::CUDA) {
+    std::fill_n(static_cast<scalar_t *>(grad_.host_pointer()), size(), 0.0f);
+    return;
+  }
+#ifdef MICROGRAD_CUDA_ENABLED
+  cudaMemsetAsync(grad_.device_pointer(), 0, grad_.bytes(),
+                  CudaContext::instance().stream());
+#else
+  throw std::runtime_error("CUDA support is not compiled in");
+#endif
 }
 
 bool Tensor::requires_grad() const { return requires_grad_; }

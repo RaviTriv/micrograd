@@ -51,6 +51,14 @@ __device__ size_t StridedOffset(const StridedLayout &layout, size_t linear) {
   return offset;
 }
 
+__global__ void ReshapeBackwardKernel(const scalar_t *out_grad,
+                                      scalar_t *lhs_grad, size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    lhs_grad[i] += out_grad[i];
+  }
+}
+
 __global__ void StridedCopyKernel(const scalar_t *source, scalar_t *out,
                                   StridedLayout layout, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
@@ -80,6 +88,15 @@ scalar_t *GradPtr(Tensor *t) {
   return static_cast<scalar_t *>(t->grad_storage().device_pointer());
 }
 
+std::function<void()> ReshapeBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    size_t n = out->size();
+    ReshapeBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                            CudaContext::instance().stream()>>>(
+        GradPtr(out), GradPtr(lhs.get()), n);
+  };
+}
+
 void StridedCopy(const OpArgs &args) {
   args.out->to(Backend::CUDA);
   StridedLayout layout = MakeLayout(args.out->shape(), args.strides);
@@ -106,6 +123,7 @@ std::function<void()> StridedCopyBackward(const GradArgs &args) {
 void RegisterShapeOps() {
   OpRegistry &registry = OpRegistry::Instance();
   registry.Register(OpId::kStridedCopy, Device::CUDA, StridedCopy);
+  registry.RegisterBackward(OpId::kReshape, Device::CUDA, ReshapeBackward);
   registry.RegisterBackward(OpId::kStridedCopy, Device::CUDA,
                             StridedCopyBackward);
 }
