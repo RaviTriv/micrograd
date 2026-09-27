@@ -25,6 +25,10 @@
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Optimizer.h"
 
+#ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/cuda/ops/Ops.h"
+#endif
+
 #ifndef CORPUS_DATA_PATH
 #define CORPUS_DATA_PATH "data/input.txt"
 #endif
@@ -304,6 +308,27 @@ class TrainOptimizer {
         1.0f - std::pow(beta1_, static_cast<scalar_t>(step_count_));
     scalar_t bias_correction2 =
         1.0f - std::pow(beta2_, static_cast<scalar_t>(step_count_));
+#ifdef MICROGRAD_CUDA_ENABLED
+    if (!parameters_.empty() &&
+        parameters_.front()->backend() == Device::CUDA) {
+      std::vector<micrograd::cuda::ops::AdamWTensor> tensors;
+      tensors.reserve(parameters_.size());
+      for (size_t i = 0; i < parameters_.size(); i++) {
+        tensors.push_back(micrograd::cuda::ops::AdamWTensor{
+            static_cast<scalar_t *>(
+                parameters_[i]->data_storage().device_pointer()),
+            static_cast<const scalar_t *>(
+                parameters_[i]->grad_storage().device_pointer()),
+            static_cast<scalar_t *>(m_[i]->data_storage().device_pointer()),
+            static_cast<scalar_t *>(v_[i]->data_storage().device_pointer()),
+            parameters_[i]->size(), decay_[i]});
+      }
+      micrograd::cuda::ops::FusedAdamWStep(tensors, learning_rate, beta1_,
+                                           beta2_, eps_, weight_decay_,
+                                           bias_correction1, bias_correction2);
+      return;
+    }
+#endif
     for (size_t i = 0; i < parameters_.size(); i++) {
       micrograd::ops::AdamWStep(*parameters_[i], *m_[i], *v_[i], learning_rate,
                                 beta1_, beta2_, eps_, weight_decay_, decay_[i],

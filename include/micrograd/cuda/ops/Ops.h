@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstddef>
+#include <vector>
+
 #include "micrograd/Scalar.h"
 
 namespace micrograd {
@@ -27,5 +30,19 @@ void ScaleGrad(Tensor &param, scalar_t scale);
 void AdamWStep(Tensor &param, Tensor &m, Tensor &v, scalar_t lr, scalar_t beta1,
                scalar_t beta2, scalar_t eps, scalar_t weight_decay, bool decay,
                scalar_t bias_correction1, scalar_t bias_correction2);
+
+struct AdamWTensor {
+  scalar_t *data;
+  const scalar_t *grad;
+  scalar_t *m;
+  scalar_t *v;
+  size_t n;
+  bool decay;
+};
+
+void FusedAdamWStep(const std::vector<AdamWTensor> &tensors, scalar_t lr,
+                    scalar_t beta1, scalar_t beta2, scalar_t eps,
+                    scalar_t weight_decay, scalar_t bias_correction1,
+                    scalar_t bias_correction2);
 
 }  // namespace micrograd::cuda::ops

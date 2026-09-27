@@ -17,6 +17,10 @@
 #include "micrograd/Init.h"
 #include "micrograd/Random.h"
 
+#ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/cuda/ops/Ops.h"
+#endif
+
 namespace micrograd {
 
 namespace {
@@ -521,6 +525,15 @@ void write_master_weight(Storage &storage, size_t index, scalar_t value) {
   static_cast<scalar_t *>(storage.data())[index] = value;
 }
 
+Storage zero_moment(size_t n, Device device) {
+  Storage host(n * sizeof(scalar_t), Device::CPU);
+  std::memset(host.data(), 0, host.bytes());
+  if (device == Device::CPU) {
+    return host;
+  }
+  return host.copy_to(device);
+}
+
 }  // namespace
 
 AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
@@ -534,16 +547,19 @@ AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
       weight_decay_(weight_decay) {
   m_.reserve(parameters_.size());
   v_.reserve(parameters_.size());
-  master_.reserve(parameters_.size());
-  for (auto &p : parameters_) {
-    m_.emplace_back(p->size(), static_cast<scalar_t>(0));
-    v_.emplace_back(p->size(), static_cast<scalar_t>(0));
-    std::vector<scalar_t> weights(p->size());
-    const Storage &storage = p->data_storage();
-    for (size_t j = 0; j < p->size(); j++) {
-      weights[j] = read_master_weight(storage, j);
+  master_.resize(parameters_.size());
+  for (size_t i = 0; i < parameters_.size(); i++) {
+    auto &p = parameters_[i];
+    m_.push_back(zero_moment(p->size(), p->backend()));
+    v_.push_back(zero_moment(p->size(), p->backend()));
+    if (p->backend() == Device::CPU) {
+      std::vector<scalar_t> weights(p->size());
+      const Storage &storage = p->data_storage();
+      for (size_t j = 0; j < p->size(); j++) {
+        weights[j] = read_master_weight(storage, j);
+      }
+      master_[i] = std::move(weights);
     }
-    master_.push_back(std::move(weights));
   }
 }
 
@@ -559,12 +575,30 @@ void AdamW::step() {
       1.0f - std::pow(beta1_, static_cast<scalar_t>(step_count_));
   scalar_t bias_correction2 =
       1.0f - std::pow(beta2_, static_cast<scalar_t>(step_count_));
+
+#ifdef MICROGRAD_CUDA_ENABLED
+  std::vector<cuda::ops::AdamWTensor> cuda_tensors;
+#endif
+
   for (size_t i = 0; i < parameters_.size(); i++) {
     auto &p = parameters_[i];
-    auto &m = m_[i];
-    auto &v = v_[i];
+    if (p->backend() != Device::CPU) {
+#ifdef MICROGRAD_CUDA_ENABLED
+      if (p->backend() == Device::CUDA) {
+        cuda_tensors.push_back(cuda::ops::AdamWTensor{
+            static_cast<scalar_t *>(p->data_storage().device_pointer()),
+            static_cast<const scalar_t *>(p->grad_storage().device_pointer()),
+            static_cast<scalar_t *>(m_[i].device_pointer()),
+            static_cast<scalar_t *>(v_[i].device_pointer()), p->size(), true});
+        continue;
+      }
+#endif
+      throw std::runtime_error("AdamW: unsupported device");
+    }
     auto &weights = master_[i];
     Storage &storage = p->data_storage();
+    auto *m = static_cast<scalar_t *>(m_[i].data());
+    auto *v = static_cast<scalar_t *>(v_[i].data());
     for (size_t j = 0; j < p->size(); j++) {
       scalar_t weight =
           weights[j] - learning_rate_ * weight_decay_ * weights[j];
@@ -578,6 +612,14 @@ void AdamW::step() {
       write_master_weight(storage, j, weight);
     }
   }
+
+#ifdef MICROGRAD_CUDA_ENABLED
+  if (!cuda_tensors.empty()) {
+    cuda::ops::FusedAdamWStep(cuda_tensors, learning_rate_, beta1_, beta2_,
+                              eps_, weight_decay_, bias_correction1,
+                              bias_correction2);
+  }
+#endif
 }
 
 namespace {

@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "Storage.h"
 #include "Tensor.h"
 #include "micrograd/nn/Module.h"
 
@@ -156,8 +157,8 @@ class AdamW {
   scalar_t eps_;
   scalar_t weight_decay_;
   size_t step_count_ = 0;
-  std::vector<std::vector<scalar_t>> m_;
-  std::vector<std::vector<scalar_t>> v_;
+  std::vector<Storage> m_;
+  std::vector<Storage> v_;
   std::vector<std::vector<scalar_t>> master_;
 };
 

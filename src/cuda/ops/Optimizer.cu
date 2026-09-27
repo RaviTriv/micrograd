@@ -2,7 +2,9 @@
 
 #ifdef MICROGRAD_CUDA_ENABLED
 
+#include <algorithm>
 #include <cstddef>
+#include <vector>
 
 #include "micrograd/Tensor.h"
 #include "micrograd/cuda/ops/Ops.h"
@@ -70,6 +72,26 @@ __global__ void AdamWStepKernel(scalar_t *data, const scalar_t *grad,
   }
 }
 
+__global__ void FusedAdamWStepKernel(const AdamWTensor *tensors, scalar_t lr,
+                                     scalar_t beta1, scalar_t beta2,
+                                     scalar_t eps, scalar_t weight_decay,
+                                     scalar_t bias_correction1,
+                                     scalar_t bias_correction2) {
+  const AdamWTensor &t = tensors[blockIdx.y];
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < t.n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    if (t.decay) {
+      t.data[i] -= lr * weight_decay * t.data[i];
+    }
+    scalar_t g = t.grad[i];
+    t.m[i] = (beta1 * t.m[i]) + ((1.0f - beta1) * g);
+    t.v[i] = (beta2 * t.v[i]) + ((1.0f - beta2) * g * g);
+    scalar_t m_hat = t.m[i] / bias_correction1;
+    scalar_t v_hat = t.v[i] / bias_correction2;
+    t.data[i] -= lr * m_hat / (sqrtf(v_hat) + eps);
+  }
+}
+
 scalar_t *DataPtr(Tensor *t) {
   return static_cast<scalar_t *>(t->data_storage().device_pointer());
 }
@@ -114,6 +136,34 @@ void AdamWStep(Tensor &param, Tensor &m, Tensor &v, scalar_t lr, scalar_t beta1,
                     CudaContext::instance().stream()>>>(
       DataPtr(&param), GradPtr(&param), DataPtr(&m), DataPtr(&v), n, lr, beta1,
       beta2, eps, weight_decay, decay, bias_correction1, bias_correction2);
+}
+
+void FusedAdamWStep(const std::vector<AdamWTensor> &tensors, scalar_t lr,
+                    scalar_t beta1, scalar_t beta2, scalar_t eps,
+                    scalar_t weight_decay, scalar_t bias_correction1,
+                    scalar_t bias_correction2) {
+  if (tensors.empty()) {
+    return;
+  }
+  size_t max_n = 0;
+  for (const auto &t : tensors) {
+    max_n = std::max(max_n, t.n);
+  }
+
+  auto &ctx = CudaContext::instance();
+  size_t bytes = tensors.size() * sizeof(AdamWTensor);
+  auto *device_tensors = static_cast<AdamWTensor *>(ctx.allocate(bytes));
+  cudaMemcpyAsync(device_tensors, tensors.data(), bytes, cudaMemcpyHostToDevice,
+                  ctx.stream());
+
+  dim3 grid(static_cast<unsigned>(GridSize(max_n)),
+            static_cast<unsigned>(tensors.size()));
+  FusedAdamWStepKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(
+      device_tensors, lr, beta1, beta2, eps, weight_decay, bias_correction1,
+      bias_correction2);
+
+  ctx.synchronize();
+  ctx.deallocate(device_tensors, bytes);
 }
 
 }  // namespace micrograd::cuda::ops
