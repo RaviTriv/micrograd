@@ -373,7 +373,6 @@ size_t RunAllCases(Device device) {
   }
 
   size_t failed = 0;
-  size_t skipped = 0;
   for (const auto &test : cases) {
     if (device == Device::CPU) {
       const auto mismatches =
@@ -399,8 +398,8 @@ size_t RunAllCases(Device device) {
       mismatches =
           CheckOnDevice(test.function, test.inputs, test.options, device);
     } catch (const std::exception &error) {
-      skipped++;
-      std::printf("skip  %s: %s\n", test.name.c_str(), error.what());
+      failed++;
+      std::printf("FAIL  %s: %s\n", test.name.c_str(), error.what());
       continue;
     }
 
@@ -418,9 +417,8 @@ size_t RunAllCases(Device device) {
     }
   }
 
-  std::printf("%zu of %zu gradient checks passed on %s, %zu skipped\n",
-              cases.size() - failed - skipped, cases.size(), DeviceName(device),
-              skipped);
+  std::printf("%zu of %zu gradient checks passed on %s\n",
+              cases.size() - failed, cases.size(), DeviceName(device));
   return failed;
 }
 
