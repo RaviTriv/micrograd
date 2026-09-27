@@ -210,6 +210,10 @@ std::vector<Case> AllCases() {
       [](const TensorList &in) { return in[0]->rms_norm({3}, in[1], 1e-5f); },
       {signed_matrix(), positive_row()});
 
+  add("rotary_embedding",
+      [](const TensorList &in) { return in[0]->rotary_embedding(); },
+      {Ramp({2, 4}, -1.0f, 0.2f)});
+
   add("relu", [](const TensorList &in) { return in[0]->relu(); },
       {signed_matrix()});
   add("sigmoid", [](const TensorList &in) { return in[0]->sigmoid(); },
