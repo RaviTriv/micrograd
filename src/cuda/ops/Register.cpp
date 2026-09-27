@@ -9,6 +9,7 @@ void RegisterCudaOps() {
   RegisterBroadcastOps();
   RegisterReductionOps();
   RegisterMatmulOps();
+  RegisterShapeOps();
 #endif
 }
 
