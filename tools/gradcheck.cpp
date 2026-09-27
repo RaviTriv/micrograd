@@ -1,23 +1,32 @@
 #include "micrograd/GradCheck.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <memory>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "micrograd/Device.h"
 #include "micrograd/NN.h"
 #include "micrograd/Scalar.h"
 #include "micrograd/Tensor.h"
 
 namespace {
 
+using micrograd::Device;
 using micrograd::GradCheck;
 using micrograd::GradCheckFunction;
 using micrograd::GradCheckOptions;
 using micrograd::scalar_t;
 using micrograd::Tensor;
+using micrograd::internal::MakeGradCheckLeaves;
+using micrograd::internal::ProjectionWeights;
 
 using TensorPtr = std::shared_ptr<Tensor>;
 using TensorList = std::vector<TensorPtr>;
@@ -254,12 +263,147 @@ std::vector<Case> AllCases() {
   return cases;
 }
 
-size_t RunAllCases() {
+Device ParseDevice(const std::string &value) {
+  if (value == "cpu") {
+    return Device::CPU;
+  }
+  if (value == "metal") {
+    return Device::Metal;
+  }
+  if (value == "cuda") {
+    return Device::CUDA;
+  }
+  throw std::invalid_argument("Unknown MICROGRAD_DEVICE: " + value);
+}
+
+Device DeviceFromEnv() {
+  const char *value = std::getenv("MICROGRAD_DEVICE");
+  if (value == nullptr) {
+    return Device::CPU;
+  }
+  return ParseDevice(value);
+}
+
+const char *DeviceName(Device device) {
+  switch (device) {
+    case Device::CPU:
+      return "cpu";
+    case Device::Metal:
+      return "metal";
+    case Device::CUDA:
+      return "cuda";
+  }
+  throw std::invalid_argument("Unknown device");
+}
+
+struct DeviceMismatch {
+  size_t input;
+  size_t index;
+  scalar_t cpu;
+  scalar_t device;
+};
+
+std::vector<std::vector<scalar_t>> AnalyticGradients(
+    const GradCheckFunction &function,
+    const std::vector<std::vector<size_t>> &shapes,
+    const std::vector<std::vector<scalar_t>> &values, Device device) {
+  auto leaves = MakeGradCheckLeaves(shapes, values);
+  for (auto &leaf : leaves) {
+    leaf->to(device);
+  }
+
+  auto output = function(leaves);
+  const std::vector<scalar_t> weights = ProjectionWeights(output->size());
+  const Tensor seed(output->shape(), weights);
+  output->backward(seed);
+
+  std::vector<std::vector<scalar_t>> gradients;
+  gradients.reserve(leaves.size());
+  for (auto &leaf : leaves) {
+    leaf->to(Device::CPU);
+    std::span<const scalar_t> span = leaf->grad();
+    gradients.emplace_back(span.begin(), span.end());
+  }
+  return gradients;
+}
+
+std::vector<DeviceMismatch> CheckOnDevice(const GradCheckFunction &function,
+                                          const TensorList &inputs,
+                                          const GradCheckOptions &options,
+                                          Device device) {
+  std::vector<std::vector<size_t>> shapes;
+  std::vector<std::vector<scalar_t>> values;
+  for (const auto &input : inputs) {
+    std::span<const scalar_t> span = input->data();
+    shapes.push_back(input->shape());
+    values.emplace_back(span.begin(), span.end());
+  }
+
+  const auto cpu_gradients =
+      AnalyticGradients(function, shapes, values, Device::CPU);
+  const auto device_gradients =
+      AnalyticGradients(function, shapes, values, device);
+
+  std::vector<DeviceMismatch> mismatches;
+  for (size_t i = 0; i < cpu_gradients.size(); i++) {
+    for (size_t j = 0; j < cpu_gradients[i].size(); j++) {
+      const scalar_t cpu_value = cpu_gradients[i][j];
+      const scalar_t device_value = device_gradients[i][j];
+      const scalar_t difference = std::abs(cpu_value - device_value);
+      const scalar_t scale =
+          std::max(std::abs(cpu_value), std::abs(device_value));
+      if (difference > options.atol + (options.rtol * scale)) {
+        mismatches.push_back(
+            {.input = i, .index = j, .cpu = cpu_value, .device = device_value});
+      }
+    }
+  }
+  return mismatches;
+}
+
+void ProbeDevice(Device device) {
+  Tensor probe(std::vector<size_t>{1});
+  probe.to(device);
+}
+
+size_t RunAllCases(Device device) {
   const std::vector<Case> cases = AllCases();
+  if (device != Device::CPU) {
+    ProbeDevice(device);
+  }
 
   size_t failed = 0;
+  size_t skipped = 0;
   for (const auto &test : cases) {
-    const auto mismatches = GradCheck(test.function, test.inputs, test.options);
+    if (device == Device::CPU) {
+      const auto mismatches =
+          GradCheck(test.function, test.inputs, test.options);
+      if (mismatches.empty()) {
+        std::printf("ok    %s\n", test.name.c_str());
+        continue;
+      }
+
+      failed++;
+      std::printf("FAIL  %s\n", test.name.c_str());
+      for (const auto &mismatch : mismatches) {
+        std::printf("      input %zu index %zu analytic %g numeric %g\n",
+                    mismatch.input, mismatch.index,
+                    static_cast<double>(mismatch.analytic),
+                    static_cast<double>(mismatch.numeric));
+      }
+      continue;
+    }
+
+    std::vector<DeviceMismatch> mismatches;
+    try {
+      mismatches =
+          CheckOnDevice(test.function, test.inputs, test.options, device);
+    } catch (const std::exception &error) {
+      skipped++;
+      std::printf("skip  %s: %s\n", test.name.c_str(), error.what());
+      continue;
+    }
+
     if (mismatches.empty()) {
       std::printf("ok    %s\n", test.name.c_str());
       continue;
@@ -268,15 +412,15 @@ size_t RunAllCases() {
     failed++;
     std::printf("FAIL  %s\n", test.name.c_str());
     for (const auto &mismatch : mismatches) {
-      std::printf("      input %zu index %zu analytic %g numeric %g\n",
-                  mismatch.input, mismatch.index,
-                  static_cast<double>(mismatch.analytic),
-                  static_cast<double>(mismatch.numeric));
+      std::printf("      input %zu index %zu cpu %g %s %g\n", mismatch.input,
+                  mismatch.index, static_cast<double>(mismatch.cpu),
+                  DeviceName(device), static_cast<double>(mismatch.device));
     }
   }
 
-  std::printf("%zu of %zu gradient checks passed\n", cases.size() - failed,
-              cases.size());
+  std::printf("%zu of %zu gradient checks passed on %s, %zu skipped\n",
+              cases.size() - failed - skipped, cases.size(), DeviceName(device),
+              skipped);
   return failed;
 }
 
@@ -284,7 +428,8 @@ size_t RunAllCases() {
 
 int main() {
   try {
-    return RunAllCases() == 0 ? 0 : 1;
+    const Device device = DeviceFromEnv();
+    return RunAllCases(device) == 0 ? 0 : 1;
   } catch (const std::exception &error) {
     std::printf("gradcheck raised: %s\n", error.what());
     return 1;
