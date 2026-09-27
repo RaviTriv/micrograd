@@ -55,6 +55,7 @@ add_library(micrograd
 
     src/ops/Activations.cpp
     src/ops/Arithmetic.cpp
+    src/ops/Attention.cpp
     src/ops/Dispatch.cpp
     src/ops/Embedding.cpp
     src/ops/LayerNorm.cpp
@@ -67,6 +68,7 @@ add_library(micrograd
 
     src/ops/cpu/Activations.cpp
     src/ops/cpu/Arithmetic.cpp
+    src/ops/cpu/Attention.cpp
     src/ops/cpu/Broadcast.cpp
     src/ops/cpu/Embedding.cpp
     src/ops/cpu/LayerNorm.cpp
@@ -119,6 +121,7 @@ if(ENABLE_CUDA)
         src/cuda/CudaContext.cu
         src/cuda/ops/Arithmetic.cu
         src/cuda/ops/Activations.cu
+        src/cuda/ops/Attention.cu
         src/cuda/ops/Broadcast.cu
         src/cuda/ops/Embedding.cu
         src/cuda/ops/LayerNorm.cu

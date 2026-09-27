@@ -24,7 +24,6 @@ class CausalSelfAttention : public nn::Module {
   std::shared_ptr<Linear> key_;
   std::shared_ptr<Linear> value_;
   std::shared_ptr<Linear> out_proj_;
-  std::shared_ptr<Dropout> attn_dropout_;
   std::shared_ptr<Dropout> resid_dropout_;
 };
 

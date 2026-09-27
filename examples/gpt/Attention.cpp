@@ -3,28 +3,11 @@
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
-#include <utility>
 #include <vector>
 
 namespace micrograd::gpt {
 
 namespace {
-
-constexpr scalar_t kMaskValue = -1e9f;
-
-std::shared_ptr<Tensor> causal_bias(size_t seq_len, Backend backend) {
-  std::vector<scalar_t> values(seq_len * seq_len, 0.0f);
-  for (size_t row = 0; row < seq_len; row++) {
-    for (size_t col = row + 1; col < seq_len; col++) {
-      values[(row * seq_len) + col] = kMaskValue;
-    }
-  }
-
-  auto bias = std::make_shared<Tensor>(std::vector<size_t>{seq_len, seq_len},
-                                       std::move(values));
-  bias->to(backend);
-  return bias;
-}
 
 std::shared_ptr<Tensor> split_heads(const std::shared_ptr<Tensor> &proj,
                                     size_t batch, size_t seq_len, size_t n_head,
@@ -63,14 +46,12 @@ CausalSelfAttention::CausalSelfAttention(size_t n_embd, size_t n_head,
   key_ = std::make_shared<Linear>(n_embd, n_embd);
   value_ = std::make_shared<Linear>(n_embd, n_embd);
   out_proj_ = std::make_shared<Linear>(n_embd, n_embd);
-  attn_dropout_ = std::make_shared<Dropout>(dropout);
   resid_dropout_ = std::make_shared<Dropout>(dropout);
 
   register_module("query", query_);
   register_module("key", key_);
   register_module("value", value_);
   register_module("out_proj", out_proj_);
-  register_module("attn_dropout", attn_dropout_);
   register_module("resid_dropout", resid_dropout_);
 }
 
@@ -94,14 +75,9 @@ std::shared_ptr<Tensor> CausalSelfAttention::forward(
       split_heads(value_->forward(input), batch, seq_len, n_head_, head_dim);
 
   scalar_t scale = 1.0f / std::sqrt(static_cast<scalar_t>(head_dim));
-  std::shared_ptr<Tensor> scores =
-      q->matmul(k->transpose(1, 2))
-          ->mul(scale)
-          ->add(causal_bias(seq_len, input->backend()));
-
-  std::shared_ptr<Tensor> weights = attn_dropout_->forward(scores->softmax(-1));
+  std::shared_ptr<Tensor> attended = q->flash_attention(k, v, scale);
   std::shared_ptr<Tensor> merged =
-      merge_heads(weights->matmul(v), batch, seq_len, n_head_, head_dim);
+      merge_heads(attended, batch, seq_len, n_head_, head_dim);
 
   return resid_dropout_->forward(out_proj_->forward(merged));
 }

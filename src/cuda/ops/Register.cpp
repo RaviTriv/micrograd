@@ -14,6 +14,7 @@ void RegisterCudaOps() {
   RegisterLayerNormOps();
   RegisterRmsNormOps();
   RegisterRotaryOps();
+  RegisterAttentionOps();
 #endif
 }
 

@@ -214,6 +214,13 @@ std::vector<Case> AllCases() {
       [](const TensorList &in) { return in[0]->rotary_embedding(); },
       {Ramp({2, 4}, -1.0f, 0.2f)});
 
+  add("flash_attention",
+      [](const TensorList &in) {
+        return in[0]->flash_attention(in[1], in[2], 0.5f);
+      },
+      {Ramp({2, 3, 2}, -0.9f, 0.3f), Ramp({2, 3, 2}, -0.5f, 0.25f),
+       Ramp({2, 3, 2}, 0.2f, 0.15f)});
+
   add("relu", [](const TensorList &in) { return in[0]->relu(); },
       {signed_matrix()});
   add("sigmoid", [](const TensorList &in) { return in[0]->sigmoid(); },

@@ -51,6 +51,9 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
                                    const std::shared_ptr<Tensor> &gain,
                                    scalar_t eps);
   std::shared_ptr<Tensor> rotary_embedding(scalar_t base = 10000.0f);
+  std::shared_ptr<Tensor> flash_attention(const std::shared_ptr<Tensor> &key,
+                                          const std::shared_ptr<Tensor> &value,
+                                          scalar_t scale);
 
   std::shared_ptr<Tensor> relu();
   std::shared_ptr<Tensor> sigmoid();
