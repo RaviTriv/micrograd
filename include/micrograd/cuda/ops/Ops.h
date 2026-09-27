@@ -18,6 +18,7 @@ void RegisterMatmulOps();
 void RegisterShapeOps();
 void RegisterEmbeddingOps();
 void RegisterLayerNormOps();
+void RegisterRmsNormOps();
 
 scalar_t GradNormSquared(const Tensor &param);
 void ScaleGrad(Tensor &param, scalar_t scale);

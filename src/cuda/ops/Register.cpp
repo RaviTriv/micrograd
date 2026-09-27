@@ -12,6 +12,7 @@ void RegisterCudaOps() {
   RegisterShapeOps();
   RegisterEmbeddingOps();
   RegisterLayerNormOps();
+  RegisterRmsNormOps();
 #endif
 }
 

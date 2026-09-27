@@ -72,6 +72,7 @@ add_library(micrograd
     src/ops/cpu/LayerNorm.cpp
     src/ops/cpu/Matmul.cpp
     src/ops/cpu/Reduction.cpp
+    src/ops/cpu/RmsNorm.cpp
     src/ops/cpu/Shape.cpp
 
     src/NN.cpp
@@ -123,6 +124,7 @@ if(ENABLE_CUDA)
         src/cuda/ops/Optimizer.cu
         src/cuda/ops/Reduction.cu
         src/cuda/ops/Matmul.cu
+        src/cuda/ops/RmsNorm.cu
         src/cuda/ops/Shape.cu
     )
     target_compile_definitions(micrograd PUBLIC MICROGRAD_CUDA_ENABLED)

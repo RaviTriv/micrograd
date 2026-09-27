@@ -47,9 +47,10 @@ enum class OpId {
   kBroadcastTo,
   kEmbeddingLookup,
   kLayerNorm,
+  kRmsNorm,
 };
 
-inline constexpr size_t kOpCount = static_cast<size_t>(OpId::kLayerNorm) + 1;
+inline constexpr size_t kOpCount = static_cast<size_t>(OpId::kRmsNorm) + 1;
 inline constexpr size_t kDeviceCount = static_cast<size_t>(Device::CUDA) + 1;
 
 struct OpArgs {

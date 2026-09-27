@@ -10,5 +10,6 @@ void RegisterShapeOps();
 void RegisterBroadcastOps();
 void RegisterEmbeddingOps();
 void RegisterLayerNormOps();
+void RegisterRmsNormOps();
 
 }  // namespace micrograd::ops::cpu

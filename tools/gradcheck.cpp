@@ -206,6 +206,10 @@ std::vector<Case> AllCases() {
       },
       {signed_matrix(), positive_row(), row_vector()});
 
+  add("rms_norm",
+      [](const TensorList &in) { return in[0]->rms_norm({3}, in[1], 1e-5f); },
+      {signed_matrix(), positive_row()});
+
   add("relu", [](const TensorList &in) { return in[0]->relu(); },
       {signed_matrix()});
   add("sigmoid", [](const TensorList &in) { return in[0]->sigmoid(); },
