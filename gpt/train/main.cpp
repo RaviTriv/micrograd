@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -34,6 +35,10 @@
 #define CORPUS_DATA_PATH "data/input.txt"
 #endif
 
+#ifndef FINEWEB_DATA_DIR
+#define FINEWEB_DATA_DIR "fineweb-data"
+#endif
+
 namespace {
 
 using micrograd::Backend;
@@ -52,9 +57,15 @@ using micrograd::gpt::gpt2_124m;
 using micrograd::gpt::GPTConfig;
 using micrograd::gpt::Model;
 using micrograd::gpt::sample_token;
+using micrograd::gpt::ShardedDataset;
+
+// FineWeb shards hold GPT-2 BPE token ids.
+constexpr size_t kGpt2VocabSize = 50257;
 
 struct TrainConfig {
   std::string data_path = CORPUS_DATA_PATH;
+  std::string data_format = "char";
+  std::string fineweb_dir = FINEWEB_DATA_DIR;
   std::string checkpoint_path = "gpt.bin";
   std::string resume_path;
   std::string log_path = "training.log";
@@ -115,6 +126,10 @@ TrainConfig parse_args(int argc, char **argv) {
 
     if (arg == "--data") {
       config.data_path = next_value();
+    } else if (arg == "--data-format") {
+      config.data_format = next_value();
+    } else if (arg == "--fineweb-dir") {
+      config.fineweb_dir = next_value();
     } else if (arg == "--checkpoint") {
       config.checkpoint_path = next_value();
     } else if (arg == "--resume") {
@@ -398,8 +413,73 @@ void load_optimizer_state(const std::string &path, TrainOptimizer &optimizer) {
   optimizer.read_state(file);
 }
 
-double estimate_loss(Model &model, const Dataset &dataset, Dataset::Split split,
-                     const TrainConfig &config, std::mt19937_64 &rng) {
+// Shard files whose name contains "_<split_name>_" and ends in .bin, sorted.
+std::vector<std::string> find_shards(const std::string &dir,
+                                     const std::string &split_name) {
+  const std::string marker = "_" + split_name + "_";
+  std::vector<std::string> paths;
+  for (const auto &entry : std::filesystem::directory_iterator(dir)) {
+    const std::string name = entry.path().filename().string();
+    const bool has_marker = name.find(marker) != std::string::npos;
+    const bool is_bin = entry.path().extension() == ".bin";
+    if (has_marker && is_bin) {
+      paths.push_back(entry.path().string());
+    }
+  }
+  std::sort(paths.begin(), paths.end());
+  return paths;
+}
+
+// The training data behind --data-format: the character corpus, or FineWeb
+// shards.
+class TrainingData {
+ public:
+  explicit TrainingData(const TrainConfig &config) {
+    if (config.data_format == "char") {
+      chars_ = std::make_unique<Dataset>(config.data_path, config.val_fraction);
+      return;
+    }
+    if (config.data_format != "fineweb") {
+      throw std::invalid_argument("Unknown data format: " + config.data_format);
+    }
+    if (!std::filesystem::is_directory(config.fineweb_dir)) {
+      throw std::runtime_error("FineWeb directory not found: " +
+                               config.fineweb_dir);
+    }
+    std::vector<std::string> train_paths =
+        find_shards(config.fineweb_dir, "train");
+    std::vector<std::string> val_paths = find_shards(config.fineweb_dir, "val");
+    if (train_paths.empty() || val_paths.empty()) {
+      throw std::runtime_error(
+          "FineWeb directory needs train and val shards: " +
+          config.fineweb_dir);
+    }
+    shards_ = std::make_unique<ShardedDataset>(train_paths, val_paths.front());
+  }
+
+  Dataset::Batch sample(size_t batch_size, size_t block_size,
+                        Dataset::Split split, std::mt19937_64 &rng) const {
+    if (shards_) {
+      return shards_->sample(batch_size, block_size, split, rng);
+    }
+    return chars_->sample(batch_size, block_size, split, rng);
+  }
+
+  size_t vocab_size() const {
+    if (shards_) {
+      return kGpt2VocabSize;
+    }
+    return chars_->vocab_size();
+  }
+
+ private:
+  std::unique_ptr<Dataset> chars_;
+  std::unique_ptr<ShardedDataset> shards_;
+};
+
+double estimate_loss(Model &model, const TrainingData &dataset,
+                     Dataset::Split split, const TrainConfig &config,
+                     std::mt19937_64 &rng) {
   const NoGradGuard no_grad;
   model.eval();
 
@@ -423,6 +503,10 @@ double estimate_loss(Model &model, const Dataset &dataset, Dataset::Split split,
 }
 
 void run_sample(const TrainConfig &config) {
+  if (config.data_format != "char") {
+    throw std::invalid_argument(
+        "--sample needs --data-format char; BPE decoding is not wired");
+  }
   Dataset dataset(config.data_path, config.val_fraction);
   GPTConfig model_config = build_model_config(config);
   Model model(dataset.vocab_size(), model_config);
@@ -507,7 +591,7 @@ int main(int argc, char **argv) {
       return 0;
     }
 
-    Dataset dataset(config.data_path, config.val_fraction);
+    TrainingData dataset(config);
     GPTConfig model_config = build_model_config(config);
     Model model(dataset.vocab_size(), model_config);
 
