@@ -5,7 +5,7 @@
 #include <utility>
 
 #ifdef MICROGRAD_CUDA_ENABLED
-#include "micrograd/cuda/CudaContext.h"
+#include "micrograd/backends/cuda/CudaContext.h"
 #endif
 
 namespace micrograd {

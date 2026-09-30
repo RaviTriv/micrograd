@@ -7,7 +7,7 @@
 #include "micrograd/Tensor.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
-#include "micrograd/cuda/ops/Ops.h"
+#include "micrograd/backends/cuda/ops/Ops.h"
 #endif
 
 namespace micrograd::ops {

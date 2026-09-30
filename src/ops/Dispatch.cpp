@@ -3,9 +3,9 @@
 #include <mutex>
 
 #include "micrograd/Tensor.h"
-#include "micrograd/cuda/ops/Ops.h"
-#include "micrograd/metal/ops/Ops.h"
-#include "micrograd/ops/cpu/Ops.h"
+#include "micrograd/backends/cpu/Ops.h"
+#include "micrograd/backends/cuda/ops/Ops.h"
+#include "micrograd/backends/metal/ops/Ops.h"
 
 namespace micrograd {
 namespace {

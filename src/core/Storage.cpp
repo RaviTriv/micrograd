@@ -6,11 +6,11 @@
 #include <utility>
 
 #ifdef MICROGRAD_METAL_ENABLED
-#include "micrograd/metal/MetalContext.h"
+#include "micrograd/backends/metal/MetalContext.h"
 #endif
 
 #ifdef MICROGRAD_CUDA_ENABLED
-#include "micrograd/cuda/CudaContext.h"
+#include "micrograd/backends/cuda/CudaContext.h"
 #endif
 
 namespace micrograd {

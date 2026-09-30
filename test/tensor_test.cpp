@@ -8,7 +8,7 @@
 #include "micrograd/NN.h"
 
 #ifdef MICROGRAD_METAL_ENABLED
-#include "micrograd/metal/MetalContext.h"
+#include "micrograd/backends/metal/MetalContext.h"
 
 #define SKIP_WITHOUT_METAL()                       \
   do {                                             \

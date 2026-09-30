@@ -66,32 +66,35 @@ add_library(micrograd
     src/ops/Rotary.cpp
     src/ops/Shape.cpp
 
-    src/ops/cpu/Activations.cpp
-    src/ops/cpu/Arithmetic.cpp
-    src/ops/cpu/Attention.cpp
-    src/ops/cpu/Broadcast.cpp
-    src/ops/cpu/Embedding.cpp
-    src/ops/cpu/LayerNorm.cpp
-    src/ops/cpu/Matmul.cpp
-    src/ops/cpu/Reduction.cpp
-    src/ops/cpu/RmsNorm.cpp
-    src/ops/cpu/Rotary.cpp
-    src/ops/cpu/Shape.cpp
+    src/backends/cpu/Activations.cpp
+    src/backends/cpu/Arithmetic.cpp
+    src/backends/cpu/Attention.cpp
+    src/backends/cpu/Broadcast.cpp
+    src/backends/cpu/Embedding.cpp
+    src/backends/cpu/LayerNorm.cpp
+    src/backends/cpu/Matmul.cpp
+    src/backends/cpu/Reduction.cpp
+    src/backends/cpu/RmsNorm.cpp
+    src/backends/cpu/Rotary.cpp
+    src/backends/cpu/Shape.cpp
 
-    src/NN.cpp
-    src/MNIST.cpp
+    src/nn/Functional.cpp
+    src/nn/Layers.cpp
+    src/nn/Loss.cpp
+    src/nn/Optim.cpp
+    src/nn/Serialize.cpp
     src/nn/Checkpoint.cpp
-    src/metal/MetalContext.cpp
-    src/metal/Kernels.cpp
-    src/metal/Dispatch.cpp
+    src/backends/metal/MetalContext.cpp
+    src/backends/metal/Kernels.cpp
+    src/backends/metal/Dispatch.cpp
 
-    src/metal/ops/Register.cpp
-    src/metal/ops/Activations.cpp
-    src/metal/ops/Arithmetic.cpp
-    src/metal/ops/Matmul.cpp
-    src/metal/ops/Reduction.cpp
+    src/backends/metal/ops/Register.cpp
+    src/backends/metal/ops/Activations.cpp
+    src/backends/metal/ops/Arithmetic.cpp
+    src/backends/metal/ops/Matmul.cpp
+    src/backends/metal/ops/Reduction.cpp
 
-    src/cuda/ops/Register.cpp
+    src/backends/cuda/ops/Register.cpp
 )
 
 target_compile_options(micrograd PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Werror>)
@@ -118,19 +121,19 @@ endif()
 if(ENABLE_CUDA)
     find_package(CUDAToolkit REQUIRED)
     target_sources(micrograd PRIVATE
-        src/cuda/CudaContext.cu
-        src/cuda/ops/Arithmetic.cu
-        src/cuda/ops/Activations.cu
-        src/cuda/ops/Attention.cu
-        src/cuda/ops/Broadcast.cu
-        src/cuda/ops/Embedding.cu
-        src/cuda/ops/LayerNorm.cu
-        src/cuda/ops/Optimizer.cu
-        src/cuda/ops/Reduction.cu
-        src/cuda/ops/Matmul.cu
-        src/cuda/ops/RmsNorm.cu
-        src/cuda/ops/Rotary.cu
-        src/cuda/ops/Shape.cu
+        src/backends/cuda/CudaContext.cu
+        src/backends/cuda/ops/Arithmetic.cu
+        src/backends/cuda/ops/Activations.cu
+        src/backends/cuda/ops/Attention.cu
+        src/backends/cuda/ops/Broadcast.cu
+        src/backends/cuda/ops/Embedding.cu
+        src/backends/cuda/ops/LayerNorm.cu
+        src/backends/cuda/ops/Optimizer.cu
+        src/backends/cuda/ops/Reduction.cu
+        src/backends/cuda/ops/Matmul.cu
+        src/backends/cuda/ops/RmsNorm.cu
+        src/backends/cuda/ops/Rotary.cu
+        src/backends/cuda/ops/Shape.cu
     )
     target_compile_definitions(micrograd PUBLIC MICROGRAD_CUDA_ENABLED)
     target_link_libraries(micrograd PUBLIC CUDA::cudart)
@@ -142,7 +145,7 @@ if(ENABLE_CUDA)
     endif()
 endif()
 
-add_executable(main src/main.cpp)
+add_executable(main examples/mnist/main.cpp examples/mnist/MNIST.cpp)
 target_link_libraries(main PRIVATE micrograd)
 
 option(BUILD_BENCH "Benchmark harness" OFF)
@@ -152,30 +155,30 @@ if(BUILD_BENCH)
     target_compile_options(bench PRIVATE -Werror)
 endif()
 
-add_library(gpt_bpe
-    examples/gpt/Attention.cpp
-    examples/gpt/BPE.cpp
-    examples/gpt/Block.cpp
-    examples/gpt/Chat.cpp
-    examples/gpt/Conversation.cpp
-    examples/gpt/ConversationDataset.cpp
-    examples/gpt/CoreEval.cpp
-    examples/gpt/Dataset.cpp
-    examples/gpt/GPTConfig.cpp
-    examples/gpt/GRPO.cpp
-    examples/gpt/KVCache.cpp
-    examples/gpt/Model.cpp
+add_library(micrograd_gpt
+    gpt/src/Attention.cpp
+    gpt/src/BPE.cpp
+    gpt/src/Block.cpp
+    gpt/src/Chat.cpp
+    gpt/src/Conversation.cpp
+    gpt/src/ConversationDataset.cpp
+    gpt/src/CoreEval.cpp
+    gpt/src/Dataset.cpp
+    gpt/src/GPTConfig.cpp
+    gpt/src/GRPO.cpp
+    gpt/src/KVCache.cpp
+    gpt/src/Model.cpp
 )
-target_include_directories(gpt_bpe PUBLIC . include)
-target_link_libraries(gpt_bpe PUBLIC micrograd)
-target_compile_options(gpt_bpe PRIVATE -Werror)
+target_include_directories(micrograd_gpt PUBLIC gpt/include include)
+target_link_libraries(micrograd_gpt PUBLIC micrograd)
+target_compile_options(micrograd_gpt PRIVATE -Werror)
 
-add_executable(gpt examples/gpt/main.cpp)
-target_link_libraries(gpt PRIVATE gpt_bpe)
-target_compile_options(gpt PRIVATE -Werror)
+add_executable(train_gpt gpt/train/main.cpp)
+target_link_libraries(train_gpt PRIVATE micrograd_gpt)
+target_compile_options(train_gpt PRIVATE -Werror)
 
-add_executable(hellaswag tools/hellaswag.cpp)
-target_link_libraries(hellaswag PRIVATE gpt_bpe)
+add_executable(hellaswag tools/eval/hellaswag.cpp)
+target_link_libraries(hellaswag PRIVATE micrograd_gpt)
 target_compile_options(hellaswag PRIVATE -Werror)
 
 option(FETCH_MNIST "Download the MNIST dataset" ON)
@@ -216,9 +219,9 @@ if(FETCH_CORPUS)
         VERBATIM
     )
     add_custom_target(corpus-data DEPENDS ${CORPUS_DATA_FILE})
-    add_dependencies(gpt corpus-data)
+    add_dependencies(train_gpt corpus-data)
 
-    target_compile_definitions(gpt PRIVATE CORPUS_DATA_PATH="${CORPUS_DATA_FILE}")
+    target_compile_definitions(train_gpt PRIVATE CORPUS_DATA_PATH="${CORPUS_DATA_FILE}")
 endif()
 
 option(FETCH_FINEWEB "Download a FineWeb sample as pre-tokenized shards" OFF)
@@ -242,9 +245,9 @@ if(FETCH_FINEWEB)
         VERBATIM
     )
     add_custom_target(fineweb-data DEPENDS ${FINEWEB_DATA_FILES})
-    add_dependencies(gpt fineweb-data)
+    add_dependencies(train_gpt fineweb-data)
 
-    target_compile_definitions(gpt PRIVATE
+    target_compile_definitions(train_gpt PRIVATE
         FINEWEB_DATA_DIR="${FINEWEB_DATA_DIR}"
         FINEWEB_TRAIN_SHARD_COUNT=${FINEWEB_TRAIN_SHARD_COUNT})
 endif()
@@ -266,23 +269,23 @@ if(BUILD_TESTS)
     include(GoogleTest)
     gtest_discover_tests(micrograd_tests)
 
-    add_executable(gradcheck tools/gradcheck.cpp)
-    target_link_libraries(gradcheck PRIVATE micrograd)
+    add_executable(gradcheck tools/check/gradcheck.cpp)
+    target_link_libraries(gradcheck PRIVATE micrograd_gpt)
     target_compile_options(gradcheck PRIVATE -Werror)
     add_test(NAME gradcheck COMMAND gradcheck)
 
-    add_executable(bpe_roundtrip tools/bpe_roundtrip.cpp)
-    target_link_libraries(bpe_roundtrip PRIVATE gpt_bpe)
+    add_executable(bpe_roundtrip tools/check/bpe_roundtrip.cpp)
+    target_link_libraries(bpe_roundtrip PRIVATE micrograd_gpt)
     target_compile_options(bpe_roundtrip PRIVATE -Werror)
     add_test(NAME bpe_roundtrip COMMAND bpe_roundtrip)
 
-    add_executable(core_eval tools/core_eval.cpp)
-    target_link_libraries(core_eval PRIVATE gpt_bpe)
+    add_executable(core_eval tools/eval/core_eval.cpp)
+    target_link_libraries(core_eval PRIVATE micrograd_gpt)
     target_compile_options(core_eval PRIVATE -Werror)
     add_test(NAME core_eval COMMAND core_eval)
 
-    add_executable(grpo_check tools/grpo_check.cpp)
-    target_link_libraries(grpo_check PRIVATE gpt_bpe)
+    add_executable(grpo_check tools/check/grpo_check.cpp)
+    target_link_libraries(grpo_check PRIVATE micrograd_gpt)
     target_compile_options(grpo_check PRIVATE -Werror)
     add_test(NAME grpo_check COMMAND grpo_check)
 endif()
