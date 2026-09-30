@@ -21,14 +21,17 @@ jobs:
           find src include test \( -name '*.cpp' -o -name '*.h' \) -print0 \
             | xargs -0 clang-format-18 --dry-run --Werror
 
-  macos:
-    name: macOS
-    runs-on: macos-latest
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -S . -B build -DBUILD_TESTS=ON -DFETCH_MNIST=OFF
+        run: >
+          cmake -S . -B build -DBUILD_TESTS=ON -DFETCH_MNIST=OFF
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=clang++-18
 
       - name: Build
         run: cmake --build build -j
