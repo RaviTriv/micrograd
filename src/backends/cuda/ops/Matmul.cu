@@ -14,9 +14,12 @@
 #include "micrograd/Tensor.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #include "micrograd/ops/Dispatch.h"
+#include "micrograd/ops/Matmul.h"
 
 namespace micrograd::cuda::ops {
 namespace {
+
+using micrograd::ops::ResolveMatmulDims;
 
 constexpr unsigned int kTile = 32;
 
@@ -239,11 +242,7 @@ void MatmulBf16(const OpArgs &args) {
 
   const auto &lhs_shape = args.lhs->shape();
   const auto &rhs_shape = args.rhs->shape();
-  const size_t rank = lhs_shape.size();
-  const size_t batch = rank == 3 ? lhs_shape[0] : 1;
-  const size_t m = lhs_shape[rank - 2];
-  const size_t k = lhs_shape[rank - 1];
-  const size_t n = rhs_shape[rank - 1];
+  const auto [batch, m, k, n] = ResolveMatmulDims(lhs_shape, rhs_shape);
 
   MatmulCublasLtBf16(args, batch, m, k, n);
 }
@@ -254,11 +253,7 @@ void Matmul(const OpArgs &args) {
 
   const auto &lhs_shape = args.lhs->shape();
   const auto &rhs_shape = args.rhs->shape();
-  const size_t rank = lhs_shape.size();
-  const size_t batch = rank == 3 ? lhs_shape[0] : 1;
-  const size_t m = lhs_shape[rank - 2];
-  const size_t k = lhs_shape[rank - 1];
-  const size_t n = rhs_shape[rank - 1];
+  const auto [batch, m, k, n] = ResolveMatmulDims(lhs_shape, rhs_shape);
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
   MatmulCublas(args, batch, m, k, n);
@@ -274,11 +269,7 @@ std::function<void()> MatmulBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
     const auto &lhs_shape = lhs->shape();
     const auto &rhs_shape = rhs->shape();
-    const size_t rank = lhs_shape.size();
-    const size_t batch = rank == 3 ? lhs_shape[0] : 1;
-    const size_t m = lhs_shape[rank - 2];
-    const size_t k = lhs_shape[rank - 1];
-    const size_t n = rhs_shape[rank - 1];
+    const auto [batch, m, k, n] = ResolveMatmulDims(lhs_shape, rhs_shape);
 
     const dim3 block(kTile, kTile);
     cudaStream_t stream = CudaContext::instance().stream();

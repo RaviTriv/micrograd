@@ -31,7 +31,10 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   std::shared_ptr<Tensor> rhs = b;
   std::vector<size_t> out_shape = {m, n};
 
-  if (lhs_rank == 3 || rhs_rank == 3) {
+  bool fold_rows = lhs_rank == 3 && rhs_rank == 2 && backend() != Device::Metal;
+  if (fold_rows) {
+    out_shape = {shape_[0], m, n};
+  } else if (lhs_rank == 3 || rhs_rank == 3) {
     size_t batch = lhs_rank == 3 ? shape_[0] : b->shape_[0];
     lhs = broadcast_to({batch, m, k});
     rhs = b->broadcast_to({batch, k, n});
