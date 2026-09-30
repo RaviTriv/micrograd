@@ -40,6 +40,34 @@ std::function<void()> EmbeddingLookupBackward(const GradArgs &args) {
   };
 }
 
+void GatherPerRow(const OpArgs &args) {
+  size_t rows = args.lhs->shape()[0];
+  size_t cols = args.lhs->shape()[1];
+  auto values = args.lhs->data();
+  auto index_values = args.rhs->data();
+  auto out_values = args.out->data();
+
+  for (size_t i = 0; i < rows; i++) {
+    auto index = static_cast<size_t>(std::lround(index_values[i]));
+    out_values[i] = values[(i * cols) + index];
+  }
+}
+
+std::function<void()> GatherPerRowBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, indices = args.rhs]() {
+    size_t rows = lhs->shape()[0];
+    size_t cols = lhs->shape()[1];
+    auto gradient = lhs->grad();
+    auto incoming = out->grad();
+    auto index_values = indices->data();
+
+    for (size_t i = 0; i < rows; i++) {
+      auto index = static_cast<size_t>(std::lround(index_values[i]));
+      gradient[(i * cols) + index] += incoming[i];
+    }
+  };
+}
+
 }  // namespace
 
 void RegisterEmbeddingOps() {
@@ -47,6 +75,9 @@ void RegisterEmbeddingOps() {
   registry.Register(OpId::kEmbeddingLookup, Device::CPU, EmbeddingLookup);
   registry.RegisterBackward(OpId::kEmbeddingLookup, Device::CPU,
                             EmbeddingLookupBackward);
+  registry.Register(OpId::kGatherPerRow, Device::CPU, GatherPerRow);
+  registry.RegisterBackward(OpId::kGatherPerRow, Device::CPU,
+                            GatherPerRowBackward);
 }
 
 }  // namespace micrograd::ops::cpu

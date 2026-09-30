@@ -44,6 +44,28 @@ __global__ void EmbeddingLookupBackwardKernel(const scalar_t *indices,
   }
 }
 
+__global__ void GatherPerRowKernel(const scalar_t *values,
+                                   const scalar_t *indices, scalar_t *out,
+                                   size_t cols, size_t rows) {
+  for (size_t i = (blockIdx.x * blockDim.x) + threadIdx.x; i < rows;
+       i += gridDim.x * blockDim.x) {
+    auto index = static_cast<size_t>(llroundf(indices[i]));
+    out[i] = values[(i * cols) + index];
+  }
+}
+
+// Each row owns a distinct element, so no atomics are needed.
+__global__ void GatherPerRowBackwardKernel(const scalar_t *indices,
+                                           const scalar_t *out_grad,
+                                           scalar_t *grad, size_t cols,
+                                           size_t rows) {
+  for (size_t i = (blockIdx.x * blockDim.x) + threadIdx.x; i < rows;
+       i += gridDim.x * blockDim.x) {
+    auto index = static_cast<size_t>(llroundf(indices[i]));
+    grad[(i * cols) + index] += out_grad[i];
+  }
+}
+
 const scalar_t *DataPtr(const Tensor *t) {
   return static_cast<const scalar_t *>(t->data_storage().device_pointer());
 }
@@ -75,6 +97,25 @@ std::function<void()> EmbeddingLookupBackward(const GradArgs &args) {
   };
 }
 
+void GatherPerRow(const OpArgs &args) {
+  args.out->to(Backend::CUDA);
+  size_t rows = args.lhs->shape()[0];
+  size_t cols = args.lhs->shape()[1];
+  GatherPerRowKernel<<<GridSize(rows), kBlockSize, 0,
+                       CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), cols, rows);
+}
+
+std::function<void()> GatherPerRowBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, indices = args.rhs]() {
+    size_t rows = lhs->shape()[0];
+    size_t cols = lhs->shape()[1];
+    GatherPerRowBackwardKernel<<<GridSize(rows), kBlockSize, 0,
+                                 CudaContext::instance().stream()>>>(
+        DataPtr(indices.get()), GradPtr(out), GradPtr(lhs.get()), cols, rows);
+  };
+}
+
 }  // namespace
 
 void RegisterEmbeddingOps() {
@@ -82,6 +123,9 @@ void RegisterEmbeddingOps() {
   registry.Register(OpId::kEmbeddingLookup, Device::CUDA, EmbeddingLookup);
   registry.RegisterBackward(OpId::kEmbeddingLookup, Device::CUDA,
                             EmbeddingLookupBackward);
+  registry.Register(OpId::kGatherPerRow, Device::CUDA, GatherPerRow);
+  registry.RegisterBackward(OpId::kGatherPerRow, Device::CUDA,
+                            GatherPerRowBackward);
 }
 
 }  // namespace micrograd::cuda::ops

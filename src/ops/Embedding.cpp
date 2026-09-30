@@ -50,4 +50,43 @@ std::shared_ptr<Tensor> Tensor::embedding_lookup(
   return result;
 }
 
+std::shared_ptr<Tensor> Tensor::gather_per_row(
+    const std::shared_ptr<Tensor> &indices) {
+  if (shape_.size() != 2) {
+    throw std::invalid_argument("gather_per_row expects a rank 2 input");
+  }
+
+  size_t rows = shape_[0];
+  size_t cols = shape_[1];
+  if (indices->size() != rows) {
+    throw std::invalid_argument(
+        "gather_per_row index count does not match the row count");
+  }
+
+  Storage host_indices = indices->data_storage().copy_to(Device::CPU);
+  const auto *index_values =
+      static_cast<const scalar_t *>(host_indices.host_pointer());
+  for (size_t i = 0; i < rows; i++) {
+    auto index = static_cast<size_t>(std::lround(index_values[i]));
+    if (index >= cols) {
+      throw std::out_of_range("gather_per_row index is out of range");
+    }
+  }
+
+  auto result = std::make_shared<Tensor>(std::vector<size_t>{rows});
+  DispatchOp(OpId::kGatherPerRow, backend(),
+             {.lhs = this, .rhs = indices.get(), .out = result.get()});
+
+  result->requires_grad_ = GradEnabled() && requires_grad_;
+  if (result->requires_grad_) {
+    auto self_ptr = shared_from_this();
+    result->children_ = {self_ptr};
+    result->backward_fn_ =
+        MakeBackward(OpId::kGatherPerRow, backend(),
+                     {.lhs = self_ptr, .rhs = indices, .out = result.get()});
+  }
+
+  return result;
+}
+
 }  // namespace micrograd

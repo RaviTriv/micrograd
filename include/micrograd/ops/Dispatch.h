@@ -46,6 +46,7 @@ enum class OpId {
   kStridedCopy,
   kBroadcastTo,
   kEmbeddingLookup,
+  kGatherPerRow,
   kLayerNorm,
   kRmsNorm,
   kRotaryEmbedding,

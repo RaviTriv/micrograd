@@ -43,17 +43,8 @@ std::shared_ptr<Tensor> cross_entropy(
       std::make_shared<Tensor>(std::vector<size_t>{batch}, index_values);
   indices->to(logits->backend());
 
-  std::vector<scalar_t> diagonal(batch * batch, 0.0f);
-  for (size_t i = 0; i < batch; i++) {
-    diagonal[(i * batch) + i] = 1.0f;
-  }
-  auto diagonal_mask =
-      std::make_shared<Tensor>(std::vector<size_t>{batch, batch}, diagonal);
-  diagonal_mask->to(logits->backend());
-
   auto log_probs = logits->log_softmax(1);
-  auto gathered = log_probs->transpose(0, 1)->embedding_lookup(indices);
-  auto picked = gathered->mul(diagonal_mask);
+  auto picked = log_probs->gather_per_row(indices);
 
   return picked->sum()->neg()->div(static_cast<scalar_t>(batch));
 }
@@ -100,19 +91,17 @@ std::shared_ptr<Tensor> masked_cross_entropy(
       std::make_shared<Tensor>(std::vector<size_t>{batch}, index_values);
   indices->to(logits->backend());
 
-  std::vector<scalar_t> diagonal(batch * batch, 0.0f);
+  std::vector<scalar_t> mask_values(batch, 0.0f);
   for (size_t i = 0; i < batch; i++) {
     if (loss_mask[i]) {
-      diagonal[(i * batch) + i] = 1.0f;
+      mask_values[i] = 1.0f;
     }
   }
-  auto diagonal_mask =
-      std::make_shared<Tensor>(std::vector<size_t>{batch, batch}, diagonal);
-  diagonal_mask->to(logits->backend());
+  auto mask = std::make_shared<Tensor>(std::vector<size_t>{batch}, mask_values);
+  mask->to(logits->backend());
 
   auto log_probs = logits->log_softmax(1);
-  auto gathered = log_probs->transpose(0, 1)->embedding_lookup(indices);
-  auto picked = gathered->mul(diagonal_mask);
+  auto picked = log_probs->gather_per_row(indices)->mul(mask);
 
   return picked->sum()->neg()->div(static_cast<scalar_t>(masked_count));
 }
