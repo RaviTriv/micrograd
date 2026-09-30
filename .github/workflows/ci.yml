@@ -39,6 +39,28 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  cuda:
+    name: CUDA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install CUDA toolkit
+        run: |
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y cuda-nvcc-12-8 cuda-cudart-dev-12-8
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -DBUILD_TESTS=OFF -DFETCH_MNIST=OFF
+          -DENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=80
+          -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.8/bin/nvcc
+
+      - name: Build
+        run: cmake --build build -j --target micrograd
+
   sanitizers:
     name: Sanitizers (ASan + UBSan)
     runs-on: ubuntu-latest
