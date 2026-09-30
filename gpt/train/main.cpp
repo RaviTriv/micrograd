@@ -26,6 +26,7 @@
 #include "micrograd/ops/Optimizer.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/backends/cuda/CudaContext.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #endif
 
@@ -76,6 +77,7 @@ struct TrainConfig {
   size_t eval_interval = 250;
   size_t eval_iters = 200;
   size_t checkpoint_interval = 250;
+  size_t throughput_interval = 10;
   Device device = Device::CPU;
   uint64_t seed = 1337;
   bool sample = false;
@@ -157,6 +159,9 @@ TrainConfig parse_args(int argc, char **argv) {
       config.eval_iters = static_cast<size_t>(std::stoul(next_value()));
     } else if (arg == "--checkpoint-interval") {
       config.checkpoint_interval =
+          static_cast<size_t>(std::stoul(next_value()));
+    } else if (arg == "--throughput-interval") {
+      config.throughput_interval =
           static_cast<size_t>(std::stoul(next_value()));
     } else if (arg == "--device") {
       config.device = parse_device(next_value());
@@ -469,6 +474,27 @@ void run_sample(const TrainConfig &config) {
   std::cout << "\n";
 }
 
+// Steps skipped before timing starts, so allocation and kernel warmup do not
+// count.
+constexpr size_t kThroughputWarmupSteps = 10;
+
+// CUDA launches return before the kernel finishes; wait so the clock covers
+// the work.
+void wait_for_device(Device device) {
+#ifdef MICROGRAD_CUDA_ENABLED
+  if (device == Device::CUDA) {
+    micrograd::CudaContext::instance().synchronize();
+  }
+#else
+  (void)device;
+#endif
+}
+
+double seconds_since(std::chrono::steady_clock::time_point start) {
+  auto elapsed = std::chrono::steady_clock::now() - start;
+  return std::chrono::duration<double>(elapsed).count();
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -511,6 +537,12 @@ int main(int argc, char **argv) {
       log_file << "step,train_loss,val_loss\n";
     }
 
+    const size_t tokens_per_micro_step = config.batch_size * config.block_size;
+    const size_t tokens_per_step =
+        tokens_per_micro_step * config.grad_accum_steps;
+    size_t timed_steps = 0;
+    double timed_seconds = 0.0;
+
     for (size_t it = start_iter; it < config.max_iters; it++) {
       if (config.eval_interval > 0 && it % config.eval_interval == 0) {
         double train_loss = estimate_loss(
@@ -530,6 +562,7 @@ int main(int argc, char **argv) {
                              optimizer);
       }
 
+      const auto step_start = std::chrono::steady_clock::now();
       model.train();
       optimizer.zero_grad();
       for (size_t micro_step = 0; micro_step < config.grad_accum_steps;
@@ -550,6 +583,26 @@ int main(int argc, char **argv) {
       }
       ClipGradNorm(parameters, config.grad_clip);
       optimizer.step(LrAt(it, config));
+
+      if (config.throughput_interval == 0) {
+        continue;
+      }
+      wait_for_device(config.device);
+      if (it - start_iter < kThroughputWarmupSteps) {
+        continue;
+      }
+      timed_seconds += seconds_since(step_start);
+      timed_steps++;
+      if (timed_steps == config.throughput_interval) {
+        double seconds_per_step =
+            timed_seconds / static_cast<double>(timed_steps);
+        double tokens_per_second =
+            static_cast<double>(tokens_per_step) / seconds_per_step;
+        std::cout << "step " << it << ": " << tokens_per_second << " tok/s, "
+                  << seconds_per_step * 1000.0 << " ms/step\n";
+        timed_steps = 0;
+        timed_seconds = 0.0;
+      }
     }
 
     double final_val_loss = estimate_loss(model, dataset, Dataset::Split::kVal,

@@ -11,6 +11,10 @@
 #include "micrograd/Scalar.h"
 #include "micrograd/Tensor.h"
 
+#ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/backends/cuda/CudaContext.h"
+#endif
+
 using micrograd::AdamW;
 using micrograd::Device;
 using micrograd::Linear;
@@ -76,6 +80,18 @@ std::shared_ptr<Tensor> Ramp(std::vector<size_t> shape, scalar_t start,
   return std::make_shared<Tensor>(std::move(shape), std::move(values));
 }
 
+// CUDA launches return before the kernel finishes; wait so the clock covers
+// the work.
+void WaitForDevice(Device device) {
+#ifdef MICROGRAD_CUDA_ENABLED
+  if (device == Device::CUDA) {
+    micrograd::CudaContext::instance().synchronize();
+  }
+#else
+  (void)device;
+#endif
+}
+
 double SecondsSince(std::chrono::steady_clock::time_point start) {
   return std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
       .count();
@@ -111,6 +127,7 @@ Row BenchMatmul(Device device, const MatmulCase &matmul_case) {
   for (int i = 0; i < matmul_case.iterations; i++) {
     lhs->matmul(rhs);
   }
+  WaitForDevice(device);
   const double seconds_per_iter = SecondsSince(start) / matmul_case.iterations;
 
   const double flops = 2.0 * static_cast<double>(matmul_case.n) *
@@ -144,6 +161,7 @@ Row BenchTrainingStep(Device device, size_t batch_size, int iterations) {
   for (int i = 0; i < iterations; i++) {
     step_once();
   }
+  WaitForDevice(device);
   const double seconds_per_iter = SecondsSince(start) / iterations;
   const double samples_per_second =
       static_cast<double>(batch_size) / seconds_per_iter;
@@ -179,6 +197,7 @@ Row BenchEpoch(Device device, size_t batch_size, size_t total_samples) {
   for (size_t i = 0; i < batches; i++) {
     step_once();
   }
+  WaitForDevice(device);
   const double seconds = SecondsSince(start);
   const double samples_per_second =
       static_cast<double>(batches * batch_size) / seconds;
