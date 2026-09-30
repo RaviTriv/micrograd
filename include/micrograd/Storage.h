@@ -43,4 +43,6 @@ class Storage {
   DType dtype_ = DType::kFloat32;
 };
 
+void synchronize(Device device);
+
 }  // namespace micrograd

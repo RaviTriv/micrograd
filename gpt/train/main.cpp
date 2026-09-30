@@ -27,7 +27,6 @@
 #include "micrograd/ops/Optimizer.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
-#include "micrograd/backends/cuda/CudaContext.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #endif
 
@@ -51,6 +50,7 @@ using micrograd::NoGradGuard;
 using micrograd::save;
 using micrograd::scalar_t;
 using micrograd::Storage;
+using micrograd::synchronize;
 using micrograd::Tensor;
 using micrograd::gpt::Dataset;
 using micrograd::gpt::gpt2_124m;
@@ -59,7 +59,6 @@ using micrograd::gpt::Model;
 using micrograd::gpt::sample_token;
 using micrograd::gpt::ShardedDataset;
 
-// FineWeb shards hold GPT-2 BPE token ids.
 constexpr size_t kGpt2VocabSize = 50257;
 
 struct TrainConfig {
@@ -76,7 +75,7 @@ struct TrainConfig {
   size_t n_layer = gpt2_124m().n_layer;
   size_t n_head = gpt2_124m().n_head;
   size_t n_embd = gpt2_124m().n_embd;
-  scalar_t dropout = 0.2f;
+  scalar_t dropout = 0.0f;
   scalar_t learning_rate = 1e-3f;
   scalar_t min_lr = 1e-4f;
   scalar_t weight_decay = 0.1f;
@@ -413,7 +412,6 @@ void load_optimizer_state(const std::string &path, TrainOptimizer &optimizer) {
   optimizer.read_state(file);
 }
 
-// Shard files whose name contains "_<split_name>_" and ends in .bin, sorted.
 std::vector<std::string> find_shards(const std::string &dir,
                                      const std::string &split_name) {
   const std::string marker = "_" + split_name + "_";
@@ -430,8 +428,6 @@ std::vector<std::string> find_shards(const std::string &dir,
   return paths;
 }
 
-// The training data behind --data-format: the character corpus, or FineWeb
-// shards.
 class TrainingData {
  public:
   explicit TrainingData(const TrainConfig &config) {
@@ -558,21 +554,7 @@ void run_sample(const TrainConfig &config) {
   std::cout << "\n";
 }
 
-// Steps skipped before timing starts, so allocation and kernel warmup do not
-// count.
 constexpr size_t kThroughputWarmupSteps = 10;
-
-// CUDA launches return before the kernel finishes; wait so the clock covers
-// the work.
-void wait_for_device(Device device) {
-#ifdef MICROGRAD_CUDA_ENABLED
-  if (device == Device::CUDA) {
-    micrograd::CudaContext::instance().synchronize();
-  }
-#else
-  (void)device;
-#endif
-}
 
 double seconds_since(std::chrono::steady_clock::time_point start) {
   auto elapsed = std::chrono::steady_clock::now() - start;
@@ -671,7 +653,7 @@ int main(int argc, char **argv) {
       if (config.throughput_interval == 0) {
         continue;
       }
-      wait_for_device(config.device);
+      synchronize(config.device);
       if (it - start_iter < kThroughputWarmupSteps) {
         continue;
       }

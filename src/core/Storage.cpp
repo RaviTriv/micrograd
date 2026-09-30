@@ -246,4 +246,21 @@ void Storage::release() {
   bytes_ = 0;
 }
 
+void synchronize(Device device) {
+  switch (device) {
+    case Device::CPU:
+      return;
+    case Device::Metal:
+#ifdef MICROGRAD_METAL_ENABLED
+      MetalContext::instance().synchronize();
+#endif
+      return;
+    case Device::CUDA:
+#ifdef MICROGRAD_CUDA_ENABLED
+      CudaContext::instance().synchronize();
+#endif
+      return;
+  }
+}
+
 }  // namespace micrograd
