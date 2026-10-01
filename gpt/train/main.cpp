@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "gpt/Chat.h"
@@ -280,22 +281,33 @@ uint64_t read_u64(std::istream &in) {
   return value;
 }
 
+using NamedParameters =
+    std::vector<std::pair<std::string, std::shared_ptr<Tensor>>>;
+
+bool is_decayed(const std::string &name) {
+  const size_t last_dot = name.rfind('.');
+  const size_t leaf_start = last_dot == std::string::npos ? 0 : last_dot + 1;
+  return name.substr(leaf_start) == "weight";
+}
+
 class TrainOptimizer {
  public:
-  TrainOptimizer(std::vector<std::shared_ptr<Tensor>> parameters,
-                 scalar_t weight_decay, scalar_t beta1, scalar_t beta2,
-                 scalar_t eps)
-      : parameters_(std::move(parameters)),
-        weight_decay_(weight_decay),
-        beta1_(beta1),
-        beta2_(beta2),
-        eps_(eps) {
-    for (const auto &p : parameters_) {
-      decay_.push_back(p->shape().size() >= 2);
+  TrainOptimizer(const NamedParameters &named_parameters, scalar_t weight_decay,
+                 scalar_t beta1, scalar_t beta2, scalar_t eps)
+      : weight_decay_(weight_decay), beta1_(beta1), beta2_(beta2), eps_(eps) {
+    for (const auto &[name, p] : named_parameters) {
+      parameters_.push_back(p);
+      decay_.push_back(is_decayed(name));
       m_.push_back(make_moment(*p));
       v_.push_back(make_moment(*p));
     }
   }
+
+  size_t decayed_count() const {
+    return static_cast<size_t>(std::count(decay_.begin(), decay_.end(), true));
+  }
+
+  size_t parameter_count() const { return parameters_.size(); }
 
   void zero_grad() {
     for (auto &p : parameters_) {
@@ -582,8 +594,12 @@ int main(int argc, char **argv) {
       p->to(config.device);
     }
 
-    TrainOptimizer optimizer(parameters, config.weight_decay, config.beta1,
-                             config.beta2, 1e-8f);
+    TrainOptimizer optimizer(model.named_parameters(), config.weight_decay,
+                             config.beta1, config.beta2, 1e-8f);
+    const size_t decayed = optimizer.decayed_count();
+    const size_t undecayed = optimizer.parameter_count() - decayed;
+    std::cout << "weight decay: " << decayed << " tensors decayed, "
+              << undecayed << " not\n";
 
     size_t start_iter = 0;
     if (!config.resume_path.empty()) {

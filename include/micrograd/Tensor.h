@@ -43,7 +43,6 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> matmul(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> embedding_lookup(
       const std::shared_ptr<Tensor> &indices);
-  // out[i] = self[i, indices[i]] for a rank 2 self; out has shape {rows}.
   std::shared_ptr<Tensor> gather_per_row(
       const std::shared_ptr<Tensor> &indices);
   std::shared_ptr<Tensor> layer_norm(

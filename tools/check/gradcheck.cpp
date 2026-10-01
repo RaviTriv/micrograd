@@ -15,6 +15,7 @@
 #include "gpt/GRPO.h"
 #include "micrograd/Device.h"
 #include "micrograd/NN.h"
+#include "micrograd/Random.h"
 #include "micrograd/Scalar.h"
 #include "micrograd/Tensor.h"
 
@@ -287,6 +288,18 @@ std::vector<Case> AllCases() {
       },
       {Ramp({2, 3}, -0.7f, 0.3f), Ramp({3, 4}, -0.5f, 0.2f),
        Ramp({1, 4}, -0.2f, 0.3f), Ramp({4, 3}, -0.6f, 0.15f)});
+
+  add("checkpoint_dropout",
+      [](const TensorList &in) {
+        micrograd::manual_seed(7);
+        auto dropout = std::make_shared<micrograd::Dropout>(0.5f);
+        const TensorPtr &weight = in[1];
+        auto block = [dropout, weight](const TensorPtr &x) {
+          return dropout->forward(x->matmul(weight));
+        };
+        return Tensor::checkpoint(in[0], block);
+      },
+      {Ramp({2, 3}, -0.9f, 0.3f), Ramp({3, 4}, -0.6f, 0.2f)});
 
   return cases;
 }

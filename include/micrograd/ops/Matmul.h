@@ -12,8 +12,6 @@ struct MatmulDims {
   size_t n;
 };
 
-// A contiguous [B, M, K] is laid out as [B*M, K], so a rank 3 lhs against a
-// rank 2 rhs runs as one [B*M, K] x [K, N] matmul with no copies of the rhs.
 inline MatmulDims ResolveMatmulDims(const std::vector<size_t> &lhs_shape,
                                     const std::vector<size_t> &rhs_shape) {
   if (lhs_shape.size() == 3 && rhs_shape.size() == 2) {

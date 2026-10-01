@@ -54,7 +54,6 @@ __global__ void GatherPerRowKernel(const scalar_t *values,
   }
 }
 
-// Each row owns a distinct element, so no atomics are needed.
 __global__ void GatherPerRowBackwardKernel(const scalar_t *indices,
                                            const scalar_t *out_grad,
                                            scalar_t *grad, size_t cols,
