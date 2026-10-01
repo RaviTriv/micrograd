@@ -1,6 +1,5 @@
 #include "micrograd/nn/Serialize.h"
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
@@ -10,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "micrograd/Storage.h"
 #include "micrograd/Tensor.h"
 
 namespace micrograd {
@@ -18,6 +18,8 @@ namespace {
 
 constexpr uint32_t kStateDictMagic = 0x4d47534e;
 constexpr uint32_t kStateDictVersion = 1;
+constexpr uint32_t kMaxNameLength = 4096;
+constexpr uint32_t kMaxRank = 8;
 
 std::string format_shape(const std::vector<size_t> &shape) {
   std::string result = "[";
@@ -39,16 +41,32 @@ void write_u64(std::ofstream &file, uint64_t value) {
   file.write(reinterpret_cast<const char *>(&value), sizeof(value));
 }
 
-uint32_t read_u32(std::ifstream &file) {
+void read_exact(std::ifstream &file, void *destination, size_t bytes,
+                const std::string &path) {
+  file.read(static_cast<char *>(destination),
+            static_cast<std::streamsize>(bytes));
+  if (!file) {
+    throw std::runtime_error("State dict file is truncated: " + path);
+  }
+}
+
+uint32_t read_u32(std::ifstream &file, const std::string &path) {
   uint32_t value = 0;
-  file.read(reinterpret_cast<char *>(&value), sizeof(value));
+  read_exact(file, &value, sizeof(value), path);
   return value;
 }
 
-uint64_t read_u64(std::ifstream &file) {
+uint64_t read_u64(std::ifstream &file, const std::string &path) {
   uint64_t value = 0;
-  file.read(reinterpret_cast<char *>(&value), sizeof(value));
+  read_exact(file, &value, sizeof(value), path);
   return value;
+}
+
+size_t file_size(std::ifstream &file) {
+  file.seekg(0, std::ios::end);
+  const std::streamoff end = file.tellg();
+  file.seekg(0, std::ios::beg);
+  return static_cast<size_t>(end);
 }
 
 }  // namespace
@@ -91,47 +109,53 @@ void load(const std::string &path, nn::Module &module) {
     throw std::runtime_error("Could not open file for loading: " + path);
   }
 
-  uint32_t magic = read_u32(file);
+  const size_t max_elements = file_size(file) / sizeof(scalar_t);
+
+  uint32_t magic = read_u32(file, path);
   if (magic != kStateDictMagic) {
     throw std::runtime_error("Not a micrograd state dict file: " + path);
   }
 
-  uint32_t version = read_u32(file);
+  uint32_t version = read_u32(file, path);
   if (version != kStateDictVersion) {
     throw std::runtime_error("Unsupported state dict version " +
                              std::to_string(version) + " in " + path);
   }
 
-  uint32_t count = read_u32(file);
+  uint32_t count = read_u32(file, path);
 
-  std::unordered_map<std::string,
-                     std::pair<std::vector<size_t>, std::vector<scalar_t>>>
+  std::unordered_map<std::string, std::pair<std::vector<size_t>, Storage>>
       stored;
-  stored.reserve(count);
 
   for (uint32_t i = 0; i < count; i++) {
-    uint32_t name_len = read_u32(file);
+    uint32_t name_len = read_u32(file, path);
+    if (name_len > kMaxNameLength) {
+      throw std::runtime_error("State dict name is too long in " + path);
+    }
     std::string name(name_len, '\0');
-    file.read(name.data(), name_len);
+    read_exact(file, name.data(), name_len, path);
 
-    uint32_t ndim = read_u32(file);
+    uint32_t ndim = read_u32(file, path);
+    if (ndim > kMaxRank) {
+      throw std::runtime_error("State dict rank is too large for " + name);
+    }
     std::vector<size_t> shape(ndim);
     size_t total = 1;
     for (uint32_t d = 0; d < ndim; d++) {
-      shape[d] = static_cast<size_t>(read_u64(file));
+      shape[d] = static_cast<size_t>(read_u64(file, path));
+      const bool overflows = shape[d] != 0 && total > max_elements / shape[d];
+      if (overflows) {
+        throw std::runtime_error(
+            "State dict shape is larger than the file for " + name);
+      }
       total *= shape[d];
     }
 
-    std::vector<scalar_t> values(total);
-    file.read(reinterpret_cast<char *>(values.data()),
-              static_cast<std::streamsize>(total * sizeof(scalar_t)));
+    Storage host(total * sizeof(scalar_t), Device::CPU);
+    read_exact(file, host.host_pointer(), host.bytes(), path);
 
     stored.emplace(std::move(name),
-                   std::make_pair(std::move(shape), std::move(values)));
-  }
-
-  if (!file) {
-    throw std::runtime_error("State dict file is truncated: " + path);
+                   std::make_pair(std::move(shape), std::move(host)));
   }
 
   auto named = module.named_parameters();
@@ -149,15 +173,18 @@ void load(const std::string &path, nn::Module &module) {
     }
 
     const auto &shape = it->second.first;
-    const auto &values = it->second.second;
+    const Storage &host = it->second.second;
     if (shape != tensor->shape()) {
       throw std::runtime_error(
           "State dict shape mismatch for parameter " + name + ": model has " +
           format_shape(tensor->shape()) + ", file has " + format_shape(shape));
     }
+    if (host.bytes() != tensor->data_storage().bytes()) {
+      throw std::runtime_error("State dict dtype mismatch for parameter " +
+                               name);
+    }
 
-    auto data = tensor->data();
-    std::ranges::copy(values, data.begin());
+    tensor->data_storage() = host.copy_to(tensor->backend());
   }
 }
 

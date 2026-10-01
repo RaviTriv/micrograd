@@ -278,6 +278,9 @@ void write_u64(std::ostream &out, uint64_t value) {
 uint64_t read_u64(std::istream &in) {
   uint64_t value = 0;
   in.read(reinterpret_cast<char *>(&value), sizeof(value));
+  if (!in) {
+    throw std::runtime_error("Optimizer state file is truncated");
+  }
   return value;
 }
 
@@ -384,6 +387,9 @@ class TrainOptimizer {
     std::vector<scalar_t> values(tensor->size());
     in.read(reinterpret_cast<char *>(values.data()),
             static_cast<std::streamsize>(values.size() * sizeof(scalar_t)));
+    if (!in) {
+      throw std::runtime_error("Optimizer state file is truncated");
+    }
     auto loaded = std::make_shared<Tensor>(tensor->shape(), std::move(values));
     loaded->to(tensor->backend());
     tensor = loaded;
