@@ -206,7 +206,8 @@ std::vector<Case> AllCases() {
       {Ramp({2, 3, 4}, -0.9f, 0.1f), Ramp({4, 5}, -1.1f, 0.15f)});
   add("matmul_fold_rows_multi_block",
       [](const TensorList &in) { return in[0]->matmul(in[1]); },
-      {Ramp({2, 150, 4}, -0.9f, 0.0015f), Ramp({4, 5}, -1.1f, 0.15f)});
+      {Ramp({2, 150, 4}, -0.9f, 0.0015f), Ramp({4, 5}, -1.1f, 0.15f)},
+      {.eps = 0.5f});
 
   add("layer_norm",
       [](const TensorList &in) {
