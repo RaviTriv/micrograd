@@ -12,6 +12,6 @@ Checks: >
   -performance-enum-size,
   -modernize-use-nodiscard
 
-HeaderFilterRegex: '(include|src)/.*'
+HeaderFilterRegex: '/(core|primitives|transforms|compiler|runtime|kernels|lib|models|obs|tools|bench)/.*'
 
 WarningsAsErrors: '*'

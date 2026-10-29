@@ -60,3 +60,6 @@ compile_commands.json
 data/*
 !data/march-native-*/
 /training.log
+
+# Extra build directories
+build-*/
