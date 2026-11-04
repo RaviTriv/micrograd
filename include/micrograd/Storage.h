@@ -1,0 +1,48 @@
+#pragma once
+
+#include <cstddef>
+
+#include "micrograd/DType.h"
+#include "micrograd/Device.h"
+
+namespace MTL {
+class Buffer;
+}
+
+namespace micrograd {
+
+class Storage {
+ public:
+  Storage() = default;
+  Storage(size_t bytes, Device device, DType dtype = DType::kFloat32);
+  ~Storage();
+
+  Storage(const Storage &) = delete;
+  Storage &operator=(const Storage &) = delete;
+  Storage(Storage &&other) noexcept;
+  Storage &operator=(Storage &&other) noexcept;
+
+  Storage copy_to(Device device) const;
+
+  void *data();
+  const void *data() const;
+  void *host_pointer();
+  const void *host_pointer() const;
+  void *device_pointer() const;
+  MTL::Buffer *buffer() const;
+  size_t bytes() const { return bytes_; }
+  Device device() const { return device_; }
+  DType dtype() const { return dtype_; }
+
+ private:
+  void release();
+
+  void *data_ = nullptr;
+  size_t bytes_ = 0;
+  Device device_ = Device::CPU;
+  DType dtype_ = DType::kFloat32;
+};
+
+void synchronize(Device device);
+
+}  // namespace micrograd

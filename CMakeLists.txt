@@ -1,8 +1,8 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 3.20)
 project(micrograd
-    VERSION 0.2.0
+    VERSION 0.1.0
     LANGUAGES CXX
-    DESCRIPTION "A JAX-style autodiff engine in C++ and CUDA"
+    DESCRIPTION "A small autograd engine"
 )
 
 set(CMAKE_CXX_STANDARD 20)
@@ -14,43 +14,278 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-option(MICROGRAD_CUDA "Build CUDA code (sm_80 by default)" OFF)
-option(MICROGRAD_BUILD_TESTS "Unit tests" ON)
+add_compile_options(
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Wpedantic;-Wshadow;-Wconversion;-Wsign-conversion>"
+)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-include(MicrogradOptions)
-include(MicrogradModule)
-
-if(MICROGRAD_CUDA)
-    include(MicrogradCuda)
+option(ENABLE_NATIVE_ARCH "Build with -march=native" OFF)
+if(ENABLE_NATIVE_ARCH)
+    add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-march=native>")
 endif()
 
-if(MICROGRAD_BUILD_TESTS)
+if(APPLE)
+    option(ENABLE_METAL "Metal GPU acceleration" ON)
+endif()
+option(ENABLE_CUDA "CUDA GPU acceleration" OFF)
+
+if(ENABLE_METAL AND ENABLE_CUDA)
+    message(FATAL_ERROR "ENABLE_METAL and ENABLE_CUDA are mutually exclusive")
+endif()
+
+if(ENABLE_CUDA)
+    include(CheckLanguage)
+    check_language(CUDA)
+    if(CMAKE_CUDA_COMPILER)
+        if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+            set(CMAKE_CUDA_ARCHITECTURES native)
+        endif()
+        enable_language(CUDA)
+    else()
+        message(FATAL_ERROR "ENABLE_CUDA requested but no CUDA compiler was found")
+    endif()
+endif()
+
+add_library(micrograd
+    src/core/Tensor.cpp
+    src/core/Autograd.cpp
+    src/core/Broadcast.cpp
+    src/core/Random.cpp
+    src/core/Storage.cpp
+    src/core/Init.cpp
+
+    src/ops/Activations.cpp
+    src/ops/Arithmetic.cpp
+    src/ops/Attention.cpp
+    src/ops/Dispatch.cpp
+    src/ops/Embedding.cpp
+    src/ops/LayerNorm.cpp
+    src/ops/Matmul.cpp
+    src/ops/Optimizer.cpp
+    src/ops/Reduction.cpp
+    src/ops/RmsNorm.cpp
+    src/ops/Rotary.cpp
+    src/ops/Shape.cpp
+
+    src/backends/cpu/Activations.cpp
+    src/backends/cpu/Arithmetic.cpp
+    src/backends/cpu/Attention.cpp
+    src/backends/cpu/Broadcast.cpp
+    src/backends/cpu/Embedding.cpp
+    src/backends/cpu/LayerNorm.cpp
+    src/backends/cpu/Matmul.cpp
+    src/backends/cpu/Reduction.cpp
+    src/backends/cpu/RmsNorm.cpp
+    src/backends/cpu/Rotary.cpp
+    src/backends/cpu/Shape.cpp
+
+    src/nn/Functional.cpp
+    src/nn/Layers.cpp
+    src/nn/Loss.cpp
+    src/nn/Optim.cpp
+    src/nn/Serialize.cpp
+    src/nn/Checkpoint.cpp
+    src/backends/metal/MetalContext.cpp
+    src/backends/metal/Kernels.cpp
+    src/backends/metal/Dispatch.cpp
+
+    src/backends/metal/ops/Register.cpp
+    src/backends/metal/ops/Activations.cpp
+    src/backends/metal/ops/Arithmetic.cpp
+    src/backends/metal/ops/Matmul.cpp
+    src/backends/metal/ops/Reduction.cpp
+
+    src/backends/cuda/ops/Register.cpp
+)
+
+target_compile_options(micrograd PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Werror>)
+
+target_include_directories(micrograd PUBLIC include)
+
+if(APPLE AND ENABLE_METAL)
+    include(FetchContent)
+    FetchContent_Declare(metalcpp
+        URL https://developer.apple.com/metal/cpp/files/metal-cpp_macOS15_iOS18.zip
+        URL_HASH SHA256=0433df1e0ab13c2b0becbd78665071e3fa28381e9714a3fce28a497892b8a184
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(metalcpp)
+
+    target_compile_definitions(micrograd PUBLIC MICROGRAD_METAL_ENABLED)
+    target_include_directories(micrograd SYSTEM PUBLIC ${metalcpp_SOURCE_DIR})
+    target_link_libraries(micrograd PUBLIC
+        "-framework Metal"
+        "-framework Foundation"
+    )
+endif()
+
+if(ENABLE_CUDA)
+    find_package(CUDAToolkit REQUIRED)
+    target_sources(micrograd PRIVATE
+        src/backends/cuda/CudaContext.cu
+        src/backends/cuda/ops/Arithmetic.cu
+        src/backends/cuda/ops/Activations.cu
+        src/backends/cuda/ops/Attention.cu
+        src/backends/cuda/ops/Broadcast.cu
+        src/backends/cuda/ops/Embedding.cu
+        src/backends/cuda/ops/LayerNorm.cu
+        src/backends/cuda/ops/Optimizer.cu
+        src/backends/cuda/ops/Reduction.cu
+        src/backends/cuda/ops/Matmul.cu
+        src/backends/cuda/ops/RmsNorm.cu
+        src/backends/cuda/ops/Rotary.cu
+        src/backends/cuda/ops/Shape.cu
+    )
+    target_compile_definitions(micrograd PUBLIC MICROGRAD_CUDA_ENABLED)
+    target_link_libraries(micrograd PUBLIC CUDA::cudart)
+
+    option(ENABLE_CUBLAS "Use cuBLAS for the CUDA matmul path" OFF)
+    if(ENABLE_CUBLAS)
+        target_compile_definitions(micrograd PUBLIC MICROGRAD_CUBLAS_ENABLED)
+        target_link_libraries(micrograd PUBLIC CUDA::cublas CUDA::cublasLt)
+    endif()
+endif()
+
+add_executable(main examples/mnist/main.cpp examples/mnist/MNIST.cpp)
+target_link_libraries(main PRIVATE micrograd)
+
+option(BUILD_BENCH "Benchmark harness" OFF)
+if(BUILD_BENCH)
+    add_executable(bench bench/bench.cpp)
+    target_link_libraries(bench PRIVATE micrograd)
+    target_compile_options(bench PRIVATE -Werror)
+endif()
+
+add_library(micrograd_gpt
+    gpt/src/Attention.cpp
+    gpt/src/BPE.cpp
+    gpt/src/Block.cpp
+    gpt/src/Chat.cpp
+    gpt/src/Conversation.cpp
+    gpt/src/ConversationDataset.cpp
+    gpt/src/CoreEval.cpp
+    gpt/src/Dataset.cpp
+    gpt/src/GPTConfig.cpp
+    gpt/src/GRPO.cpp
+    gpt/src/KVCache.cpp
+    gpt/src/Model.cpp
+)
+target_include_directories(micrograd_gpt PUBLIC gpt/include include)
+target_link_libraries(micrograd_gpt PUBLIC micrograd)
+target_compile_options(micrograd_gpt PRIVATE -Werror)
+
+add_executable(train_gpt gpt/train/main.cpp)
+target_link_libraries(train_gpt PRIVATE micrograd_gpt)
+target_compile_options(train_gpt PRIVATE -Werror)
+
+add_executable(hellaswag tools/eval/hellaswag.cpp)
+target_link_libraries(hellaswag PRIVATE micrograd_gpt)
+target_compile_options(hellaswag PRIVATE -Werror)
+
+option(FETCH_MNIST "Download the MNIST dataset" ON)
+if(FETCH_MNIST)
+    set(MNIST_DATA_DIR "${CMAKE_BINARY_DIR}/mnist-data")
+    set(MNIST_DATA_FILES
+        "${MNIST_DATA_DIR}/train-images-idx3-ubyte"
+        "${MNIST_DATA_DIR}/train-labels-idx1-ubyte"
+        "${MNIST_DATA_DIR}/t10k-images-idx3-ubyte"
+        "${MNIST_DATA_DIR}/t10k-labels-idx1-ubyte"
+    )
+
+    add_custom_command(
+        OUTPUT ${MNIST_DATA_FILES}
+        COMMAND ${CMAKE_COMMAND} -DMNIST_DATA_DIR=${MNIST_DATA_DIR}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchMNIST.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchMNIST.cmake"
+        COMMENT "Downloading MNIST dataset"
+        VERBATIM
+    )
+    add_custom_target(mnist-data DEPENDS ${MNIST_DATA_FILES})
+    add_dependencies(main mnist-data)
+
+    target_compile_definitions(main PRIVATE MNIST_DATA_DIR="${MNIST_DATA_DIR}")
+endif()
+
+option(FETCH_CORPUS "Download the Shakespeare corpus" OFF)
+if(FETCH_CORPUS)
+    set(CORPUS_DATA_DIR "${CMAKE_BINARY_DIR}/corpus-data")
+    set(CORPUS_DATA_FILE "${CORPUS_DATA_DIR}/input.txt")
+
+    add_custom_command(
+        OUTPUT ${CORPUS_DATA_FILE}
+        COMMAND ${CMAKE_COMMAND} -DCORPUS_DATA_DIR=${CORPUS_DATA_DIR}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchCorpus.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchCorpus.cmake"
+        COMMENT "Downloading Shakespeare corpus"
+        VERBATIM
+    )
+    add_custom_target(corpus-data DEPENDS ${CORPUS_DATA_FILE})
+    add_dependencies(train_gpt corpus-data)
+
+    target_compile_definitions(train_gpt PRIVATE CORPUS_DATA_PATH="${CORPUS_DATA_FILE}")
+endif()
+
+option(FETCH_FINEWEB "Download a FineWeb sample as pre-tokenized shards" OFF)
+if(FETCH_FINEWEB)
+    set(FINEWEB_DATA_DIR "${CMAKE_BINARY_DIR}/fineweb-data")
+    set(FINEWEB_TRAIN_SHARD_COUNT 8)
+
+    set(FINEWEB_DATA_FILES "${FINEWEB_DATA_DIR}/edufineweb_val_000000.bin")
+    foreach(shard RANGE 1 ${FINEWEB_TRAIN_SHARD_COUNT})
+        list(APPEND FINEWEB_DATA_FILES
+            "${FINEWEB_DATA_DIR}/edufineweb_train_${shard}.bin")
+    endforeach()
+
+    add_custom_command(
+        OUTPUT ${FINEWEB_DATA_FILES}
+        COMMAND ${CMAKE_COMMAND} -DFINEWEB_DATA_DIR=${FINEWEB_DATA_DIR}
+                -DFINEWEB_TRAIN_SHARD_COUNT=${FINEWEB_TRAIN_SHARD_COUNT}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchFineWeb.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchFineWeb.cmake"
+        COMMENT "Downloading FineWeb sample shards"
+        VERBATIM
+    )
+    add_custom_target(fineweb-data DEPENDS ${FINEWEB_DATA_FILES})
+    add_dependencies(train_gpt fineweb-data)
+
+    target_compile_definitions(train_gpt PRIVATE
+        FINEWEB_DATA_DIR="${FINEWEB_DATA_DIR}"
+        FINEWEB_TRAIN_SHARD_COUNT=${FINEWEB_TRAIN_SHARD_COUNT})
+endif()
+
+option(BUILD_TESTS "Unit tests" ON)
+if(BUILD_TESTS)
     include(FetchContent)
     FetchContent_Declare(googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG v1.14.0
-        SYSTEM
-        FIND_PACKAGE_ARGS NAMES GTest
     )
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googletest)
-    enable_testing()
-    include(GoogleTest)
-endif()
 
-add_subdirectory(kernels)
-add_subdirectory(obs)
-add_subdirectory(runtime)
-add_subdirectory(core)
-add_subdirectory(primitives)
-add_subdirectory(compiler)
-add_subdirectory(transforms)
-add_subdirectory(lib/nn)
-add_subdirectory(lib/optim)
-add_subdirectory(lib/ckpt)
-add_subdirectory(lib/data)
-add_subdirectory(models/gpt)
-add_subdirectory(tools)
-add_subdirectory(bench)
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    enable_testing()
+    add_executable(micrograd_tests test/tensor_test.cpp)
+    target_link_libraries(micrograd_tests PRIVATE micrograd GTest::gtest_main)
+    include(GoogleTest)
+    gtest_discover_tests(micrograd_tests)
+
+    add_executable(gradcheck tools/check/gradcheck.cpp)
+    target_link_libraries(gradcheck PRIVATE micrograd_gpt)
+    target_compile_options(gradcheck PRIVATE -Werror)
+    add_test(NAME gradcheck COMMAND gradcheck)
+
+    add_executable(bpe_roundtrip tools/check/bpe_roundtrip.cpp)
+    target_link_libraries(bpe_roundtrip PRIVATE micrograd_gpt)
+    target_compile_options(bpe_roundtrip PRIVATE -Werror)
+    add_test(NAME bpe_roundtrip COMMAND bpe_roundtrip)
+
+    add_executable(core_eval tools/eval/core_eval.cpp)
+    target_link_libraries(core_eval PRIVATE micrograd_gpt)
+    target_compile_options(core_eval PRIVATE -Werror)
+    add_test(NAME core_eval COMMAND core_eval)
+
+    add_executable(grpo_check tools/check/grpo_check.cpp)
+    target_link_libraries(grpo_check PRIVATE micrograd_gpt)
+    target_compile_options(grpo_check PRIVATE -Werror)
+    add_test(NAME grpo_check COMMAND grpo_check)
+endif()

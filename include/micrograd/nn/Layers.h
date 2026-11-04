@@ -1,0 +1,103 @@
+#pragma once
+
+#include <cstddef>
+#include <memory>
+#include <vector>
+
+#include "micrograd/Tensor.h"
+#include "micrograd/nn/Module.h"
+
+namespace micrograd {
+
+class Linear : public nn::Module {
+ public:
+  Linear(size_t in_features, size_t out_features);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+  std::shared_ptr<Tensor> weights();
+  std::shared_ptr<Tensor> bias();
+
+ private:
+  std::shared_ptr<Tensor> weights_;
+  std::shared_ptr<Tensor> bias_;
+};
+
+class Embedding : public nn::Module {
+ public:
+  Embedding(size_t num_embeddings, size_t dim);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+  std::shared_ptr<Tensor> weight();
+
+ private:
+  std::shared_ptr<Tensor> weight_;
+};
+
+class LMHead : public nn::Module {
+ public:
+  LMHead(std::shared_ptr<Tensor> embedding_weight, bool tied);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+  std::shared_ptr<Tensor> weight();
+
+ private:
+  std::shared_ptr<Tensor> embedding_weight_;
+  std::shared_ptr<Tensor> weight_;
+  bool tied_;
+};
+
+class LayerNorm : public nn::Module {
+ public:
+  LayerNorm(std::vector<size_t> normalized_shape, scalar_t eps = 1e-5f);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+  std::shared_ptr<Tensor> gain();
+  std::shared_ptr<Tensor> bias();
+
+ private:
+  std::vector<size_t> normalized_shape_;
+  scalar_t eps_;
+  std::shared_ptr<Tensor> gain_;
+  std::shared_ptr<Tensor> bias_;
+};
+
+class RMSNorm : public nn::Module {
+ public:
+  RMSNorm(std::vector<size_t> normalized_shape, scalar_t eps = 1e-5f);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+  std::shared_ptr<Tensor> gain();
+
+ private:
+  std::vector<size_t> normalized_shape_;
+  scalar_t eps_;
+  std::shared_ptr<Tensor> gain_;
+};
+
+class ReLU : public nn::Module {
+ public:
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+};
+
+class Dropout : public nn::Module {
+ public:
+  explicit Dropout(scalar_t p);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+
+ private:
+  scalar_t p_;
+};
+
+class Sequential : public nn::Module {
+ public:
+  explicit Sequential(std::vector<std::shared_ptr<nn::Module>> layers);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+
+ private:
+  std::vector<std::shared_ptr<nn::Module>> layers_;
+};
+
+}  // namespace micrograd

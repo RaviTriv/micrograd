@@ -7,7 +7,7 @@ on:
 jobs:
   format:
     name: clang-format
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -18,67 +18,85 @@ jobs:
 
       - name: Check formatting
         run: |
-          git ls-files -z '*.cpp' '*.h' '*.cu' '*.cuh' \
-            | xargs -0 -r clang-format-18 --dry-run --Werror
+          find src include test \( -name '*.cpp' -o -name '*.h' \) -print0 \
+            | xargs -0 clang-format-18 --dry-run --Werror
 
-  tidy:
-    name: clang-tidy
-    runs-on: ubuntu-24.04
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install clang-tidy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 clang-tidy-18 ninja-build
-
       - name: Configure
         run: >
-          cmake -S . -B build -G Ninja
+          cmake -S . -B build -DBUILD_TESTS=ON -DFETCH_MNIST=OFF
+          -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=clang++-18
 
-      - name: Run clang-tidy
-        run: >
-          run-clang-tidy-18 -p build -quiet
-          -clang-tidy-binary clang-tidy-18
-          "$PWD/(?!build/)"
-
-  cpu:
-    name: CPU build and tests
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        compiler: [clang++-18, g++-13]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-18 g++-13 ninja-build
-
-      - name: Configure
-        run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
-
       - name: Build
-        run: cmake --build build
+        run: cmake --build build -j
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
   cuda:
-    name: CUDA compile (sm_80)
-    runs-on: ubuntu-24.04
+    name: CUDA
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Free disk for the CUDA image
+      - name: Install CUDA toolkit
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-          df -h /
+          wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y cuda-nvcc-12-8 cuda-cudart-dev-12-8
 
-      - name: Compile with CUDA in Docker
-        run: tools/compile_cuda.sh
+      - name: Configure
+        run: >
+          cmake -S . -B build -DBUILD_TESTS=OFF -DFETCH_MNIST=OFF
+          -DENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=80
+          -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.8/bin/nvcc
+
+      - name: Build
+        run: cmake --build build -j --target micrograd
+
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -DBUILD_TESTS=ON -DFETCH_MNIST=OFF
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+
+  dataset:
+    name: MNIST download
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DBUILD_TESTS=OFF
+
+      - name: Fetch dataset
+        run: cmake --build build --target mnist-data
+
+      - name: Check files
+        run: |
+          for f in train-images-idx3-ubyte train-labels-idx1-ubyte \
+                   t10k-images-idx3-ubyte t10k-labels-idx1-ubyte; do
+            test -s "build/mnist-data/$f" || { echo "missing $f"; exit 1; }
+          done
