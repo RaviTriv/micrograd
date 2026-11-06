@@ -141,6 +141,61 @@ TEST(TensorReshaping, Transpose) {
   EXPECT_EQ(Values(transposed), (std::vector<scalar_t>{1, 4, 2, 5, 3, 6}));
 }
 
+TEST(TensorReshaping, TransposeMovesEveryElementIn3D) {
+  auto t = Make({2, 3, 4}, Arange(24));
+
+  auto swapped = t->transpose(0, 2);
+
+  ASSERT_EQ(swapped->shape(), (std::vector<size_t>{4, 3, 2}));
+  for (size_t i = 0; i < 2; i++) {
+    for (size_t j = 0; j < 3; j++) {
+      for (size_t k = 0; k < 4; k++) {
+        EXPECT_EQ(swapped->at({k, j, i}), t->at({i, j, k}));
+      }
+    }
+  }
+}
+
+TEST(TensorReshaping, PermuteMovesEveryElementIn3D) {
+  auto t = Make({2, 3, 4}, Arange(24));
+
+  auto permuted = t->permute({2, 0, 1});
+
+  ASSERT_EQ(permuted->shape(), (std::vector<size_t>{4, 2, 3}));
+  for (size_t i = 0; i < 2; i++) {
+    for (size_t j = 0; j < 3; j++) {
+      for (size_t k = 0; k < 4; k++) {
+        EXPECT_EQ(permuted->at({k, i, j}), t->at({i, j, k}));
+      }
+    }
+  }
+}
+
+TEST(TensorReshaping, TransposeAcceptsNegativeDims) {
+  auto t = Make({2, 3}, {1, 2, 3, 4, 5, 6});
+
+  auto transposed = t->transpose(-2, -1);
+
+  EXPECT_EQ(transposed->shape(), (std::vector<size_t>{3, 2}));
+  EXPECT_EQ(Values(transposed), (std::vector<scalar_t>{1, 4, 2, 5, 3, 6}));
+}
+
+TEST(TensorReshaping, ContiguousReturnsTheSameTensor) {
+  auto t = Make({2, 3}, Arange(6));
+  auto transposed = t->transpose(0, 1);
+
+  EXPECT_EQ(t->contiguous().get(), t.get());
+  EXPECT_EQ(transposed->contiguous().get(), transposed.get());
+}
+
+TEST(TensorIndexing, AtUsesRowMajorOrderIn3D) {
+  auto t = Make({2, 3, 4}, Arange(24));
+
+  EXPECT_EQ(t->at({0, 1, 2}), 6.0f);
+  EXPECT_EQ(t->at({1, 2, 3}), 23.0f);
+  EXPECT_EQ(t->at({1, 0, 0}), 12.0f);
+}
+
 TEST(TensorCore, InvalidShapesThrow) {
   EXPECT_THROW(vec({1.0, 2.0})->add(vec({1.0, 2.0, 3.0})),
                std::invalid_argument);

@@ -103,11 +103,12 @@ std::shared_ptr<Tensor> Tensor::strided_copy(
 std::shared_ptr<Tensor> Tensor::permute(const std::vector<int64_t> &dims) {
   std::vector<size_t> order = NormalizeDims(dims, shape_.size());
 
+  const std::vector<size_t> source_strides = ContiguousStrides(shape_);
   std::vector<size_t> shape(order.size());
   std::vector<size_t> strides(order.size());
   for (size_t i = 0; i < order.size(); i++) {
     shape[i] = shape_[order[i]];
-    strides[i] = strides_[order[i]];
+    strides[i] = source_strides[order[i]];
   }
 
   return strided_copy(shape, strides);
@@ -127,11 +128,6 @@ std::shared_ptr<Tensor> Tensor::transpose(int64_t dim0, int64_t dim1) {
   return permute(dims);
 }
 
-std::shared_ptr<Tensor> Tensor::contiguous() {
-  if (strides_ == ContiguousStrides(shape_)) {
-    return shared_from_this();
-  }
-  return strided_copy(shape_, strides_);
-}
+std::shared_ptr<Tensor> Tensor::contiguous() { return shared_from_this(); }
 
 }  // namespace micrograd

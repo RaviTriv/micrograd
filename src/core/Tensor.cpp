@@ -31,7 +31,6 @@ Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape)
   grad_ = Storage(total * sizeof(scalar_t), Device::CPU);
   std::ranges::fill(data(), 0.0f);
   zero_grad();
-  compute_strides();
 }
 
 Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape,
@@ -48,7 +47,6 @@ Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape,
   grad_ = Storage(total * sizeof(scalar_t), Device::CPU);
   std::ranges::copy(values, data().begin());
   zero_grad();
-  compute_strides();
 }
 
 Tensor::~Tensor() {
@@ -65,15 +63,6 @@ Tensor::~Tensor() {
                    std::make_move_iterator(node->children_.begin()),
                    std::make_move_iterator(node->children_.end()));
     node->children_.clear();
-  }
-}
-
-void Tensor::compute_strides() {
-  strides_.resize(shape_.size());
-  size_t stride = 1;
-  for (size_t i = shape_.size(); i > 0; i--) {
-    strides_[i - 1] = stride;
-    stride *= shape_[i - 1];
   }
 }
 
@@ -112,7 +101,7 @@ size_t Tensor::flat_index(const std::vector<size_t> &indices) const {
                               std::to_string(i) + " of size " +
                               std::to_string(shape_[i]));
     }
-    idx += indices[i] * strides_[i];
+    idx = (idx * shape_[i]) + indices[i];
   }
   return idx;
 }
