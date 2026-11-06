@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
 
         loss->to(Device::CPU);
         total_loss +=
-            static_cast<double>(loss->at({0})) * static_cast<double>(count);
+            static_cast<double>(loss->at({})) * static_cast<double>(count);
       }
 
       std::cout << "Epoch " << epoch + 1 << ": loss = "

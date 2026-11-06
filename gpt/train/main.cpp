@@ -509,7 +509,7 @@ double estimate_loss(Model &model, const TrainingData &dataset,
          static_cast<int64_t>(dataset.vocab_size())});
     auto loss = cross_entropy(flat_logits, batch.targets);
     loss->to(Device::CPU);
-    total += static_cast<double>(loss->at({0}));
+    total += static_cast<double>(loss->at({}));
   }
 
   model.train();

@@ -199,6 +199,71 @@ TEST(TensorIndexing, AtUsesRowMajorOrderIn3D) {
   EXPECT_EQ(t->at({1, 0, 0}), 12.0f);
 }
 
+TEST(TensorReductions, SumReturnsZeroDimScalar) {
+  auto t = Make({2, 3}, {1, 2, 3, 4, 5, 6});
+
+  auto total = t->sum();
+
+  EXPECT_TRUE(total->shape().empty());
+  EXPECT_EQ(total->size(), 1u);
+  EXPECT_EQ(total->at({}), 21.0f);
+}
+
+TEST(TensorReductions, ReducingTheOnlyDimensionReturnsZeroDim) {
+  auto t = Make({3}, {1, 5, 3});
+
+  EXPECT_TRUE(t->sum(0)->shape().empty());
+  EXPECT_EQ(t->sum(0)->at({}), 9.0f);
+  EXPECT_TRUE(t->mean(0)->shape().empty());
+  EXPECT_EQ(t->mean(0)->at({}), 3.0f);
+  EXPECT_TRUE(t->max(0)->shape().empty());
+  EXPECT_EQ(t->max(0)->at({}), 5.0f);
+  EXPECT_TRUE(t->argmax(0)->shape().empty());
+  EXPECT_EQ(t->argmax(0)->at({}), 1.0f);
+}
+
+TEST(TensorReductions, KeepdimOnTheOnlyDimensionKeepsOneDimension) {
+  auto t = Make({3}, {1, 5, 3});
+
+  EXPECT_EQ(t->sum(0, true)->shape(), (std::vector<size_t>{1}));
+  EXPECT_EQ(t->sum(0, true)->at({0}), 9.0f);
+}
+
+TEST(TensorReductions, ReducesAlongEachDimension) {
+  auto t = Make({2, 3}, {1, 2, 3, 4, 5, 6});
+
+  EXPECT_EQ(Values(t->sum(0)), (std::vector<scalar_t>{5, 7, 9}));
+  EXPECT_EQ(t->sum(0)->shape(), (std::vector<size_t>{3}));
+  EXPECT_EQ(Values(t->sum(1)), (std::vector<scalar_t>{6, 15}));
+  EXPECT_EQ(t->sum(1, true)->shape(), (std::vector<size_t>{2, 1}));
+  EXPECT_EQ(Values(t->mean(1)), (std::vector<scalar_t>{2, 5}));
+  EXPECT_EQ(Values(t->max(0)), (std::vector<scalar_t>{4, 5, 6}));
+  EXPECT_EQ(Values(t->argmax(1)), (std::vector<scalar_t>{2, 2}));
+}
+
+TEST(TensorReductions, ZeroDimBroadcastsAgainstAnyShape) {
+  auto t = Make({2, 3}, {1, 2, 3, 4, 5, 6});
+  auto scalar_value = Tensor::zeros({});
+  scalar_value->at({}) = 10.0f;
+
+  auto left = t->add(scalar_value);
+  auto right = scalar_value->add(t);
+
+  EXPECT_EQ(left->shape(), (std::vector<size_t>{2, 3}));
+  EXPECT_EQ(Values(left), (std::vector<scalar_t>{11, 12, 13, 14, 15, 16}));
+  EXPECT_EQ(right->shape(), (std::vector<size_t>{2, 3}));
+  EXPECT_EQ(Values(right), (std::vector<scalar_t>{11, 12, 13, 14, 15, 16}));
+}
+
+TEST(TensorReductions, ZeroDimReshapesToOneElement) {
+  auto total = Make({2}, {1, 2})->sum();
+
+  auto reshaped = total->reshape({1, 1});
+
+  EXPECT_EQ(reshaped->shape(), (std::vector<size_t>{1, 1}));
+  EXPECT_EQ(reshaped->at({0, 0}), 3.0f);
+}
+
 TEST(TensorCore, InvalidShapesThrow) {
   EXPECT_THROW(vec({1.0, 2.0})->add(vec({1.0, 2.0, 3.0})),
                std::invalid_argument);

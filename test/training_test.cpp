@@ -25,7 +25,7 @@ TEST(Training, LinearSgdReducesLoss) {
   auto target = Tensor::from_values(std::vector<size_t>{1, 1},
                                     std::vector<scalar_t>{1.0});
 
-  const scalar_t before = mse_loss(layer.forward(input), target)->at({0});
+  const scalar_t before = mse_loss(layer.forward(input), target)->at({});
 
   for (int step = 0; step < 50; step++) {
     auto loss = mse_loss(layer.forward(input), target);
@@ -34,7 +34,15 @@ TEST(Training, LinearSgdReducesLoss) {
     optimizer.step();
   }
 
-  const scalar_t after = mse_loss(layer.forward(input), target)->at({0});
+  const scalar_t after = mse_loss(layer.forward(input), target)->at({});
   EXPECT_LT(after, before);
   EXPECT_NEAR(after, 0.0, 1e-3);
+}
+
+TEST(Training, LossesAreZeroDimScalars) {
+  auto prediction = Tensor::from_values({1, 2}, {0.5f, -0.5f});
+  auto target = Tensor::from_values({1, 2}, {1.0f, 1.0f});
+
+  EXPECT_TRUE(mse_loss(prediction, target)->shape().empty());
+  EXPECT_TRUE(cross_entropy(prediction, {1})->shape().empty());
 }

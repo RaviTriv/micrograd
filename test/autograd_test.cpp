@@ -161,6 +161,26 @@ TEST(LazyGrad, RepeatedBackwardKeepsAccumulatingOnLeaves) {
   EXPECT_EQ(a->grad()[1], 2.0f);
 }
 
+TEST(Autograd, BackwardWorksFromZeroDimResult) {
+  auto x = vec({1, 2});
+
+  auto loss = x->sum();
+  loss->backward();
+
+  EXPECT_TRUE(loss->shape().empty());
+  EXPECT_EQ(x->grad()[0], 1.0f);
+  EXPECT_EQ(x->grad()[1], 1.0f);
+}
+
+TEST(Autograd, GradientFlowsThroughBroadcastZeroDim) {
+  auto x = vec({1, 2});
+
+  x->mul(x->sum())->sum()->backward();
+
+  EXPECT_EQ(x->grad()[0], 6.0f);
+  EXPECT_EQ(x->grad()[1], 6.0f);
+}
+
 TEST(Autograd, GradientFlowsToEachInputOfASharedOperand) {
   auto a = scalar(3);
 

@@ -20,16 +20,13 @@ std::vector<size_t> ReducedShape(const std::vector<size_t> &shape, size_t axis,
       reduced.push_back(1);
     }
   }
-  if (reduced.empty()) {
-    reduced.push_back(1);
-  }
   return reduced;
 }
 
 }  // namespace
 
 std::shared_ptr<Tensor> Tensor::sum() {
-  return apply(OpId::kSum, {1}, {.lhs = shared_from_this()});
+  return apply(OpId::kSum, {}, {.lhs = shared_from_this()});
 }
 
 std::shared_ptr<Tensor> Tensor::sum(int64_t dim, bool keepdim) {
