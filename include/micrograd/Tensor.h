@@ -87,6 +87,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   void backward();
   void backward(const Tensor &grad_output);
   void zero_grad();
+  bool has_grad() const;
   bool requires_grad() const;
   void set_requires_grad(bool requires_grad);
 
@@ -114,6 +115,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   const Storage &grad_storage() const;
 
  private:
+  void ensure_grad() const;
+  void fill_grad_with_zeros() const;
   std::shared_ptr<Tensor> apply(OpId op, std::vector<size_t> out_shape,
                                 const OpInputs &inputs);
   std::shared_ptr<Tensor> apply_binary(OpId op,
@@ -124,7 +127,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   void propagate_gradients();
 
   Storage data_;
-  Storage grad_;
+  mutable Storage grad_;
   std::vector<size_t> shape_;
 
   std::vector<std::shared_ptr<Tensor>> children_;

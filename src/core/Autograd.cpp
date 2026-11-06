@@ -62,6 +62,10 @@ void Tensor::propagate_gradients() {
     pending.pop_back();
   }
 
+  for (const auto &node : ordered) {
+    node->ensure_grad();
+  }
+
   for (const auto &node : std::ranges::reverse_view(ordered)) {
     if (node->backward_fn_) {
       node->backward_fn_();

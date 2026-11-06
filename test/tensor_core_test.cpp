@@ -20,14 +20,17 @@ static_assert(!std::is_copy_assignable_v<Tensor>);
 static_assert(!std::is_move_constructible_v<Tensor>);
 static_assert(!std::is_move_assignable_v<Tensor>);
 
-TEST(TensorFactories, ZerosFillsDataAndGradWithZeros) {
+TEST(TensorFactories, ZerosFillsDataWithZeros) {
   auto t = Tensor::zeros({2, 3});
 
   EXPECT_EQ(t->shape(), (std::vector<size_t>{2, 3}));
   EXPECT_EQ(Values(t), std::vector<scalar_t>(6, 0.0f));
-  EXPECT_EQ(t->grad_storage().bytes(), 6 * sizeof(scalar_t));
-  EXPECT_EQ(t->grad_at({1, 2}), 0.0f);
   EXPECT_FALSE(t->requires_grad());
+}
+
+TEST(TensorFactories, NewTensorsHaveNoGradBuffer) {
+  EXPECT_FALSE(Tensor::zeros({2, 3})->has_grad());
+  EXPECT_FALSE(Tensor::from_values({2}, {1, 2})->has_grad());
 }
 
 TEST(TensorFactories, ZerosWithEmptyShapeIsZeroDimScalar) {

@@ -60,6 +60,107 @@ TEST(Autograd, GradientSkipsIndices) {
             (std::vector<scalar_t>{0, 0}));
 }
 
+TEST(LazyGrad, OpResultsHaveNoGradBufferBeforeBackward) {
+  auto a = scalar(2);
+
+  auto b = a->mul(3.0f);
+  auto c = b->reshape({1});
+
+  EXPECT_FALSE(a->has_grad());
+  EXPECT_FALSE(b->has_grad());
+  EXPECT_FALSE(c->has_grad());
+}
+
+TEST(LazyGrad, BackwardAllocatesEveryTensorInTheGraph) {
+  auto a = vec({1, 2});
+  auto b = a->mul(3.0f);
+  auto c = b->reshape({2, 1});
+  auto loss = c->sum();
+
+  loss->backward();
+
+  EXPECT_TRUE(a->has_grad());
+  EXPECT_TRUE(b->has_grad());
+  EXPECT_TRUE(c->has_grad());
+  EXPECT_TRUE(loss->has_grad());
+  EXPECT_EQ(a->grad()[0], 3.0f);
+  EXPECT_EQ(a->grad()[1], 3.0f);
+}
+
+TEST(LazyGrad, NoGradResultsStayWithoutGradBuffer) {
+  auto a = vec({1, 2});
+  NoGradGuard guard;
+
+  auto b = a->mul(3.0f);
+
+  EXPECT_FALSE(b->has_grad());
+  EXPECT_FALSE(a->has_grad());
+}
+
+TEST(LazyGrad, ReadingGradBeforeBackwardGivesZeros) {
+  auto t = Tensor::from_values({2, 3}, {1, 2, 3, 4, 5, 6});
+
+  const std::span<const scalar_t> gradient = t->grad();
+
+  EXPECT_EQ(std::vector<scalar_t>(gradient.begin(), gradient.end()),
+            std::vector<scalar_t>(6, 0.0f));
+  EXPECT_EQ(t->grad_at({1, 2}), 0.0f);
+  EXPECT_EQ(t->grad_storage().bytes(), 6 * sizeof(scalar_t));
+  EXPECT_TRUE(t->has_grad());
+}
+
+TEST(LazyGrad, ConstAccessReadsZeros) {
+  auto t = Tensor::from_values({2}, {1, 2});
+  const Tensor &view = *t;
+
+  EXPECT_EQ(view.grad_at({1}), 0.0f);
+  EXPECT_EQ(view.grad().size(), 2u);
+}
+
+TEST(LazyGrad, ZeroDimTensorGetsOneElementGrad) {
+  auto t = Tensor::zeros({});
+
+  EXPECT_EQ(t->grad_at({}), 0.0f);
+  EXPECT_TRUE(t->has_grad());
+}
+
+TEST(LazyGrad, EmptyTensorHasNoGradBuffer) {
+  auto t = Tensor::zeros({0});
+
+  EXPECT_TRUE(t->grad().empty());
+  EXPECT_FALSE(t->has_grad());
+}
+
+TEST(LazyGrad, ZeroGradDoesNotAllocate) {
+  auto t = vec({1, 2});
+
+  t->zero_grad();
+
+  EXPECT_FALSE(t->has_grad());
+}
+
+TEST(LazyGrad, ZeroGradClearsAnExistingBuffer) {
+  auto a = vec({1, 2});
+  a->sum()->backward();
+  ASSERT_EQ(a->grad()[0], 1.0f);
+
+  a->zero_grad();
+
+  EXPECT_TRUE(a->has_grad());
+  EXPECT_EQ(a->grad()[0], 0.0f);
+  EXPECT_EQ(a->grad()[1], 0.0f);
+}
+
+TEST(LazyGrad, RepeatedBackwardKeepsAccumulatingOnLeaves) {
+  auto a = vec({1, 2});
+
+  a->sum()->backward();
+  a->sum()->backward();
+
+  EXPECT_EQ(a->grad()[0], 2.0f);
+  EXPECT_EQ(a->grad()[1], 2.0f);
+}
+
 TEST(Autograd, GradientFlowsToEachInputOfASharedOperand) {
   auto a = scalar(3);
 

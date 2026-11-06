@@ -28,9 +28,7 @@ Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape)
     total *= dim;
   }
   data_ = Storage(total * sizeof(scalar_t), Device::CPU);
-  grad_ = Storage(total * sizeof(scalar_t), Device::CPU);
   std::ranges::fill(data(), 0.0f);
-  zero_grad();
 }
 
 Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape,
@@ -44,9 +42,7 @@ Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape,
     throw std::invalid_argument("Tensor and data size mismatch");
   }
   data_ = Storage(total * sizeof(scalar_t), Device::CPU);
-  grad_ = Storage(total * sizeof(scalar_t), Device::CPU);
   std::ranges::copy(values, data().begin());
-  zero_grad();
 }
 
 Tensor::~Tensor() {
@@ -115,14 +111,41 @@ std::span<const scalar_t> Tensor::data() const {
 }
 
 std::span<scalar_t> Tensor::grad() {
+  ensure_grad();
   return {static_cast<scalar_t *>(grad_.data()), size()};
 }
 
 std::span<const scalar_t> Tensor::grad() const {
+  ensure_grad();
   return {static_cast<const scalar_t *>(grad_.data()), size()};
 }
 
+bool Tensor::has_grad() const { return grad_.bytes() > 0; }
+
+void Tensor::ensure_grad() const {
+  if (has_grad()) {
+    return;
+  }
+
+  size_t total = 1;
+  for (auto dim : shape_) {
+    total *= dim;
+  }
+  if (total == 0) {
+    return;
+  }
+
+  grad_ = Storage(total * sizeof(scalar_t), backend());
+  fill_grad_with_zeros();
+}
+
 void Tensor::zero_grad() {
+  if (has_grad()) {
+    fill_grad_with_zeros();
+  }
+}
+
+void Tensor::fill_grad_with_zeros() const {
   if (grad_.device() != Device::CUDA) {
     std::fill_n(static_cast<scalar_t *>(grad_.host_pointer()), size(), 0.0f);
     return;
@@ -147,9 +170,10 @@ void Tensor::to(Backend device) {
   }
 
   Storage moved_data = data_.copy_to(device);
-  Storage moved_grad = grad_.copy_to(device);
+  if (has_grad()) {
+    grad_ = grad_.copy_to(device);
+  }
   data_ = std::move(moved_data);
-  grad_ = std::move(moved_grad);
 }
 
 Backend Tensor::backend() const { return data_.device(); }
@@ -160,8 +184,14 @@ Storage &Tensor::data_storage() { return data_; }
 
 const Storage &Tensor::data_storage() const { return data_; }
 
-Storage &Tensor::grad_storage() { return grad_; }
+Storage &Tensor::grad_storage() {
+  ensure_grad();
+  return grad_;
+}
 
-const Storage &Tensor::grad_storage() const { return grad_; }
+const Storage &Tensor::grad_storage() const {
+  ensure_grad();
+  return grad_;
+}
 
 }  // namespace micrograd
