@@ -34,7 +34,7 @@ std::shared_ptr<Tensor> Tensor::embedding_lookup(
   std::vector<size_t> out_shape = indices->shape();
   out_shape.push_back(dim);
 
-  auto result = std::make_shared<Tensor>(out_shape);
+  auto result = Tensor::zeros(out_shape);
   DispatchOp(OpId::kEmbeddingLookup, backend(),
              {.lhs = this, .rhs = indices.get(), .out = result.get()});
 
@@ -73,7 +73,7 @@ std::shared_ptr<Tensor> Tensor::gather_per_row(
     }
   }
 
-  auto result = std::make_shared<Tensor>(std::vector<size_t>{rows});
+  auto result = Tensor::zeros(std::vector<size_t>{rows});
   DispatchOp(OpId::kGatherPerRow, backend(),
              {.lhs = this, .rhs = indices.get(), .out = result.get()});
 

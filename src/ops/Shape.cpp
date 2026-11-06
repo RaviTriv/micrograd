@@ -74,7 +74,7 @@ std::vector<size_t> NormalizeDims(const std::vector<int64_t> &dims,
 std::shared_ptr<Tensor> Tensor::reshape(const std::vector<int64_t> &shape) {
   std::vector<size_t> resolved = ResolveShape(shape, size());
 
-  auto result = std::make_shared<Tensor>(resolved);
+  auto result = Tensor::zeros(resolved);
   result->data_ = data_.copy_to(backend());
   result->grad_ = Storage(grad_.bytes(), backend(), grad_.dtype());
   result->zero_grad();
@@ -96,7 +96,7 @@ std::shared_ptr<Tensor> Tensor::view(const std::vector<int64_t> &shape) {
 
 std::shared_ptr<Tensor> Tensor::strided_copy(
     const std::vector<size_t> &shape, const std::vector<size_t> &strides) {
-  auto result = std::make_shared<Tensor>(shape);
+  auto result = Tensor::zeros(shape);
   DispatchOp(OpId::kStridedCopy, backend(),
              {.lhs = this, .out = result.get(), .strides = strides});
 

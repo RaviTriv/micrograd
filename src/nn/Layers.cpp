@@ -14,13 +14,11 @@
 namespace micrograd {
 
 Linear::Linear(size_t in_features, size_t out_features) {
-  weights_ =
-      std::make_shared<Tensor>(std::vector<size_t>{in_features, out_features});
+  weights_ = Tensor::zeros(std::vector<size_t>{in_features, out_features});
   init::kaiming_uniform_(weights_, in_features);
 
   std::vector<scalar_t> b_data(out_features, 0.0f);
-  bias_ =
-      std::make_shared<Tensor>(std::vector<size_t>{1, out_features}, b_data);
+  bias_ = Tensor::from_values(std::vector<size_t>{1, out_features}, b_data);
 
   weights_->set_requires_grad(true);
   bias_->set_requires_grad(true);
@@ -44,8 +42,8 @@ Embedding::Embedding(size_t num_embeddings, size_t dim) {
     w = dis(global_rng());
   }
 
-  weight_ = std::make_shared<Tensor>(std::vector<size_t>{num_embeddings, dim},
-                                     w_data);
+  weight_ =
+      Tensor::from_values(std::vector<size_t>{num_embeddings, dim}, w_data);
   weight_->set_requires_grad(true);
 
   register_parameter("weight", weight_);
@@ -62,7 +60,7 @@ LMHead::LMHead(std::shared_ptr<Tensor> embedding_weight, bool tied)
     : embedding_weight_(std::move(embedding_weight)), tied_(tied) {
   if (!tied_) {
     auto shape = embedding_weight_->shape();
-    weight_ = std::make_shared<Tensor>(shape);
+    weight_ = Tensor::zeros(shape);
     init::kaiming_uniform_(weight_, shape[1]);
     weight_->set_requires_grad(true);
 
@@ -86,10 +84,10 @@ LayerNorm::LayerNorm(std::vector<size_t> normalized_shape, scalar_t eps)
     count *= dim;
   }
 
-  gain_ = std::make_shared<Tensor>(normalized_shape_,
-                                   std::vector<scalar_t>(count, 1.0f));
-  bias_ = std::make_shared<Tensor>(normalized_shape_,
-                                   std::vector<scalar_t>(count, 0.0f));
+  gain_ = Tensor::from_values(normalized_shape_,
+                              std::vector<scalar_t>(count, 1.0f));
+  bias_ = Tensor::from_values(normalized_shape_,
+                              std::vector<scalar_t>(count, 0.0f));
 
   gain_->set_requires_grad(true);
   bias_->set_requires_grad(true);
@@ -113,8 +111,8 @@ RMSNorm::RMSNorm(std::vector<size_t> normalized_shape, scalar_t eps)
     count *= dim;
   }
 
-  gain_ = std::make_shared<Tensor>(normalized_shape_,
-                                   std::vector<scalar_t>(count, 1.0f));
+  gain_ = Tensor::from_values(normalized_shape_,
+                              std::vector<scalar_t>(count, 1.0f));
   gain_->set_requires_grad(true);
 
   register_parameter("gain", gain_);
@@ -149,7 +147,7 @@ std::shared_ptr<Tensor> Dropout::forward(const std::shared_ptr<Tensor> &input) {
     value = keep(global_rng()) ? scale : 0.0f;
   }
 
-  auto mask = std::make_shared<Tensor>(input->shape(), mask_data);
+  auto mask = Tensor::from_values(input->shape(), mask_data);
   mask->to(input->backend());
 
   return input->mul(mask);

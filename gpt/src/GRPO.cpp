@@ -160,8 +160,7 @@ std::shared_ptr<Tensor> grpo_loss(
     }
     index_values[i] = static_cast<scalar_t>(target_indices[i]);
   }
-  auto indices =
-      std::make_shared<Tensor>(std::vector<size_t>{batch}, index_values);
+  auto indices = Tensor::from_values(std::vector<size_t>{batch}, index_values);
   indices->to(logits->backend());
 
   std::vector<scalar_t> diagonal(batch * batch, 0.0f);
@@ -169,7 +168,7 @@ std::shared_ptr<Tensor> grpo_loss(
     diagonal[(i * batch) + i] = 1.0f;
   }
   auto diagonal_mask =
-      std::make_shared<Tensor>(std::vector<size_t>{batch, batch}, diagonal);
+      Tensor::from_values(std::vector<size_t>{batch, batch}, diagonal);
   diagonal_mask->to(logits->backend());
 
   auto log_probs = logits->log_softmax(1);
@@ -177,10 +176,9 @@ std::shared_ptr<Tensor> grpo_loss(
   auto log_theta = gathered->mul(diagonal_mask)->sum(1);
 
   auto reference =
-      std::make_shared<Tensor>(std::vector<size_t>{batch}, reference_log_probs);
+      Tensor::from_values(std::vector<size_t>{batch}, reference_log_probs);
   reference->to(logits->backend());
-  auto advantage =
-      std::make_shared<Tensor>(std::vector<size_t>{batch}, advantages);
+  auto advantage = Tensor::from_values(std::vector<size_t>{batch}, advantages);
   advantage->to(logits->backend());
 
   auto policy_loss = advantage->mul(log_theta)->sum()->neg()->div(

@@ -6,7 +6,7 @@
 namespace micrograd {
 
 std::shared_ptr<Tensor> Tensor::relu() {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kRelu, backend(), {.lhs = this, .out = result.get()});
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
@@ -21,7 +21,7 @@ std::shared_ptr<Tensor> Tensor::relu() {
 }
 
 std::shared_ptr<Tensor> Tensor::sigmoid() {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kSigmoid, backend(), {.lhs = this, .out = result.get()});
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
@@ -36,7 +36,7 @@ std::shared_ptr<Tensor> Tensor::sigmoid() {
 }
 
 std::shared_ptr<Tensor> Tensor::tanh() {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kTanh, backend(), {.lhs = this, .out = result.get()});
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
@@ -51,7 +51,7 @@ std::shared_ptr<Tensor> Tensor::tanh() {
 }
 
 std::shared_ptr<Tensor> Tensor::exp() {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kExp, backend(), {.lhs = this, .out = result.get()});
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
@@ -66,7 +66,7 @@ std::shared_ptr<Tensor> Tensor::exp() {
 }
 
 std::shared_ptr<Tensor> Tensor::log() {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kLog, backend(), {.lhs = this, .out = result.get()});
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
@@ -81,7 +81,7 @@ std::shared_ptr<Tensor> Tensor::log() {
 }
 
 std::shared_ptr<Tensor> Tensor::sqrt() {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kSqrt, backend(), {.lhs = this, .out = result.get()});
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
@@ -96,7 +96,7 @@ std::shared_ptr<Tensor> Tensor::sqrt() {
 }
 
 std::shared_ptr<Tensor> Tensor::neg() {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kNeg, backend(), {.lhs = this, .out = result.get()});
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
@@ -112,7 +112,7 @@ std::shared_ptr<Tensor> Tensor::neg() {
 
 std::shared_ptr<Tensor> Tensor::softmax(int64_t dim) {
   size_t axis = NormalizeDim(dim, shape_.size());
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(
       OpId::kSoftmax, backend(),
       {.lhs = this, .out = result.get(), .dim = static_cast<int64_t>(axis)});
@@ -132,7 +132,7 @@ std::shared_ptr<Tensor> Tensor::softmax(int64_t dim) {
 
 std::shared_ptr<Tensor> Tensor::log_softmax(int64_t dim) {
   size_t axis = NormalizeDim(dim, shape_.size());
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(
       OpId::kLogSoftmax, backend(),
       {.lhs = this, .out = result.get(), .dim = static_cast<int64_t>(axis)});

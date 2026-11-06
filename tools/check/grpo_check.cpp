@@ -29,7 +29,7 @@ NextTokenLogits CyclicPolicy(size_t vocab) {
     std::vector<micrograd::scalar_t> values(vocab, 0.0f);
     size_t next = static_cast<size_t>(token + 1) % vocab;
     values[next] = 10.0f;
-    return std::make_shared<Tensor>(std::vector<size_t>{vocab}, values);
+    return Tensor::from_values(std::vector<size_t>{vocab}, values);
   };
 }
 

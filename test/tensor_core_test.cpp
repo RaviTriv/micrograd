@@ -2,12 +2,58 @@
 
 #include <memory>
 #include <stdexcept>
+#include <type_traits>
 #include <vector>
 
 #include "test_helpers.h"
 
 using namespace micrograd;
 using namespace micrograd::test_helpers;
+
+static_assert(!std::is_default_constructible_v<Tensor>);
+static_assert(!std::is_constructible_v<Tensor, std::vector<size_t>>);
+static_assert(!std::is_constructible_v<Tensor, std::vector<size_t>,
+                                       std::vector<scalar_t>>);
+static_assert(!std::is_convertible_v<std::vector<size_t>, Tensor>);
+
+TEST(TensorFactories, ZerosFillsDataAndGradWithZeros) {
+  auto t = Tensor::zeros({2, 3});
+
+  EXPECT_EQ(t->shape(), (std::vector<size_t>{2, 3}));
+  EXPECT_EQ(Values(t), std::vector<scalar_t>(6, 0.0f));
+  EXPECT_EQ(t->grad_storage().bytes(), 6 * sizeof(scalar_t));
+  EXPECT_EQ(t->grad_at({1, 2}), 0.0f);
+  EXPECT_FALSE(t->requires_grad());
+}
+
+TEST(TensorFactories, ZerosWithEmptyShapeIsZeroDimScalar) {
+  auto t = Tensor::zeros({});
+
+  EXPECT_TRUE(t->shape().empty());
+  EXPECT_EQ(t->size(), 1u);
+  EXPECT_EQ(t->at({}), 0.0f);
+}
+
+TEST(TensorFactories, FromValuesKeepsValuesInOrder) {
+  auto t = Tensor::from_values({2, 3}, {1, 2, 3, 4, 5, 6});
+
+  EXPECT_EQ(t->shape(), (std::vector<size_t>{2, 3}));
+  EXPECT_EQ(t->at({0, 2}), 3.0f);
+  EXPECT_EQ(t->at({1, 0}), 4.0f);
+  EXPECT_FALSE(t->requires_grad());
+}
+
+TEST(TensorFactories, FromValuesRejectsWrongValueCount) {
+  EXPECT_THROW(static_cast<void>(Tensor::from_values({2, 2}, {1, 2, 3})),
+               std::invalid_argument);
+}
+
+TEST(TensorFactories, ResultCanJoinTheGraph) {
+  auto t = Tensor::from_values({2}, {1, 2});
+  auto other = Tensor::from_values({2}, {3, 4});
+
+  EXPECT_EQ(Values(t->add(other)), (std::vector<scalar_t>{4, 6}));
+}
 
 TEST(TensorReshaping, Reshape) {
   auto t = Make({12}, Arange(12));
@@ -44,11 +90,11 @@ TEST(TensorCore, InvalidShapesThrow) {
   EXPECT_THROW(vec({1.0, 2.0})->mul(vec({1.0, 2.0, 3.0})),
                std::invalid_argument);
   EXPECT_THROW(vec({1.0, 2.0})->matmul(vec({1.0, 2.0})), std::invalid_argument);
-  EXPECT_THROW(static_cast<void>(std::make_shared<Tensor>(
+  EXPECT_THROW(static_cast<void>(Tensor::from_values(
                    std::vector<size_t>{2, 2}, std::vector<scalar_t>{1.0})),
                std::invalid_argument);
 
-  auto a = std::make_shared<Tensor>(std::vector<size_t>{2, 3},
-                                    std::vector<scalar_t>(6, 1.0));
+  auto a = Tensor::from_values(std::vector<size_t>{2, 3},
+                               std::vector<scalar_t>(6, 1.0));
   EXPECT_THROW(a->matmul(a), std::invalid_argument);
 }

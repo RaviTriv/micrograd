@@ -39,8 +39,7 @@ std::shared_ptr<Tensor> cross_entropy(
     }
     index_values[i] = static_cast<scalar_t>(target_indices[i]);
   }
-  auto indices =
-      std::make_shared<Tensor>(std::vector<size_t>{batch}, index_values);
+  auto indices = Tensor::from_values(std::vector<size_t>{batch}, index_values);
   indices->to(logits->backend());
 
   auto log_probs = logits->log_softmax(1);
@@ -87,8 +86,7 @@ std::shared_ptr<Tensor> masked_cross_entropy(
     }
     index_values[i] = static_cast<scalar_t>(target_indices[i]);
   }
-  auto indices =
-      std::make_shared<Tensor>(std::vector<size_t>{batch}, index_values);
+  auto indices = Tensor::from_values(std::vector<size_t>{batch}, index_values);
   indices->to(logits->backend());
 
   std::vector<scalar_t> mask_values(batch, 0.0f);
@@ -97,7 +95,7 @@ std::shared_ptr<Tensor> masked_cross_entropy(
       mask_values[i] = 1.0f;
     }
   }
-  auto mask = std::make_shared<Tensor>(std::vector<size_t>{batch}, mask_values);
+  auto mask = Tensor::from_values(std::vector<size_t>{batch}, mask_values);
   mask->to(logits->backend());
 
   auto log_probs = logits->log_softmax(1);

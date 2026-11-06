@@ -74,7 +74,7 @@ std::shared_ptr<Tensor> Ramp(std::vector<size_t> shape, scalar_t start,
   for (size_t i = 0; i < count; i++) {
     values[i] = start + (step * static_cast<scalar_t>(i));
   }
-  return std::make_shared<Tensor>(std::move(shape), std::move(values));
+  return Tensor::from_values(std::move(shape), std::move(values));
 }
 
 double SecondsSince(std::chrono::steady_clock::time_point start) {

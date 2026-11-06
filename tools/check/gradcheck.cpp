@@ -50,7 +50,7 @@ TensorPtr Ramp(std::vector<size_t> shape, scalar_t start, scalar_t step) {
   for (size_t i = 0; i < count; i++) {
     values[i] = start + (step * static_cast<scalar_t>(i));
   }
-  return std::make_shared<Tensor>(std::move(shape), std::move(values));
+  return Tensor::from_values(std::move(shape), std::move(values));
 }
 
 std::vector<Case> AllCases() {
@@ -356,8 +356,8 @@ std::vector<std::vector<scalar_t>> AnalyticGradients(
 
   auto output = function(leaves);
   const std::vector<scalar_t> weights = ProjectionWeights(output->size());
-  const Tensor seed(output->shape(), weights);
-  output->backward(seed);
+  const auto seed = Tensor::from_values(output->shape(), weights);
+  output->backward(*seed);
 
   std::vector<std::vector<scalar_t>> gradients;
   gradients.reserve(leaves.size());
@@ -404,8 +404,8 @@ std::vector<DeviceMismatch> CheckOnDevice(const GradCheckFunction &function,
 }
 
 void ProbeDevice(Device device) {
-  Tensor probe(std::vector<size_t>{1});
-  probe.to(device);
+  auto probe = Tensor::zeros({1});
+  probe->to(device);
 }
 
 size_t RunAllCases(Device device) {

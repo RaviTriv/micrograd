@@ -35,7 +35,7 @@ std::shared_ptr<Tensor> Tensor::layer_norm(
         "layer_norm gain and bias must match normalized_shape");
   }
 
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kLayerNorm, backend(),
              {.lhs = this,
               .rhs = gain.get(),

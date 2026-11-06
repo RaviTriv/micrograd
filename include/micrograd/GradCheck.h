@@ -40,7 +40,7 @@ inline std::vector<std::shared_ptr<Tensor>> MakeGradCheckLeaves(
   std::vector<std::shared_ptr<Tensor>> leaves;
   leaves.reserve(shapes.size());
   for (size_t i = 0; i < shapes.size(); i++) {
-    auto leaf = std::make_shared<Tensor>(shapes[i], values[i]);
+    auto leaf = Tensor::from_values(shapes[i], values[i]);
     leaf->set_requires_grad(true);
     leaves.push_back(std::move(leaf));
   }
@@ -90,8 +90,8 @@ inline std::vector<GradCheckMismatch> GradCheck(
   const std::vector<scalar_t> weights =
       internal::ProjectionWeights(output->size());
 
-  const Tensor seed(output->shape(), weights);
-  output->backward(seed);
+  const auto seed = Tensor::from_values(output->shape(), weights);
+  output->backward(*seed);
 
   std::vector<std::vector<scalar_t>> analytic;
   analytic.reserve(leaves.size());

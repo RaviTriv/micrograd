@@ -435,8 +435,8 @@ std::shared_ptr<Tensor> token_tensor(const std::vector<int32_t> &tokens,
   for (size_t i = 0; i < tokens.size(); i++) {
     values[i] = static_cast<scalar_t>(tokens[i]);
   }
-  auto tensor = std::make_shared<Tensor>(std::vector<size_t>{1, tokens.size()},
-                                         std::move(values));
+  auto tensor = Tensor::from_values(std::vector<size_t>{1, tokens.size()},
+                                    std::move(values));
   tensor->to(device);
   return tensor;
 }

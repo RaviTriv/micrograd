@@ -43,7 +43,7 @@ std::shared_ptr<Tensor> concat_seq(const std::shared_ptr<Tensor> &existing,
               dest + (old_len * head_dim));
   }
 
-  return std::make_shared<Tensor>(
+  return Tensor::from_values(
       std::vector<size_t>{n_kv_head, total_len, head_dim}, std::move(merged));
 }
 

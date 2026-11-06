@@ -17,7 +17,7 @@ std::shared_ptr<Tensor> position_ids(size_t seq_len, Backend backend) {
   }
 
   auto positions =
-      std::make_shared<Tensor>(std::vector<size_t>{seq_len}, std::move(values));
+      Tensor::from_values(std::vector<size_t>{seq_len}, std::move(values));
   positions->to(backend);
   return positions;
 }

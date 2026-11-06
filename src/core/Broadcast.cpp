@@ -82,7 +82,7 @@ std::shared_ptr<Tensor> Tensor::broadcast_to(const std::vector<size_t> &shape) {
     return self_ptr;
   }
 
-  auto result = std::make_shared<Tensor>(shape);
+  auto result = Tensor::zeros(shape);
   DispatchOp(OpId::kBroadcastTo, backend(), {.lhs = this, .out = result.get()});
 
   result->requires_grad_ = GradEnabled() && requires_grad_;

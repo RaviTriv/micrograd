@@ -33,7 +33,7 @@ std::shared_ptr<Tensor> Tensor::rms_norm(
     throw std::invalid_argument("rms_norm gain must match normalized_shape");
   }
 
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(
       OpId::kRmsNorm, backend(),
       {.lhs = this, .rhs = gain.get(), .out = result.get(), .scalar = eps});

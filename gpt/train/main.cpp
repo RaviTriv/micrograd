@@ -223,8 +223,8 @@ std::shared_ptr<Tensor> token_tensor(const std::vector<size_t> &tokens,
   for (size_t i = 0; i < tokens.size(); i++) {
     values[i] = static_cast<scalar_t>(tokens[i]);
   }
-  auto tensor = std::make_shared<Tensor>(std::vector<size_t>{rows, cols},
-                                         std::move(values));
+  auto tensor =
+      Tensor::from_values(std::vector<size_t>{rows, cols}, std::move(values));
   tensor->to(device);
   return tensor;
 }
@@ -372,7 +372,7 @@ class TrainOptimizer {
 
  private:
   static std::shared_ptr<Tensor> make_moment(const Tensor &param) {
-    auto moment = std::make_shared<Tensor>(param.shape());
+    auto moment = Tensor::zeros(param.shape());
     moment->to(param.backend());
     return moment;
   }
@@ -390,7 +390,7 @@ class TrainOptimizer {
     if (!in) {
       throw std::runtime_error("Optimizer state file is truncated");
     }
-    auto loaded = std::make_shared<Tensor>(tensor->shape(), std::move(values));
+    auto loaded = Tensor::from_values(tensor->shape(), std::move(values));
     loaded->to(tensor->backend());
     tensor = loaded;
   }
@@ -557,7 +557,7 @@ void run_sample(const TrainConfig &config) {
     for (size_t v = 0; v < dataset.vocab_size(); v++) {
       last_step[v] = logits->at({0, seq_len - 1, v});
     }
-    auto step_logits = std::make_shared<Tensor>(
+    auto step_logits = Tensor::from_values(
         std::vector<size_t>{dataset.vocab_size()}, std::move(last_step));
 
     int32_t token =

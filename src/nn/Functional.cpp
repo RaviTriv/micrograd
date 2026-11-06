@@ -51,8 +51,7 @@ std::shared_ptr<Tensor> avg_pool2d(const std::shared_ptr<Tensor> &input,
     }
   }
 
-  return std::make_shared<Tensor>(std::vector<size_t>{batch, pooled_pixels},
-                                  pooled);
+  return Tensor::from_values(std::vector<size_t>{batch, pooled_pixels}, pooled);
 }
 
 std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input) {

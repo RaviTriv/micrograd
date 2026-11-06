@@ -20,7 +20,7 @@ std::shared_ptr<Tensor> Tensor::flash_attention(
         "flash_attention expects query, key, and value to share a shape");
   }
 
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kFlashAttention, backend(),
              {.lhs = this,
               .rhs = key.get(),

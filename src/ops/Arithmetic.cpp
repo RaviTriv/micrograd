@@ -16,7 +16,7 @@ std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
   auto lhs = broadcast_to(out_shape);
   auto rhs = b->broadcast_to(out_shape);
 
-  auto result = std::make_shared<Tensor>(out_shape);
+  auto result = Tensor::zeros(out_shape);
   DispatchOp(OpId::kAdd, backend(),
              {.lhs = lhs.get(), .rhs = rhs.get(), .out = result.get()});
 
@@ -41,7 +41,7 @@ std::shared_ptr<Tensor> Tensor::sub(const std::shared_ptr<Tensor> &b) {
   auto lhs = broadcast_to(out_shape);
   auto rhs = b->broadcast_to(out_shape);
 
-  auto result = std::make_shared<Tensor>(out_shape);
+  auto result = Tensor::zeros(out_shape);
   DispatchOp(OpId::kSub, backend(),
              {.lhs = lhs.get(), .rhs = rhs.get(), .out = result.get()});
 
@@ -66,7 +66,7 @@ std::shared_ptr<Tensor> Tensor::mul(const std::shared_ptr<Tensor> &b) {
   auto lhs = broadcast_to(out_shape);
   auto rhs = b->broadcast_to(out_shape);
 
-  auto result = std::make_shared<Tensor>(out_shape);
+  auto result = Tensor::zeros(out_shape);
   DispatchOp(OpId::kMul, backend(),
              {.lhs = lhs.get(), .rhs = rhs.get(), .out = result.get()});
 
@@ -91,7 +91,7 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
   auto lhs = broadcast_to(out_shape);
   auto rhs = b->broadcast_to(out_shape);
 
-  auto result = std::make_shared<Tensor>(out_shape);
+  auto result = Tensor::zeros(out_shape);
   DispatchOp(OpId::kDiv, backend(),
              {.lhs = lhs.get(), .rhs = rhs.get(), .out = result.get()});
 
@@ -106,7 +106,7 @@ std::shared_ptr<Tensor> Tensor::div(const std::shared_ptr<Tensor> &b) {
 }
 
 std::shared_ptr<Tensor> Tensor::add(scalar_t scalar) {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kAddScalar, backend(),
              {.lhs = this, .out = result.get(), .scalar = scalar});
 
@@ -123,7 +123,7 @@ std::shared_ptr<Tensor> Tensor::add(scalar_t scalar) {
 }
 
 std::shared_ptr<Tensor> Tensor::sub(scalar_t scalar) {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kSubScalar, backend(),
              {.lhs = this, .out = result.get(), .scalar = scalar});
 
@@ -140,7 +140,7 @@ std::shared_ptr<Tensor> Tensor::sub(scalar_t scalar) {
 }
 
 std::shared_ptr<Tensor> Tensor::mul(scalar_t scalar) {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kMulScalar, backend(),
              {.lhs = this, .out = result.get(), .scalar = scalar});
 
@@ -157,7 +157,7 @@ std::shared_ptr<Tensor> Tensor::mul(scalar_t scalar) {
 }
 
 std::shared_ptr<Tensor> Tensor::div(scalar_t scalar) {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kDivScalar, backend(),
              {.lhs = this, .out = result.get(), .scalar = scalar});
 
@@ -174,7 +174,7 @@ std::shared_ptr<Tensor> Tensor::div(scalar_t scalar) {
 }
 
 std::shared_ptr<Tensor> Tensor::pow(scalar_t exponent) {
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kPow, backend(),
              {.lhs = this, .out = result.get(), .scalar = exponent});
 

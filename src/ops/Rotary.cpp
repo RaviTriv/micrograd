@@ -25,8 +25,8 @@ std::shared_ptr<Tensor> Tensor::rotary_embedding(scalar_t base) {
   size_t seq_len = shape_[shape_.size() - 2];
   size_t half = head_dim / 2;
 
-  auto cos_table = std::make_shared<Tensor>(std::vector<size_t>{seq_len, half});
-  auto sin_table = std::make_shared<Tensor>(std::vector<size_t>{seq_len, half});
+  auto cos_table = Tensor::zeros(std::vector<size_t>{seq_len, half});
+  auto sin_table = Tensor::zeros(std::vector<size_t>{seq_len, half});
   auto cos_values = cos_table->data();
   auto sin_values = sin_table->data();
   for (size_t t = 0; t < seq_len; t++) {
@@ -42,7 +42,7 @@ std::shared_ptr<Tensor> Tensor::rotary_embedding(scalar_t base) {
   cos_table->to(backend());
   sin_table->to(backend());
 
-  auto result = std::make_shared<Tensor>(shape_);
+  auto result = Tensor::zeros(shape_);
   DispatchOp(OpId::kRotaryEmbedding, backend(),
              {.lhs = this,
               .rhs = cos_table.get(),

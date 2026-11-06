@@ -38,7 +38,7 @@ MNISTData load_mnist(const std::string &images_path,
                                std::to_string(i) + ": " + images_path);
     }
     data.images.push_back(
-        std::make_shared<Tensor>(std::vector<size_t>{1, 784}, pixels));
+        Tensor::from_values(std::vector<size_t>{1, 784}, pixels));
     unsigned char label;
     labels_file.read(reinterpret_cast<char *>(&label), 1);
     if (!labels_file) {
@@ -52,7 +52,7 @@ MNISTData load_mnist(const std::string &images_path,
     std::vector<scalar_t> one_hot(10, 0.0f);
     one_hot[label] = 1.0f;
     data.labels.push_back(
-        std::make_shared<Tensor>(std::vector<size_t>{1, 10}, one_hot));
+        Tensor::from_values(std::vector<size_t>{1, 10}, one_hot));
   }
 
   return data;

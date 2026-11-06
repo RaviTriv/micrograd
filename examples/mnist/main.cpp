@@ -83,8 +83,8 @@ std::shared_ptr<Tensor> stack_images(
         values.begin(), values.end(),
         batch_data.begin() + static_cast<std::ptrdiff_t>(i * feature_size));
   }
-  return std::make_shared<Tensor>(std::vector<size_t>{count, feature_size},
-                                  batch_data);
+  return Tensor::from_values(std::vector<size_t>{count, feature_size},
+                             batch_data);
 }
 
 std::vector<size_t> batch_targets(

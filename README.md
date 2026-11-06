@@ -8,8 +8,8 @@ A small automatic differentiation engine.
 using namespace micrograd;
 
 int main() {
-  auto a = std::make_shared<Tensor>(std::vector<size_t>{1}, std::vector<scalar_t>{2});
-  auto b = std::make_shared<Tensor>(std::vector<size_t>{1}, std::vector<scalar_t>{1});
+  auto a = Tensor::from_values(std::vector<size_t>{1}, std::vector<scalar_t>{2});
+  auto b = Tensor::from_values(std::vector<size_t>{1}, std::vector<scalar_t>{1});
   a->set_requires_grad(true);
   b->set_requires_grad(true);
 

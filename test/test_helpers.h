@@ -13,7 +13,7 @@ namespace micrograd::test_helpers {
 
 inline std::shared_ptr<Tensor> Make(std::vector<size_t> shape,
                                     std::vector<scalar_t> values) {
-  return std::make_shared<Tensor>(std::move(shape), std::move(values));
+  return Tensor::from_values(std::move(shape), std::move(values));
 }
 
 inline std::vector<scalar_t> Arange(size_t count) {
@@ -31,7 +31,7 @@ inline std::vector<scalar_t> Values(const std::shared_ptr<Tensor> &tensor) {
 
 inline auto leaf(const std::vector<size_t> &shape,
                  const std::vector<scalar_t> &values) {
-  auto t = std::make_shared<Tensor>(shape, values);
+  auto t = Tensor::from_values(shape, values);
   t->set_requires_grad(true);
   return t;
 }

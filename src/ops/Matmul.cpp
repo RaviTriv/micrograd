@@ -41,7 +41,7 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
     out_shape = {batch, m, n};
   }
 
-  auto result = std::make_shared<Tensor>(out_shape);
+  auto result = Tensor::zeros(out_shape);
   DispatchOp(OpId::kMatmul, backend(),
              {.lhs = lhs.get(), .rhs = rhs.get(), .out = result.get()});
 

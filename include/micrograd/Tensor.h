@@ -13,9 +13,18 @@
 
 namespace micrograd {
 class Tensor : public std::enable_shared_from_this<Tensor> {
+  struct ConstructorKey {
+    explicit ConstructorKey() = default;
+  };
+
  public:
-  Tensor(std::vector<size_t> shape);
-  Tensor(std::vector<size_t> shape, std::vector<scalar_t> values);
+  static std::shared_ptr<Tensor> zeros(std::vector<size_t> shape);
+  static std::shared_ptr<Tensor> from_values(std::vector<size_t> shape,
+                                             std::vector<scalar_t> values);
+
+  Tensor(ConstructorKey key, std::vector<size_t> shape);
+  Tensor(ConstructorKey key, std::vector<size_t> shape,
+         std::vector<scalar_t> values);
   ~Tensor();
 
   std::shared_ptr<Tensor> add(const std::shared_ptr<Tensor> &b);

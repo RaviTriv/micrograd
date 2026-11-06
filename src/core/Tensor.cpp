@@ -10,7 +10,18 @@
 
 namespace micrograd {
 
-Tensor::Tensor(std::vector<size_t> shape) : shape_(std::move(shape)) {
+std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape) {
+  return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape));
+}
+
+std::shared_ptr<Tensor> Tensor::from_values(std::vector<size_t> shape,
+                                            std::vector<scalar_t> values) {
+  return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape),
+                                  std::move(values));
+}
+
+Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape)
+    : shape_(std::move(shape)) {
   size_t total = 1;
   for (auto dim : shape_) {
     total *= dim;
@@ -22,7 +33,8 @@ Tensor::Tensor(std::vector<size_t> shape) : shape_(std::move(shape)) {
   compute_strides();
 }
 
-Tensor::Tensor(std::vector<size_t> shape, std::vector<scalar_t> values)
+Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape,
+               std::vector<scalar_t> values)
     : shape_(std::move(shape)) {
   size_t total = 1;
   for (auto dim : shape_) {
