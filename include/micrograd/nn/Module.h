@@ -12,7 +12,13 @@ namespace micrograd::nn {
 
 class Module {
  public:
+  Module() = default;
   virtual ~Module() = default;
+
+  Module(const Module &) = delete;
+  Module &operator=(const Module &) = delete;
+  Module(Module &&) = delete;
+  Module &operator=(Module &&) = delete;
 
   virtual std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) = 0;

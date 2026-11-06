@@ -90,11 +90,13 @@ std::vector<size_t> RampTargets(size_t count) {
   return targets;
 }
 
-Sequential BuildClassifier(Device device) {
+std::shared_ptr<Sequential> BuildClassifier(Device device) {
   auto l1 = std::make_shared<Linear>(kFeatures, kHidden);
   auto l2 = std::make_shared<Linear>(kHidden, kClasses);
-  Sequential net({l1, std::make_shared<ReLU>(), l2});
-  for (auto &parameter : net.parameters()) {
+  auto net = std::make_shared<Sequential>(
+      std::vector<std::shared_ptr<micrograd::nn::Module>>{
+          l1, std::make_shared<ReLU>(), l2});
+  for (auto &parameter : net->parameters()) {
     parameter->to(device);
   }
   return net;
@@ -126,14 +128,14 @@ Row BenchMatmul(Device device, const MatmulCase &matmul_case) {
 
 Row BenchTrainingStep(Device device, size_t batch_size, int iterations) {
   auto net = BuildClassifier(device);
-  AdamW optimizer(net.parameters(), 1e-3f);
+  AdamW optimizer(net->parameters(), 1e-3f);
 
   auto input = Ramp({batch_size, kFeatures}, -1.0f, 0.0001f);
   input->to(device);
   auto targets = RampTargets(batch_size);
 
   auto step_once = [&]() {
-    auto out = net.forward(input);
+    auto out = net->forward(input);
     auto loss = micrograd::cross_entropy(out, targets);
     optimizer.zero_grad();
     loss->backward();
@@ -161,14 +163,14 @@ Row BenchTrainingStep(Device device, size_t batch_size, int iterations) {
 
 Row BenchEpoch(Device device, size_t batch_size, size_t total_samples) {
   auto net = BuildClassifier(device);
-  AdamW optimizer(net.parameters(), 1e-3f);
+  AdamW optimizer(net->parameters(), 1e-3f);
 
   auto input = Ramp({batch_size, kFeatures}, -1.0f, 0.0001f);
   input->to(device);
   auto targets = RampTargets(batch_size);
 
   auto step_once = [&]() {
-    auto out = net.forward(input);
+    auto out = net->forward(input);
     auto loss = micrograd::cross_entropy(out, targets);
     optimizer.zero_grad();
     loss->backward();

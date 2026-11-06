@@ -1,12 +1,20 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include "micrograd/NN.h"
 #include "micrograd/Tensor.h"
 
 using namespace micrograd;
+
+static_assert(!std::is_copy_constructible_v<Linear>);
+static_assert(!std::is_copy_assignable_v<Linear>);
+static_assert(!std::is_move_constructible_v<Linear>);
+static_assert(!std::is_move_assignable_v<Linear>);
+static_assert(!std::is_copy_constructible_v<Sequential>);
+static_assert(!std::is_move_constructible_v<Sequential>);
 
 TEST(Training, LinearSgdReducesLoss) {
   Linear layer(2, 1);

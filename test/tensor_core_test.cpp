@@ -15,6 +15,10 @@ static_assert(!std::is_constructible_v<Tensor, std::vector<size_t>>);
 static_assert(!std::is_constructible_v<Tensor, std::vector<size_t>,
                                        std::vector<scalar_t>>);
 static_assert(!std::is_convertible_v<std::vector<size_t>, Tensor>);
+static_assert(!std::is_copy_constructible_v<Tensor>);
+static_assert(!std::is_copy_assignable_v<Tensor>);
+static_assert(!std::is_move_constructible_v<Tensor>);
+static_assert(!std::is_move_assignable_v<Tensor>);
 
 TEST(TensorFactories, ZerosFillsDataAndGradWithZeros) {
   auto t = Tensor::zeros({2, 3});

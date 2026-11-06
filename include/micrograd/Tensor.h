@@ -30,6 +30,11 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
          std::vector<scalar_t> values);
   ~Tensor();
 
+  Tensor(const Tensor &) = delete;
+  Tensor &operator=(const Tensor &) = delete;
+  Tensor(Tensor &&) = delete;
+  Tensor &operator=(Tensor &&) = delete;
+
   std::shared_ptr<Tensor> add(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> sub(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> mul(const std::shared_ptr<Tensor> &b);
