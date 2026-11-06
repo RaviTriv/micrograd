@@ -2,9 +2,9 @@
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
-#include "micrograd/Autograd.h"
 #include "micrograd/Storage.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
@@ -34,20 +34,10 @@ std::shared_ptr<Tensor> Tensor::embedding_lookup(
   std::vector<size_t> out_shape = indices->shape();
   out_shape.push_back(dim);
 
-  auto result = Tensor::zeros(out_shape);
-  DispatchOp(OpId::kEmbeddingLookup, backend(),
-             {.lhs = this, .rhs = indices.get(), .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ =
-        MakeBackward(OpId::kEmbeddingLookup, backend(),
-                     {.lhs = self_ptr, .rhs = indices, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kEmbeddingLookup, std::move(out_shape),
+               {.lhs = shared_from_this(),
+                .rhs = indices,
+                .grad_through_lhs_only = true});
 }
 
 std::shared_ptr<Tensor> Tensor::gather_per_row(
@@ -73,20 +63,10 @@ std::shared_ptr<Tensor> Tensor::gather_per_row(
     }
   }
 
-  auto result = Tensor::zeros(std::vector<size_t>{rows});
-  DispatchOp(OpId::kGatherPerRow, backend(),
-             {.lhs = this, .rhs = indices.get(), .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ =
-        MakeBackward(OpId::kGatherPerRow, backend(),
-                     {.lhs = self_ptr, .rhs = indices, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kGatherPerRow, {rows},
+               {.lhs = shared_from_this(),
+                .rhs = indices,
+                .grad_through_lhs_only = true});
 }
 
 }  // namespace micrograd

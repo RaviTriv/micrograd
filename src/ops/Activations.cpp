@@ -1,4 +1,5 @@
-#include "micrograd/Autograd.h"
+#include <cstdint>
+
 #include "micrograd/Broadcast.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
@@ -6,148 +7,43 @@
 namespace micrograd {
 
 std::shared_ptr<Tensor> Tensor::relu() {
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(OpId::kRelu, backend(), {.lhs = this, .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kRelu, backend(),
-                                        {.lhs = self_ptr, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kRelu, shape_, {.lhs = shared_from_this()});
 }
 
 std::shared_ptr<Tensor> Tensor::sigmoid() {
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(OpId::kSigmoid, backend(), {.lhs = this, .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kSigmoid, backend(),
-                                        {.lhs = self_ptr, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kSigmoid, shape_, {.lhs = shared_from_this()});
 }
 
 std::shared_ptr<Tensor> Tensor::tanh() {
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(OpId::kTanh, backend(), {.lhs = this, .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kTanh, backend(),
-                                        {.lhs = self_ptr, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kTanh, shape_, {.lhs = shared_from_this()});
 }
 
 std::shared_ptr<Tensor> Tensor::exp() {
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(OpId::kExp, backend(), {.lhs = this, .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kExp, backend(),
-                                        {.lhs = self_ptr, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kExp, shape_, {.lhs = shared_from_this()});
 }
 
 std::shared_ptr<Tensor> Tensor::log() {
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(OpId::kLog, backend(), {.lhs = this, .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kLog, backend(),
-                                        {.lhs = self_ptr, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kLog, shape_, {.lhs = shared_from_this()});
 }
 
 std::shared_ptr<Tensor> Tensor::sqrt() {
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(OpId::kSqrt, backend(), {.lhs = this, .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kSqrt, backend(),
-                                        {.lhs = self_ptr, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kSqrt, shape_, {.lhs = shared_from_this()});
 }
 
 std::shared_ptr<Tensor> Tensor::neg() {
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(OpId::kNeg, backend(), {.lhs = this, .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kNeg, backend(),
-                                        {.lhs = self_ptr, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kNeg, shape_, {.lhs = shared_from_this()});
 }
 
 std::shared_ptr<Tensor> Tensor::softmax(int64_t dim) {
   size_t axis = NormalizeDim(dim, shape_.size());
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(
-      OpId::kSoftmax, backend(),
-      {.lhs = this, .out = result.get(), .dim = static_cast<int64_t>(axis)});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kSoftmax, backend(),
-                                        {.lhs = self_ptr,
-                                         .out = result.get(),
-                                         .dim = static_cast<int64_t>(axis)});
-  }
-
-  return result;
+  return apply(OpId::kSoftmax, shape_,
+               {.lhs = shared_from_this(), .dim = static_cast<int64_t>(axis)});
 }
 
 std::shared_ptr<Tensor> Tensor::log_softmax(int64_t dim) {
   size_t axis = NormalizeDim(dim, shape_.size());
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(
-      OpId::kLogSoftmax, backend(),
-      {.lhs = this, .out = result.get(), .dim = static_cast<int64_t>(axis)});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kLogSoftmax, backend(),
-                                        {.lhs = self_ptr,
-                                         .out = result.get(),
-                                         .dim = static_cast<int64_t>(axis)});
-  }
-
-  return result;
+  return apply(OpId::kLogSoftmax, shape_,
+               {.lhs = shared_from_this(), .dim = static_cast<int64_t>(axis)});
 }
 
 }  // namespace micrograd

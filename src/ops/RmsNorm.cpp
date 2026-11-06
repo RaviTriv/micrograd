@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "micrograd/Autograd.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -33,22 +32,8 @@ std::shared_ptr<Tensor> Tensor::rms_norm(
     throw std::invalid_argument("rms_norm gain must match normalized_shape");
   }
 
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(
-      OpId::kRmsNorm, backend(),
-      {.lhs = this, .rhs = gain.get(), .out = result.get(), .scalar = eps});
-
-  result->requires_grad_ =
-      GradEnabled() && (requires_grad_ || gain->requires_grad());
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr, gain};
-    result->backward_fn_ = MakeBackward(
-        OpId::kRmsNorm, backend(),
-        {.lhs = self_ptr, .rhs = gain, .out = result.get(), .scalar = eps});
-  }
-
-  return result;
+  return apply(OpId::kRmsNorm, shape_,
+               {.lhs = shared_from_this(), .rhs = gain, .scalar = eps});
 }
 
 }  // namespace micrograd

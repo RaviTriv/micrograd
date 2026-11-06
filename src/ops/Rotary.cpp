@@ -2,9 +2,9 @@
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
-#include "micrograd/Autograd.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -42,25 +42,11 @@ std::shared_ptr<Tensor> Tensor::rotary_embedding(scalar_t base) {
   cos_table->to(backend());
   sin_table->to(backend());
 
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(OpId::kRotaryEmbedding, backend(),
-             {.lhs = this,
-              .rhs = cos_table.get(),
-              .extra = sin_table.get(),
-              .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kRotaryEmbedding, backend(),
-                                        {.lhs = self_ptr,
-                                         .rhs = cos_table,
-                                         .extra = sin_table,
-                                         .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kRotaryEmbedding, shape_,
+               {.lhs = shared_from_this(),
+                .rhs = std::move(cos_table),
+                .extra = std::move(sin_table),
+                .grad_through_lhs_only = true});
 }
 
 }  // namespace micrograd

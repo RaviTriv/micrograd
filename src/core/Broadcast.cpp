@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <stdexcept>
+#include <utility>
 
-#include "micrograd/Autograd.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -82,17 +82,7 @@ std::shared_ptr<Tensor> Tensor::broadcast_to(const std::vector<size_t> &shape) {
     return self_ptr;
   }
 
-  auto result = Tensor::zeros(shape);
-  DispatchOp(OpId::kBroadcastTo, backend(), {.lhs = this, .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kBroadcastTo, backend(),
-                                        {.lhs = self_ptr, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kBroadcastTo, shape, {.lhs = std::move(self_ptr)});
 }
 
 }  // namespace micrograd

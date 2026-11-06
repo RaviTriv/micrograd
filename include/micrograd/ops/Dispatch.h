@@ -90,6 +90,7 @@ struct OpInputs {
   int64_t dim = 0;
   bool keepdim = false;
   std::span<const size_t> strides = {};
+  bool grad_through_lhs_only = false;
 };
 
 class OpRegistry {

@@ -3,7 +3,6 @@
 #include <memory>
 #include <vector>
 
-#include "micrograd/Autograd.h"
 #include "micrograd/Broadcast.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
@@ -30,38 +29,13 @@ std::vector<size_t> ReducedShape(const std::vector<size_t> &shape, size_t axis,
 }  // namespace
 
 std::shared_ptr<Tensor> Tensor::sum() {
-  auto result = Tensor::zeros(std::vector<size_t>{1});
-  DispatchOp(OpId::kSum, backend(), {.lhs = this, .out = result.get()});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kSum, backend(),
-                                        {.lhs = self_ptr, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kSum, {1}, {.lhs = shared_from_this()});
 }
 
 std::shared_ptr<Tensor> Tensor::sum(int64_t dim, bool keepdim) {
   size_t axis = NormalizeDim(dim, shape_.size());
-  auto result = Tensor::zeros(ReducedShape(shape_, axis, keepdim));
-  DispatchOp(
-      OpId::kSumDim, backend(),
-      {.lhs = this, .out = result.get(), .dim = static_cast<int64_t>(axis)});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kSumDim, backend(),
-                                        {.lhs = self_ptr,
-                                         .out = result.get(),
-                                         .dim = static_cast<int64_t>(axis)});
-  }
-
-  return result;
+  return apply(OpId::kSumDim, ReducedShape(shape_, axis, keepdim),
+               {.lhs = shared_from_this(), .dim = static_cast<int64_t>(axis)});
 }
 
 std::shared_ptr<Tensor> Tensor::mean(int64_t dim, bool keepdim) {
@@ -71,22 +45,8 @@ std::shared_ptr<Tensor> Tensor::mean(int64_t dim, bool keepdim) {
 
 std::shared_ptr<Tensor> Tensor::max(int64_t dim, bool keepdim) {
   size_t axis = NormalizeDim(dim, shape_.size());
-  auto result = Tensor::zeros(ReducedShape(shape_, axis, keepdim));
-  DispatchOp(
-      OpId::kMax, backend(),
-      {.lhs = this, .out = result.get(), .dim = static_cast<int64_t>(axis)});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(OpId::kMax, backend(),
-                                        {.lhs = self_ptr,
-                                         .out = result.get(),
-                                         .dim = static_cast<int64_t>(axis)});
-  }
-
-  return result;
+  return apply(OpId::kMax, ReducedShape(shape_, axis, keepdim),
+               {.lhs = shared_from_this(), .dim = static_cast<int64_t>(axis)});
 }
 
 std::shared_ptr<Tensor> Tensor::argmax(int64_t dim) {

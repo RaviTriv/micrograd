@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <span>
 #include <vector>
 
 #include "test_helpers.h"
@@ -34,6 +35,29 @@ TEST(Autograd, NoGradGuardStopsRecording) {
 
   EXPECT_FALSE(a->add(b)->requires_grad());
   EXPECT_FALSE(a->mul(2.0f)->requires_grad());
+}
+
+TEST(Autograd, TrackedIndicesDoNotEnableGrad) {
+  auto weights = Tensor::from_values({2, 2}, {1, 2, 3, 4});
+  auto indices = vec({1, 0});
+
+  EXPECT_FALSE(weights->embedding_lookup(indices)->requires_grad());
+  EXPECT_FALSE(weights->gather_per_row(indices)->requires_grad());
+}
+
+TEST(Autograd, GradientSkipsIndices) {
+  auto values = leaf({2, 2}, {1, 2, 3, 4});
+  auto indices = vec({1, 0});
+
+  values->gather_per_row(indices)->sum()->backward();
+
+  EXPECT_EQ(Values(values), (std::vector<scalar_t>{1, 2, 3, 4}));
+  const std::span<const scalar_t> gradient = values->grad();
+  EXPECT_EQ(std::vector<scalar_t>(gradient.begin(), gradient.end()),
+            (std::vector<scalar_t>{0, 1, 1, 0}));
+  const std::span<const scalar_t> index_gradient = indices->grad();
+  EXPECT_EQ(std::vector<scalar_t>(index_gradient.begin(), index_gradient.end()),
+            (std::vector<scalar_t>{0, 0}));
 }
 
 TEST(Autograd, GradientFlowsToEachInputOfASharedOperand) {

@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "micrograd/Autograd.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -35,29 +34,9 @@ std::shared_ptr<Tensor> Tensor::layer_norm(
         "layer_norm gain and bias must match normalized_shape");
   }
 
-  auto result = Tensor::zeros(shape_);
-  DispatchOp(OpId::kLayerNorm, backend(),
-             {.lhs = this,
-              .rhs = gain.get(),
-              .extra = bias.get(),
-              .out = result.get(),
-              .scalar = eps});
-
-  result->requires_grad_ =
-      GradEnabled() &&
-      (requires_grad_ || gain->requires_grad() || bias->requires_grad());
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr, gain, bias};
-    result->backward_fn_ = MakeBackward(OpId::kLayerNorm, backend(),
-                                        {.lhs = self_ptr,
-                                         .rhs = gain,
-                                         .extra = bias,
-                                         .out = result.get(),
-                                         .scalar = eps});
-  }
-
-  return result;
+  return apply(
+      OpId::kLayerNorm, shape_,
+      {.lhs = shared_from_this(), .rhs = gain, .extra = bias, .scalar = eps});
 }
 
 }  // namespace micrograd

@@ -96,20 +96,8 @@ std::shared_ptr<Tensor> Tensor::view(const std::vector<int64_t> &shape) {
 
 std::shared_ptr<Tensor> Tensor::strided_copy(
     const std::vector<size_t> &shape, const std::vector<size_t> &strides) {
-  auto result = Tensor::zeros(shape);
-  DispatchOp(OpId::kStridedCopy, backend(),
-             {.lhs = this, .out = result.get(), .strides = strides});
-
-  result->requires_grad_ = GradEnabled() && requires_grad_;
-  if (result->requires_grad_) {
-    auto self_ptr = shared_from_this();
-    result->children_ = {self_ptr};
-    result->backward_fn_ = MakeBackward(
-        OpId::kStridedCopy, backend(),
-        {.lhs = self_ptr, .out = result.get(), .strides = strides});
-  }
-
-  return result;
+  return apply(OpId::kStridedCopy, shape,
+               {.lhs = shared_from_this(), .strides = strides});
 }
 
 std::shared_ptr<Tensor> Tensor::permute(const std::vector<int64_t> &dims) {

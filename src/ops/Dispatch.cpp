@@ -67,16 +67,21 @@ std::shared_ptr<Tensor> Tensor::apply(OpId op, std::vector<size_t> out_shape,
   const auto needs_grad = [](const std::shared_ptr<Tensor> &input) {
     return input && input->requires_grad_;
   };
+  const bool others_need_grad =
+      !inputs.grad_through_lhs_only &&
+      (needs_grad(inputs.rhs) || needs_grad(inputs.extra));
   result->requires_grad_ =
-      GradEnabled() && (needs_grad(inputs.lhs) || needs_grad(inputs.rhs) ||
-                        needs_grad(inputs.extra));
+      GradEnabled() && (needs_grad(inputs.lhs) || others_need_grad);
   if (!result->requires_grad_) {
     return result;
   }
 
-  for (const auto *input : {&inputs.lhs, &inputs.rhs, &inputs.extra}) {
-    if (*input) {
-      result->children_.push_back(*input);
+  result->children_.push_back(inputs.lhs);
+  if (!inputs.grad_through_lhs_only) {
+    for (const auto *input : {&inputs.rhs, &inputs.extra}) {
+      if (*input) {
+        result->children_.push_back(*input);
+      }
     }
   }
   result->backward_fn_ = MakeBackward(op, backend(),

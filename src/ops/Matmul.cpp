@@ -1,4 +1,7 @@
-#include "micrograd/Autograd.h"
+#include <stdexcept>
+#include <utility>
+#include <vector>
+
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -25,8 +28,6 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
     throw std::invalid_argument("Batch dimensions must match for matmul");
   }
 
-  bool needs_grad = GradEnabled() && (requires_grad_ || b->requires_grad_);
-
   std::shared_ptr<Tensor> lhs = shared_from_this();
   std::shared_ptr<Tensor> rhs = b;
   std::vector<size_t> out_shape = {m, n};
@@ -41,19 +42,8 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
     out_shape = {batch, m, n};
   }
 
-  auto result = Tensor::zeros(out_shape);
-  DispatchOp(OpId::kMatmul, backend(),
-             {.lhs = lhs.get(), .rhs = rhs.get(), .out = result.get()});
-
-  result->requires_grad_ = needs_grad;
-  if (result->requires_grad_) {
-    result->children_ = {lhs, rhs};
-    result->backward_fn_ =
-        MakeBackward(OpId::kMatmul, backend(),
-                     {.lhs = lhs, .rhs = rhs, .out = result.get()});
-  }
-
-  return result;
+  return apply(OpId::kMatmul, std::move(out_shape),
+               {.lhs = std::move(lhs), .rhs = std::move(rhs)});
 }
 
 }  // namespace micrograd
