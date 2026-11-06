@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <type_traits>
@@ -53,6 +54,32 @@ TEST(TensorFactories, FromValuesKeepsValuesInOrder) {
 TEST(TensorFactories, FromValuesRejectsWrongValueCount) {
   EXPECT_THROW(static_cast<void>(Tensor::from_values({2, 2}, {1, 2, 3})),
                std::invalid_argument);
+}
+
+TEST(TensorFactories, RejectsShapeWhoseElementCountOverflows) {
+  const size_t huge = size_t{1} << 32;
+
+  EXPECT_THROW(static_cast<void>(Tensor::zeros({huge, huge})),
+               std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(Tensor::from_values({huge, huge}, {})),
+               std::invalid_argument);
+}
+
+TEST(TensorFactories, RejectsShapeWhoseByteCountOverflows) {
+  const size_t over_byte_limit =
+      (std::numeric_limits<size_t>::max() / sizeof(scalar_t)) + 1;
+
+  EXPECT_THROW(static_cast<void>(Tensor::zeros({over_byte_limit})),
+               std::invalid_argument);
+}
+
+TEST(TensorFactories, ZeroDimensionMakesAnyShapeEmpty) {
+  const size_t largest = std::numeric_limits<size_t>::max();
+
+  auto t = Tensor::zeros({largest, largest, 0});
+
+  EXPECT_EQ(t->size(), 0u);
+  EXPECT_EQ(t->shape(), (std::vector<size_t>{largest, largest, 0}));
 }
 
 TEST(TensorFactories, ResultCanJoinTheGraph) {
@@ -124,6 +151,33 @@ TEST(TensorReshaping, Reshape) {
   EXPECT_EQ(Values(reshaped), Arange(12));
   EXPECT_EQ(reshaped->at({1, 2}), 6.0f);
   EXPECT_EQ(reshaped->at({2, 3}), 11.0f);
+}
+
+TEST(TensorReshaping, RejectsInvalidShapes) {
+  auto t = Make({6}, Arange(6));
+
+  EXPECT_THROW(t->reshape({-2, 3}), std::invalid_argument);
+  EXPECT_THROW(t->reshape({-1, -1}), std::invalid_argument);
+  EXPECT_THROW(t->reshape({2, 2}), std::invalid_argument);
+  EXPECT_THROW(t->reshape({4, -1}), std::invalid_argument);
+  EXPECT_THROW(t->reshape({0, -1}), std::invalid_argument);
+}
+
+TEST(TensorReshaping, NegativeDimensionErrorSaysWhatIsAllowed) {
+  auto t = Make({6}, Arange(6));
+
+  try {
+    t->reshape({-2, 3});
+    FAIL() << "reshape should reject -2";
+  } catch (const std::invalid_argument &error) {
+    EXPECT_STREQ(error.what(), "Reshape dimensions must be -1 or non-negative");
+  }
+}
+
+TEST(TensorReshaping, EmptyTensorReshapesWithZeroDimension) {
+  auto t = Tensor::zeros({0});
+
+  EXPECT_EQ(t->reshape({0, 5})->shape(), (std::vector<size_t>{0, 5}));
 }
 
 TEST(TensorReshaping, Flatten) {

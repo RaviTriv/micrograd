@@ -25,7 +25,8 @@ std::vector<size_t> ResolveShape(const std::vector<int64_t> &shape,
       continue;
     }
     if (shape[i] < 0) {
-      throw std::invalid_argument("Reshape dimensions must be -1 or positive");
+      throw std::invalid_argument(
+          "Reshape dimensions must be -1 or non-negative");
     }
     resolved[i] = static_cast<size_t>(shape[i]);
     known *= resolved[i];

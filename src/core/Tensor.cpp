@@ -1,6 +1,7 @@
 #include "micrograd/Tensor.h"
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -10,6 +11,25 @@
 #endif
 
 namespace micrograd {
+namespace {
+
+size_t ElementCount(const std::vector<size_t> &shape) {
+  if (std::ranges::find(shape, size_t{0}) != shape.end()) {
+    return 0;
+  }
+
+  const size_t limit = std::numeric_limits<size_t>::max() / sizeof(scalar_t);
+  size_t total = 1;
+  for (auto dim : shape) {
+    if (dim > limit / total) {
+      throw std::invalid_argument("Tensor shape is too large");
+    }
+    total *= dim;
+  }
+  return total;
+}
+
+}  // namespace
 
 std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape) {
   return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape));
@@ -23,21 +43,14 @@ std::shared_ptr<Tensor> Tensor::from_values(std::vector<size_t> shape,
 
 Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape)
     : shape_(std::move(shape)) {
-  size_t total = 1;
-  for (auto dim : shape_) {
-    total *= dim;
-  }
-  data_ = Storage(total * sizeof(scalar_t), Device::CPU);
+  data_ = Storage(ElementCount(shape_) * sizeof(scalar_t), Device::CPU);
   std::ranges::fill(data(), 0.0f);
 }
 
 Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape,
                std::vector<scalar_t> values)
     : shape_(std::move(shape)) {
-  size_t total = 1;
-  for (auto dim : shape_) {
-    total *= dim;
-  }
+  const size_t total = ElementCount(shape_);
   if (values.size() != total) {
     throw std::invalid_argument("Tensor and data size mismatch");
   }
@@ -127,10 +140,7 @@ void Tensor::ensure_grad() const {
     return;
   }
 
-  size_t total = 1;
-  for (auto dim : shape_) {
-    total *= dim;
-  }
+  const size_t total = ElementCount(shape_);
   if (total == 0) {
     return;
   }
