@@ -82,6 +82,16 @@ struct GradArgs {
 
 using GradFn = std::function<void()> (*)(const GradArgs &);
 
+struct OpInputs {
+  std::shared_ptr<Tensor> lhs = nullptr;
+  std::shared_ptr<Tensor> rhs = nullptr;
+  std::shared_ptr<Tensor> extra = nullptr;
+  scalar_t scalar = 0;
+  int64_t dim = 0;
+  bool keepdim = false;
+  std::span<const size_t> strides = {};
+};
+
 class OpRegistry {
  public:
   static OpRegistry &Instance() {

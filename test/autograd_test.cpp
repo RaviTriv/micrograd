@@ -1,3 +1,5 @@
+#include "micrograd/Autograd.h"
+
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -7,6 +9,40 @@
 
 using namespace micrograd;
 using namespace micrograd::test_helpers;
+
+TEST(Autograd, ResultRequiresGradWhenAnyInputDoes) {
+  auto tracked = scalar(2);
+  auto untracked = Tensor::from_values({1}, {3});
+
+  EXPECT_TRUE(tracked->add(untracked)->requires_grad());
+  EXPECT_TRUE(untracked->add(tracked)->requires_grad());
+  EXPECT_TRUE(tracked->mul(2.0f)->requires_grad());
+}
+
+TEST(Autograd, ResultSkipsGraphWhenNoInputRequiresGrad) {
+  auto a = Tensor::from_values({1}, {2});
+  auto b = Tensor::from_values({1}, {3});
+
+  EXPECT_FALSE(a->add(b)->requires_grad());
+  EXPECT_FALSE(a->mul(2.0f)->requires_grad());
+}
+
+TEST(Autograd, NoGradGuardStopsRecording) {
+  auto a = scalar(2);
+  auto b = scalar(3);
+  NoGradGuard guard;
+
+  EXPECT_FALSE(a->add(b)->requires_grad());
+  EXPECT_FALSE(a->mul(2.0f)->requires_grad());
+}
+
+TEST(Autograd, GradientFlowsToEachInputOfASharedOperand) {
+  auto a = scalar(3);
+
+  a->mul(a)->backward();
+
+  EXPECT_FLOAT_EQ(a->grad()[0], 6.0f);
+}
 
 TEST(Autograd, SanityCheck) {
   auto x = scalar(-4.0);

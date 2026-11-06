@@ -12,6 +12,9 @@
 #include "micrograd/Storage.h"
 
 namespace micrograd {
+enum class OpId;
+struct OpInputs;
+
 class Tensor : public std::enable_shared_from_this<Tensor> {
   struct ConstructorKey {
     explicit ConstructorKey() = default;
@@ -107,6 +110,10 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
  private:
   void compute_strides();
+  std::shared_ptr<Tensor> apply(OpId op, std::vector<size_t> out_shape,
+                                const OpInputs &inputs);
+  std::shared_ptr<Tensor> apply_binary(OpId op,
+                                       const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> broadcast_to(const std::vector<size_t> &shape);
   std::shared_ptr<Tensor> strided_copy(const std::vector<size_t> &shape,
                                        const std::vector<size_t> &strides);

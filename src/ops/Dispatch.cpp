@@ -1,7 +1,10 @@
 #include "micrograd/ops/Dispatch.h"
 
 #include <mutex>
+#include <utility>
+#include <vector>
 
+#include "micrograd/Autograd.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/backends/cpu/Ops.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
@@ -46,6 +49,45 @@ std::function<void()> MakeBackward(OpId op, Device device,
   const Tensor *typed = args.out != nullptr ? args.out : args.lhs.get();
   DType dtype = typed != nullptr ? typed->dtype() : DType::kFloat32;
   return OpRegistry::Instance().LookupBackward(op, device, dtype)(args);
+}
+
+std::shared_ptr<Tensor> Tensor::apply(OpId op, std::vector<size_t> out_shape,
+                                      const OpInputs &inputs) {
+  auto result = Tensor::zeros(std::move(out_shape));
+  DispatchOp(op, backend(),
+             {.lhs = inputs.lhs.get(),
+              .rhs = inputs.rhs.get(),
+              .extra = inputs.extra.get(),
+              .out = result.get(),
+              .scalar = inputs.scalar,
+              .dim = inputs.dim,
+              .keepdim = inputs.keepdim,
+              .strides = inputs.strides});
+
+  const auto needs_grad = [](const std::shared_ptr<Tensor> &input) {
+    return input && input->requires_grad_;
+  };
+  result->requires_grad_ =
+      GradEnabled() && (needs_grad(inputs.lhs) || needs_grad(inputs.rhs) ||
+                        needs_grad(inputs.extra));
+  if (!result->requires_grad_) {
+    return result;
+  }
+
+  for (const auto *input : {&inputs.lhs, &inputs.rhs, &inputs.extra}) {
+    if (*input) {
+      result->children_.push_back(*input);
+    }
+  }
+  result->backward_fn_ = MakeBackward(op, backend(),
+                                      {.lhs = inputs.lhs,
+                                       .rhs = inputs.rhs,
+                                       .extra = inputs.extra,
+                                       .out = result.get(),
+                                       .scalar = inputs.scalar,
+                                       .dim = inputs.dim,
+                                       .strides = inputs.strides});
+  return result;
 }
 
 }  // namespace micrograd
