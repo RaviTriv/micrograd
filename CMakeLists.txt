@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 project(micrograd
     VERSION 0.1.0
     LANGUAGES CXX
@@ -252,40 +252,9 @@ if(FETCH_FINEWEB)
         FINEWEB_TRAIN_SHARD_COUNT=${FINEWEB_TRAIN_SHARD_COUNT})
 endif()
 
-option(BUILD_TESTS "Unit tests" ON)
-if(BUILD_TESTS)
-    include(FetchContent)
-    FetchContent_Declare(googletest
-        GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG v1.14.0
-    )
-
-    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(googletest)
-
-    enable_testing()
-    add_executable(micrograd_tests test/tensor_test.cpp)
-    target_link_libraries(micrograd_tests PRIVATE micrograd GTest::gtest_main)
-    include(GoogleTest)
-    gtest_discover_tests(micrograd_tests)
-
-    add_executable(gradcheck tools/check/gradcheck.cpp)
-    target_link_libraries(gradcheck PRIVATE micrograd_gpt)
-    target_compile_options(gradcheck PRIVATE -Werror)
-    add_test(NAME gradcheck COMMAND gradcheck)
-
-    add_executable(bpe_roundtrip tools/check/bpe_roundtrip.cpp)
-    target_link_libraries(bpe_roundtrip PRIVATE micrograd_gpt)
-    target_compile_options(bpe_roundtrip PRIVATE -Werror)
-    add_test(NAME bpe_roundtrip COMMAND bpe_roundtrip)
-
-    add_executable(core_eval tools/eval/core_eval.cpp)
-    target_link_libraries(core_eval PRIVATE micrograd_gpt)
-    target_compile_options(core_eval PRIVATE -Werror)
-    add_test(NAME core_eval COMMAND core_eval)
-
-    add_executable(grpo_check tools/check/grpo_check.cpp)
-    target_link_libraries(grpo_check PRIVATE micrograd_gpt)
-    target_compile_options(grpo_check PRIVATE -Werror)
-    add_test(NAME grpo_check COMMAND grpo_check)
+if(PROJECT_IS_TOP_LEVEL)
+    include(CTest)
+    if(BUILD_TESTING)
+        add_subdirectory(test)
+    endif()
 endif()

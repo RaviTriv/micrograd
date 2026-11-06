@@ -29,7 +29,7 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -DBUILD_TESTS=ON -DFETCH_MNIST=OFF
+          cmake -S . -B build -DBUILD_TESTING=ON -DFETCH_MNIST=OFF
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_COMPILER=clang++-18
 
@@ -54,7 +54,7 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -DBUILD_TESTS=OFF -DFETCH_MNIST=OFF
+          cmake -S . -B build -DBUILD_TESTING=OFF -DFETCH_MNIST=OFF
           -DENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=80
           -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.8/bin/nvcc
 
@@ -68,19 +68,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: >
-          cmake -S . -B build -DBUILD_TESTS=ON -DFETCH_MNIST=OFF
-          -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+        run: cmake --preset asan
 
       - name: Build
-        run: cmake --build build -j
+        run: cmake --build --preset asan -j
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
-        env:
-          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --preset asan
 
   dataset:
     name: MNIST download
@@ -89,7 +83,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure
-        run: cmake -S . -B build -DBUILD_TESTS=OFF
+        run: cmake -S . -B build -DBUILD_TESTING=OFF
 
       - name: Fetch dataset
         run: cmake --build build --target mnist-data

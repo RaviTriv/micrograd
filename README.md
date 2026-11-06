@@ -40,7 +40,7 @@ cmake --build build
 ## Tests
 
 ```bash
-cmake -S . -B build -DBUILD_TESTS=ON
+cmake -S . -B build -DBUILD_TESTING=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
