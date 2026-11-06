@@ -55,6 +55,59 @@ TEST(TensorFactories, ResultCanJoinTheGraph) {
   EXPECT_EQ(Values(t->add(other)), (std::vector<scalar_t>{4, 6}));
 }
 
+TEST(TensorIndexing, AtReadsAndWritesByPosition) {
+  auto t = Make({2, 3}, Arange(6));
+
+  EXPECT_EQ(t->at({1, 2}), 5.0f);
+  t->at({0, 1}) = 9.0f;
+
+  EXPECT_EQ(Values(t), (std::vector<scalar_t>{0, 9, 2, 3, 4, 5}));
+}
+
+TEST(TensorIndexing, AtRejectsTooFewIndices) {
+  auto t = Make({2, 3}, Arange(6));
+
+  EXPECT_THROW(t->at({1}), std::invalid_argument);
+}
+
+TEST(TensorIndexing, AtRejectsTooManyIndices) {
+  auto t = Make({2, 3}, Arange(6));
+
+  EXPECT_THROW(t->at({1, 2, 0}), std::invalid_argument);
+}
+
+TEST(TensorIndexing, AtRejectsIndexOnZeroDimTensor) {
+  auto t = Tensor::zeros({});
+
+  EXPECT_THROW(t->at({0}), std::invalid_argument);
+}
+
+TEST(TensorIndexing, AtRejectsOutOfRangeIndexInEachDimension) {
+  auto t = Make({2, 3}, Arange(6));
+
+  EXPECT_THROW(t->at({2, 0}), std::out_of_range);
+  EXPECT_THROW(t->at({0, 3}), std::out_of_range);
+}
+
+TEST(TensorIndexing, ConstAtUsesTheSameChecks) {
+  const auto t = Make({2, 3}, Arange(6));
+  const Tensor &view = *t;
+
+  EXPECT_EQ(view.at({1, 2}), 5.0f);
+  EXPECT_THROW(static_cast<void>(view.at({1})), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(view.at({2, 0})), std::out_of_range);
+}
+
+TEST(TensorIndexing, GradAtUsesTheSameChecks) {
+  auto t = Make({2, 3}, Arange(6));
+
+  t->grad_at({1, 2}) = 7.0f;
+
+  EXPECT_EQ(t->grad_at({1, 2}), 7.0f);
+  EXPECT_THROW(t->grad_at({1}), std::invalid_argument);
+  EXPECT_THROW(t->grad_at({0, 3}), std::out_of_range);
+}
+
 TEST(TensorReshaping, Reshape) {
   auto t = Make({12}, Arange(12));
 

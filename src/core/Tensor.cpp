@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -97,8 +98,20 @@ scalar_t Tensor::grad_at(const std::vector<size_t> &indices) const {
 }
 
 size_t Tensor::flat_index(const std::vector<size_t> &indices) const {
+  if (indices.size() != shape_.size()) {
+    throw std::invalid_argument(
+        "Tensor index has " + std::to_string(indices.size()) +
+        " dimensions, expected " + std::to_string(shape_.size()));
+  }
+
   size_t idx = 0;
   for (size_t i = 0; i < indices.size(); i++) {
+    if (indices[i] >= shape_[i]) {
+      throw std::out_of_range("Tensor index " + std::to_string(indices[i]) +
+                              " is out of range for dimension " +
+                              std::to_string(i) + " of size " +
+                              std::to_string(shape_[i]));
+    }
     idx += indices[i] * strides_[i];
   }
   return idx;
