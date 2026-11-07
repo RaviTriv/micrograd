@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <stdexcept>
 
 #include "micrograd/Broadcast.h"
 #include "micrograd/Tensor.h"
@@ -36,12 +37,18 @@ std::shared_ptr<Tensor> Tensor::neg() {
 
 std::shared_ptr<Tensor> Tensor::softmax(int64_t dim) {
   size_t axis = NormalizeDim(dim, shape_.size());
+  if (shape_[axis] == 0) {
+    throw std::invalid_argument("softmax over a zero-length dimension");
+  }
   return apply(OpId::kSoftmax, shape_,
                {.lhs = shared_from_this(), .dim = static_cast<int64_t>(axis)});
 }
 
 std::shared_ptr<Tensor> Tensor::log_softmax(int64_t dim) {
   size_t axis = NormalizeDim(dim, shape_.size());
+  if (shape_[axis] == 0) {
+    throw std::invalid_argument("log_softmax over a zero-length dimension");
+  }
   return apply(OpId::kLogSoftmax, shape_,
                {.lhs = shared_from_this(), .dim = static_cast<int64_t>(axis)});
 }

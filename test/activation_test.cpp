@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "micrograd/nn/Functional.h"
@@ -208,6 +209,21 @@ TEST(Activations, SoftmaxFullyMaskedSliceHasZeroGradient) {
   EXPECT_EQ(gradient[1], 0.0f);
   EXPECT_TRUE(std::isfinite(gradient[2]));
   EXPECT_TRUE(std::isfinite(gradient[3]));
+}
+
+TEST(Activations, SoftmaxRejectsZeroLengthDimension) {
+  auto empty = Tensor::zeros({2, 0});
+  EXPECT_THROW(empty->softmax(1), std::invalid_argument);
+  EXPECT_THROW(empty->log_softmax(-1), std::invalid_argument);
+}
+
+TEST(Activations, LogSoftmaxFullyMaskedSliceIsNaN) {
+  const auto values =
+      Values(Make({2, 2}, {-kInf, -kInf, 0, -kInf})->log_softmax(-1));
+  EXPECT_TRUE(std::isnan(values[0]));
+  EXPECT_TRUE(std::isnan(values[1]));
+  EXPECT_EQ(values[2], 0.0f);
+  EXPECT_EQ(values[3], -kInf);
 }
 
 TEST(Activations, ModulesHaveNoParameters) {
