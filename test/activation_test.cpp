@@ -280,3 +280,106 @@ TEST(Activations, NumericGradSoftmaxWithNonUniformUpstream) {
                                 return x->softmax(-1)->mul(upstream)->sum();
                               });
 }
+
+TEST(Activations, SigmoidIsPointSymmetric) {
+  Sigmoid sigmoid;
+  const auto positive = Values(sigmoid.forward(Make({1}, {2})));
+  const auto negative = Values(sigmoid.forward(Make({1}, {-2})));
+  EXPECT_NEAR(negative[0], 1.0f - positive[0], 1e-6f);
+}
+
+TEST(Activations, SigmoidIsStableAcrossShapes) {
+  Sigmoid sigmoid;
+  const std::vector<scalar_t> inputs{-1000, -1, 0, 1, 1000};
+  const std::vector<scalar_t> expected{0.0f, 0.26894142f, 0.5f, 0.73105858f,
+                                       1.0f};
+  for (const auto &shape :
+       {std::vector<size_t>{5}, std::vector<size_t>{1, 5}}) {
+    std::feclearexcept(FE_ALL_EXCEPT);
+    const auto values = Values(sigmoid.forward(Make(shape, inputs)));
+    EXPECT_EQ(std::fetestexcept(FE_OVERFLOW | FE_INVALID), 0);
+    for (size_t i = 0; i < values.size(); i++) {
+      EXPECT_NEAR(values[i], expected[i], 1e-7f) << "at index " << i;
+    }
+  }
+  std::feclearexcept(FE_ALL_EXCEPT);
+  auto scalar_out = sigmoid.forward(Make(std::vector<size_t>{}, {-1000}));
+  EXPECT_EQ(std::fetestexcept(FE_OVERFLOW | FE_INVALID), 0);
+  EXPECT_TRUE(scalar_out->shape().empty());
+  EXPECT_EQ(Values(scalar_out)[0], 0.0f);
+}
+
+TEST(Activations, ReluGradientIsZeroAtAndBelowZero) {
+  auto x = vec({-1, 0, 1});
+  ReLU().forward(x)->sum()->backward();
+  EXPECT_EQ(x->grad()[0], 0.0f);
+  EXPECT_EQ(x->grad()[1], 0.0f);
+  EXPECT_EQ(x->grad()[2], 1.0f);
+}
+
+TEST(Activations, SigmoidGradientPeaksAtQuarter) {
+  auto x = vec({0, 1, -1});
+  Sigmoid().forward(x)->sum()->backward();
+  EXPECT_NEAR(x->grad()[0], 0.25f, 1e-6f);
+  EXPECT_LT(x->grad()[1], 0.25f);
+  EXPECT_NEAR(x->grad()[1], x->grad()[2], 1e-6f);
+}
+
+TEST(Activations, DISABLED_GeluHandlesInfiniteInputs) {
+  GELU gelu;
+  const auto values = Values(gelu.forward(Make({3}, {-1000, 1000, -kInf})));
+  EXPECT_NEAR(values[0], 0.0f, 1e-5f);
+  EXPECT_NEAR(values[1], 1000.0f, 1e-5f);
+  EXPECT_FALSE(std::isnan(values[2]));
+  EXPECT_EQ(values[2], 0.0f);
+}
+
+TEST(Activations, GeluAndSoftmaxHandleFloat32Extremes) {
+  const scalar_t largest = std::numeric_limits<scalar_t>::max();
+  auto x = Make({2}, {-largest, largest});
+  std::feclearexcept(FE_ALL_EXCEPT);
+  const auto gelu = Values(GELU().forward(x));
+  const auto softmax = Values(Softmax().forward(x));
+  EXPECT_EQ(std::fetestexcept(FE_INVALID), 0);
+  EXPECT_EQ(gelu[0], 0.0f);
+  EXPECT_EQ(gelu[1], largest);
+  EXPECT_EQ(softmax[0], 0.0f);
+  EXPECT_EQ(softmax[1], 1.0f);
+}
+
+TEST(Activations, SoftmaxMaskedSliceLeavesNeighborsIntact) {
+  const scalar_t log3 = std::log(3.0f);
+  const std::vector<scalar_t> rows{-kInf, -kInf, -kInf, 0, -kInf, log3};
+  const std::vector<scalar_t> row_expected{0, 0, 0, 0.25f, 0, 0.75f};
+  const std::vector<scalar_t> columns{-kInf, 0, -kInf, -kInf, -kInf, log3};
+  const std::vector<scalar_t> column_expected{0, 0.25f, 0, 0, 0, 0.75f};
+  for (int64_t dim : {1, -1}) {
+    std::feclearexcept(FE_ALL_EXCEPT);
+    auto result = Softmax(dim).forward(Make({2, 3}, rows));
+    EXPECT_EQ(std::fetestexcept(FE_OVERFLOW | FE_INVALID | FE_DIVBYZERO), 0);
+    ExpectValues(result, row_expected);
+  }
+  std::feclearexcept(FE_ALL_EXCEPT);
+  auto result = Softmax(0).forward(Make({3, 2}, columns));
+  EXPECT_EQ(std::fetestexcept(FE_OVERFLOW | FE_INVALID | FE_DIVBYZERO), 0);
+  ExpectValues(result, column_expected);
+}
+
+TEST(Activations, ElementwiseActivationsAcceptEmptyTensors) {
+  auto empty = Tensor::zeros({0});
+  EXPECT_EQ(ReLU().forward(empty)->size(), 0U);
+  EXPECT_EQ(Sigmoid().forward(empty)->size(), 0U);
+  EXPECT_EQ(Tanh().forward(empty)->size(), 0U);
+  EXPECT_EQ(GELU().forward(empty)->size(), 0U);
+}
+
+TEST(Activations, ElementwiseActivationsPreserveRank) {
+  for (const auto &shape : {std::vector<size_t>{4}, std::vector<size_t>{2, 2},
+                            std::vector<size_t>{2, 2, 1}}) {
+    auto input = Make(shape, {1, -1, 0, 2});
+    EXPECT_EQ(ReLU().forward(input)->shape(), shape);
+    EXPECT_EQ(Sigmoid().forward(input)->shape(), shape);
+    EXPECT_EQ(Tanh().forward(input)->shape(), shape);
+    EXPECT_EQ(GELU().forward(input)->shape(), shape);
+  }
+}
