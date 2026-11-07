@@ -1,9 +1,13 @@
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "micrograd/Device.h"
@@ -25,10 +29,27 @@ namespace {
 constexpr size_t kFeatures = 196;
 constexpr size_t kClasses = 10;
 constexpr size_t kHidden = 100;
+constexpr size_t kActivationRow = 1024;
+constexpr int kActivationRepeats = 5;
+constexpr double kBytesPerElementForward = 2.0 * sizeof(scalar_t);
 
 struct MatmulCase {
   size_t n;
   int iterations;
+};
+
+struct ActivationSize {
+  size_t elements;
+  int iterations;
+};
+
+using Activation =
+    std::function<std::shared_ptr<Tensor>(const std::shared_ptr<Tensor> &)>;
+
+struct ActivationCase {
+  std::string name;
+  Activation apply;
+  bool needs_softmax_kernel;
 };
 
 struct Row {
@@ -197,6 +218,98 @@ Row BenchEpoch(Device device, size_t batch_size, size_t total_samples) {
           "samples/s"};
 }
 
+std::vector<ActivationCase> ActivationCases() {
+  return {
+      {"relu", [](const auto &x) { return x->relu(); }, false},
+      {"sigmoid", [](const auto &x) { return x->sigmoid(); }, false},
+      {"tanh", [](const auto &x) { return x->tanh(); }, false},
+      {"gelu", [](const auto &x) { return micrograd::gelu(x); }, false},
+      {"softmax", [](const auto &x) { return x->softmax(-1); }, true},
+  };
+}
+
+bool SupportsActivation(Device device, const ActivationCase &activation) {
+  return !activation.needs_softmax_kernel || device != Device::Metal;
+}
+
+std::shared_ptr<Tensor> StandardNormal(size_t elements) {
+  std::mt19937 rng(7);
+  std::normal_distribution<scalar_t> normal;
+  std::vector<scalar_t> values(elements);
+  for (auto &value : values) {
+    value = normal(rng);
+  }
+  return Tensor::from_values({elements / kActivationRow, kActivationRow},
+                             std::move(values));
+}
+
+double MedianSecondsPerIter(Device device, int iterations,
+                            const std::function<void()> &run) {
+  run();
+  micrograd::synchronize(device);
+
+  std::vector<double> samples;
+  samples.reserve(kActivationRepeats);
+  for (int repeat = 0; repeat < kActivationRepeats; repeat++) {
+    const auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < iterations; i++) {
+      run();
+    }
+    micrograd::synchronize(device);
+    samples.push_back(SecondsSince(start) / iterations);
+  }
+  std::ranges::sort(samples);
+  return samples[samples.size() / 2];
+}
+
+std::string ActivationDetail(const ActivationCase &activation,
+                             const std::string &pass, size_t elements) {
+  return activation.name + " " + pass + " n=" + std::to_string(elements);
+}
+
+Row BenchActivationForward(Device device, const ActivationCase &activation,
+                           const ActivationSize &size) {
+  auto input = StandardNormal(size.elements);
+  input->to(device);
+
+  const double seconds_per_iter = MedianSecondsPerIter(
+      device, size.iterations, [&]() { activation.apply(input); });
+  const double gb_per_second = kBytesPerElementForward *
+                               static_cast<double>(size.elements) /
+                               seconds_per_iter / 1e9;
+
+  return {DeviceName(device),
+          "activation",
+          ActivationDetail(activation, "fwd", size.elements),
+          seconds_per_iter,
+          gb_per_second,
+          "gb/s"};
+}
+
+Row BenchActivationBackward(Device device, const ActivationCase &activation,
+                            const ActivationSize &size) {
+  auto input = StandardNormal(size.elements);
+  input->to(device);
+  input->set_requires_grad(true);
+  const auto seed = Tensor::from_values(
+      input->shape(), std::vector<scalar_t>(size.elements, 1.0f));
+
+  const double seconds_per_iter =
+      MedianSecondsPerIter(device, size.iterations, [&]() {
+        activation.apply(input)->backward(*seed);
+        input->zero_grad();
+      });
+  const double melem_per_second =
+      static_cast<double>(size.elements) / seconds_per_iter / 1e6;
+
+  return {DeviceName(device),
+          "activation",
+          ActivationDetail(activation, "fwd+bwd", size.elements),
+          seconds_per_iter,
+          melem_per_second,
+          "melem/s"};
+}
+
 void PrintMarkdownTable(const std::vector<Row> &rows) {
   std::cout << "| device | benchmark | detail | seconds | metric |\n";
   std::cout << "|---|---|---|---|---|\n";
@@ -222,6 +335,20 @@ int main() {
     }
     rows.push_back(BenchTrainingStep(device, 64, 20));
     rows.push_back(BenchEpoch(device, 64, 6400));
+  }
+
+  const std::vector<ActivationSize> activation_sizes{{1 << 16, 200},
+                                                     {1 << 22, 10}};
+  for (auto device : CompiledDevices()) {
+    for (const auto &size : activation_sizes) {
+      for (const auto &activation : ActivationCases()) {
+        if (!SupportsActivation(device, activation)) {
+          continue;
+        }
+        rows.push_back(BenchActivationForward(device, activation, size));
+        rows.push_back(BenchActivationBackward(device, activation, size));
+      }
+    }
   }
 
   PrintMarkdownTable(rows);
