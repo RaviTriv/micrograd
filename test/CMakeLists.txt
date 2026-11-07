@@ -12,6 +12,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(micrograd_tests
     activation_test.cpp
     autograd_test.cpp
+    layers_test.cpp
     serialization_test.cpp
     tensor_core_test.cpp
     training_test.cpp
