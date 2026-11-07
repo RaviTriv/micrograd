@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -78,6 +79,34 @@ class ReLU : public nn::Module {
  public:
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;
+};
+
+class Sigmoid : public nn::Module {
+ public:
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+};
+
+class Tanh : public nn::Module {
+ public:
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+};
+
+class GELU : public nn::Module {
+ public:
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+};
+
+class Softmax : public nn::Module {
+ public:
+  explicit Softmax(int64_t dim = -1);
+  std::shared_ptr<Tensor> forward(
+      const std::shared_ptr<Tensor> &input) override;
+
+ private:
+  int64_t dim_;
 };
 
 class Dropout : public nn::Module {

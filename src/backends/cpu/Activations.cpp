@@ -49,7 +49,7 @@ void Relu(const OpArgs &args) {
   auto lhs = args.lhs->data();
   auto out = args.out->data();
   for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] > 0 ? lhs[i] : 0.0f;
+    out[i] = lhs[i] <= 0 ? 0.0f : lhs[i];
   }
 }
 
@@ -57,7 +57,8 @@ void Sigmoid(const OpArgs &args) {
   auto lhs = args.lhs->data();
   auto out = args.out->data();
   for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = 1.0f / (1.0f + std::exp(-lhs[i]));
+    scalar_t z = std::exp(-std::fabs(lhs[i]));
+    out[i] = lhs[i] >= 0 ? 1.0f / (1.0f + z) : z / (1.0f + z);
   }
 }
 
@@ -187,11 +188,17 @@ void Softmax(const OpArgs &args) {
   for (size_t o = 0; o < layout.outer; o++) {
     for (size_t i = 0; i < layout.inner; i++) {
       scalar_t largest = SliceMax(source.data(), layout, o, i);
+      if (std::isinf(largest) && largest < 0) {
+        largest = 0;
+      }
       scalar_t total = 0;
       for (size_t k = 0; k < layout.reduced; k++) {
         size_t offset = AxisOffset(layout, o, k, i);
         values[offset] = std::exp(source[offset] - largest);
         total += values[offset];
+      }
+      if (total == 0) {
+        total = 1;
       }
       for (size_t k = 0; k < layout.reduced; k++) {
         values[AxisOffset(layout, o, k, i)] /= total;

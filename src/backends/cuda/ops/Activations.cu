@@ -24,14 +24,15 @@ int GridSize(size_t n) {
 __global__ void ReluKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    out[i] = lhs[i] > 0 ? lhs[i] : 0.0f;
+    out[i] = lhs[i] <= 0 ? 0.0f : lhs[i];
   }
 }
 
 __global__ void SigmoidKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    out[i] = 1.0f / (1.0f + expf(-lhs[i]));
+    scalar_t z = expf(-fabsf(lhs[i]));
+    out[i] = lhs[i] >= 0 ? 1.0f / (1.0f + z) : z / (1.0f + z);
   }
 }
 

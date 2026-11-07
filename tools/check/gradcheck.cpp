@@ -259,6 +259,8 @@ std::vector<Case> AllCases() {
   add("relu_squared",
       [](const TensorList &in) { return micrograd::relu_squared(in[0]); },
       {signed_matrix()});
+  add("gelu", [](const TensorList &in) { return micrograd::gelu(in[0]); },
+      {Ramp({2, 3}, -1.4f, 0.5f)});
   add("qk_norm", [](const TensorList &in) { return micrograd::qk_norm(in[0]); },
       {signed_matrix()});
 

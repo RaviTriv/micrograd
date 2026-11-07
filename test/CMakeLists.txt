@@ -10,6 +10,7 @@ set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(micrograd_tests
+    activation_test.cpp
     autograd_test.cpp
     serialization_test.cpp
     tensor_core_test.cpp

@@ -235,6 +235,9 @@ __global__ void SoftmaxKernel(const scalar_t *in, scalar_t *out,
   }
   scalar_t slice_max = shared[0];
   __syncthreads();
+  if (isinf(slice_max) && slice_max < 0) {
+    slice_max = 0.0f;
+  }
 
   scalar_t local_sum = 0.0f;
   for (size_t k = tid; k < layout.reduced; k += blockDim.x) {
@@ -253,6 +256,9 @@ __global__ void SoftmaxKernel(const scalar_t *in, scalar_t *out,
   }
   scalar_t total = shared[0];
   __syncthreads();
+  if (total == 0.0f) {
+    total = 1.0f;
+  }
 
   for (size_t k = tid; k < layout.reduced; k += blockDim.x) {
     out[SliceOffset(layout, slice, k)] /= total;

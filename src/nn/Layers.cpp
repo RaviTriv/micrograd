@@ -1,6 +1,7 @@
 #include "micrograd/nn/Layers.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <random>
 #include <stdexcept>
@@ -10,6 +11,7 @@
 
 #include "micrograd/Init.h"
 #include "micrograd/Random.h"
+#include "micrograd/nn/Functional.h"
 
 namespace micrograd {
 
@@ -126,6 +128,24 @@ std::shared_ptr<Tensor> RMSNorm::gain() { return gain_; }
 
 std::shared_ptr<Tensor> ReLU::forward(const std::shared_ptr<Tensor> &input) {
   return input->relu();
+}
+
+std::shared_ptr<Tensor> Sigmoid::forward(const std::shared_ptr<Tensor> &input) {
+  return input->sigmoid();
+}
+
+std::shared_ptr<Tensor> Tanh::forward(const std::shared_ptr<Tensor> &input) {
+  return input->tanh();
+}
+
+std::shared_ptr<Tensor> GELU::forward(const std::shared_ptr<Tensor> &input) {
+  return gelu(input);
+}
+
+Softmax::Softmax(int64_t dim) : dim_(dim) {}
+
+std::shared_ptr<Tensor> Softmax::forward(const std::shared_ptr<Tensor> &input) {
+  return input->softmax(dim_);
 }
 
 Dropout::Dropout(scalar_t p) : p_(p) {
