@@ -31,6 +31,20 @@ void copy_window(const Token *tokens, size_t token_count, size_t offset,
     batch.targets[index] = tokens[offset + col + 1];
   }
 }
+
+size_t windows_in(size_t tokens, size_t block_size) {
+  if (block_size == 0) {
+    throw std::invalid_argument("val_windows: block size must be positive");
+  }
+  return tokens > block_size ? (tokens - 1) / block_size : 0;
+}
+
+Dataset::Batch empty_batch(size_t batch_size, size_t block_size) {
+  Dataset::Batch batch;
+  batch.inputs.resize(batch_size * block_size);
+  batch.targets.resize(batch_size * block_size);
+  return batch;
+}
 }  // namespace
 
 Dataset::Dataset(const std::string &path, double val_fraction) {
@@ -125,6 +139,28 @@ Dataset::Batch Dataset::train_batch(size_t batch_size,
   return batch;
 }
 
+size_t Dataset::val_windows(size_t block_size) const {
+  return windows_in(tokens_.size() - train_size_, block_size);
+}
+
+Dataset::Batch Dataset::val_batch(size_t batch_size, size_t block_size,
+                                  size_t batch_index) const {
+  const uint8_t *val_tokens = tokens_.data() + train_size_;
+  const size_t val_count = tokens_.size() - train_size_;
+  const size_t available = val_windows(block_size);
+  Batch batch = empty_batch(batch_size, block_size);
+  for (size_t row = 0; row < batch_size; row++) {
+    size_t window = (batch_index * batch_size) + row;
+    if (window >= available) {
+      throw std::out_of_range(
+          "Dataset::val_batch: past the end of the val split");
+    }
+    copy_window(val_tokens, val_count, window * block_size, block_size, row,
+                batch);
+  }
+  return batch;
+}
+
 std::vector<size_t> Dataset::encode(const std::string &text) const {
   std::vector<size_t> tokens;
   tokens.reserve(text.size());
@@ -207,23 +243,28 @@ void ShardedDataset::unmap_shard(Shard &shard) {
 
 ShardedDataset::ShardedDataset(
     const std::vector<std::string> &train_shard_paths,
-    const std::string &val_shard_path) {
-  if (train_shard_paths.empty()) {
+    const std::vector<std::string> &val_shard_paths) {
+  if (train_shard_paths.empty() || val_shard_paths.empty()) {
     throw std::invalid_argument(
-        "ShardedDataset: at least one training shard is required");
+        "ShardedDataset: at least one train and one val shard are required");
   }
   train_shards_.reserve(train_shard_paths.size());
   for (const auto &path : train_shard_paths) {
     train_shards_.push_back(map_shard(path));
   }
-  val_shard_ = map_shard(val_shard_path);
+  val_shards_.reserve(val_shard_paths.size());
+  for (const auto &path : val_shard_paths) {
+    val_shards_.push_back(map_shard(path));
+  }
 }
 
 ShardedDataset::~ShardedDataset() {
   for (auto &shard : train_shards_) {
     unmap_shard(shard);
   }
-  unmap_shard(val_shard_);
+  for (auto &shard : val_shards_) {
+    unmap_shard(shard);
+  }
 }
 
 Dataset::Batch ShardedDataset::sample(size_t batch_size, size_t block_size,
@@ -233,13 +274,12 @@ Dataset::Batch ShardedDataset::sample(size_t batch_size, size_t block_size,
   batch.inputs.resize(batch_size * block_size);
   batch.targets.resize(batch_size * block_size);
 
-  std::uniform_int_distribution<size_t> pick_shard(
-      0, split == Dataset::Split::kTrain ? train_shards_.size() - 1 : 0);
+  const std::vector<Shard> &shards =
+      split == Dataset::Split::kTrain ? train_shards_ : val_shards_;
+  std::uniform_int_distribution<size_t> pick_shard(0, shards.size() - 1);
 
   for (size_t row = 0; row < batch_size; row++) {
-    const Shard &shard = split == Dataset::Split::kTrain
-                             ? train_shards_[pick_shard(rng)]
-                             : val_shard_;
+    const Shard &shard = shards[pick_shard(rng)];
     if (shard.token_count <= block_size) {
       throw std::runtime_error(
           "ShardedDataset: shard too small for the requested block size");
@@ -285,15 +325,49 @@ Dataset::Batch ShardedDataset::train_batch(size_t batch_size,
   return batch;
 }
 
-size_t ShardedDataset::token_count(Dataset::Split split) const {
-  if (split == Dataset::Split::kTrain) {
-    size_t total = 0;
-    for (const auto &shard : train_shards_) {
-      total += shard.token_count;
-    }
-    return total;
+size_t ShardedDataset::val_windows(size_t block_size) const {
+  size_t total = 0;
+  for (const auto &shard : val_shards_) {
+    total += windows_in(shard.token_count, block_size);
   }
-  return val_shard_.token_count;
+  return total;
+}
+
+Dataset::Batch ShardedDataset::val_batch(size_t batch_size, size_t block_size,
+                                         size_t batch_index) const {
+  Dataset::Batch batch = empty_batch(batch_size, block_size);
+  size_t shard_index = 0;
+  size_t shard_first_window = 0;
+  for (size_t row = 0; row < batch_size; row++) {
+    size_t window = (batch_index * batch_size) + row;
+    while (shard_index < val_shards_.size() &&
+           window >= shard_first_window +
+                         windows_in(val_shards_[shard_index].token_count,
+                                    block_size)) {
+      shard_first_window +=
+          windows_in(val_shards_[shard_index].token_count, block_size);
+      shard_index++;
+    }
+    if (shard_index == val_shards_.size()) {
+      throw std::out_of_range(
+          "ShardedDataset::val_batch: past the end of the val shards");
+    }
+    const Shard &shard = val_shards_[shard_index];
+    copy_window(shard.tokens, shard.token_count,
+                (window - shard_first_window) * block_size, block_size, row,
+                batch);
+  }
+  return batch;
+}
+
+size_t ShardedDataset::token_count(Dataset::Split split) const {
+  const std::vector<Shard> &shards =
+      split == Dataset::Split::kTrain ? train_shards_ : val_shards_;
+  size_t total = 0;
+  for (const auto &shard : shards) {
+    total += shard.token_count;
+  }
+  return total;
 }
 
 }  // namespace micrograd::gpt

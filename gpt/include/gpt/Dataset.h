@@ -28,6 +28,10 @@ class Dataset {
   std::vector<size_t> train_span_tokens() const;
   Batch train_batch(size_t batch_size, SampleOrder &order) const;
 
+  size_t val_windows(size_t block_size) const;
+  Batch val_batch(size_t batch_size, size_t block_size,
+                  size_t batch_index) const;
+
   std::vector<size_t> encode(const std::string &text) const;
   char decode(size_t token) const;
 
@@ -45,7 +49,7 @@ class Dataset {
 class ShardedDataset {
  public:
   ShardedDataset(const std::vector<std::string> &train_shard_paths,
-                 const std::string &val_shard_path);
+                 const std::vector<std::string> &val_shard_paths);
   ~ShardedDataset();
 
   ShardedDataset(const ShardedDataset &) = delete;
@@ -56,6 +60,10 @@ class ShardedDataset {
 
   std::vector<size_t> train_span_tokens() const;
   Dataset::Batch train_batch(size_t batch_size, SampleOrder &order) const;
+
+  size_t val_windows(size_t block_size) const;
+  Dataset::Batch val_batch(size_t batch_size, size_t block_size,
+                           size_t batch_index) const;
 
   size_t token_count(Dataset::Split split) const;
 
@@ -72,7 +80,7 @@ class ShardedDataset {
   static void unmap_shard(Shard &shard);
 
   std::vector<Shard> train_shards_;
-  Shard val_shard_;
+  std::vector<Shard> val_shards_;
 };
 
 }  // namespace micrograd::gpt

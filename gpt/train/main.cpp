@@ -525,7 +525,7 @@ class TrainingData {
           "FineWeb directory needs train and val shards: " +
           config.fineweb_dir);
     }
-    shards_ = std::make_unique<ShardedDataset>(train_paths, val_paths.front());
+    shards_ = std::make_unique<ShardedDataset>(train_paths, val_paths);
   }
 
   Dataset::Batch sample(size_t batch_size, size_t block_size,
@@ -550,6 +550,21 @@ class TrainingData {
     return chars_->train_batch(batch_size, order);
   }
 
+  size_t val_windows(size_t block_size) const {
+    if (shards_) {
+      return shards_->val_windows(block_size);
+    }
+    return chars_->val_windows(block_size);
+  }
+
+  Dataset::Batch val_batch(size_t batch_size, size_t block_size,
+                           size_t batch_index) const {
+    if (shards_) {
+      return shards_->val_batch(batch_size, block_size, batch_index);
+    }
+    return chars_->val_batch(batch_size, block_size, batch_index);
+  }
+
   size_t vocab_size() const {
     if (shards_) {
       return kGpt2VocabSize;
@@ -562,16 +577,31 @@ class TrainingData {
   std::unique_ptr<ShardedDataset> shards_;
 };
 
+size_t val_batches(const TrainingData &dataset, const TrainConfig &config) {
+  size_t available = dataset.val_windows(config.block_size) / config.batch_size;
+  if (available == 0) {
+    throw std::runtime_error(
+        "Val split holds fewer windows than one batch; lower --batch-size or "
+        "--block-size");
+  }
+  return std::min(config.eval_iters, available);
+}
+
 double estimate_loss(Model &model, const TrainingData &dataset,
                      Dataset::Split split, const TrainConfig &config) {
   const NoGradGuard no_grad;
   std::mt19937_64 rng(config.seed);
+  const bool is_val = split == Dataset::Split::kVal;
+  const size_t batches =
+      is_val ? val_batches(dataset, config) : config.eval_iters;
   model.eval();
 
   double total = 0.0;
-  for (size_t i = 0; i < config.eval_iters; i++) {
+  for (size_t i = 0; i < batches; i++) {
     Dataset::Batch batch =
-        dataset.sample(config.batch_size, config.block_size, split, rng);
+        is_val ? dataset.val_batch(config.batch_size, config.block_size, i)
+               : dataset.sample(config.batch_size, config.block_size, split,
+                                rng);
     auto input = token_tensor(batch.inputs, config.batch_size,
                               config.block_size, config.device);
     auto logits = model.forward(input);
@@ -584,7 +614,7 @@ double estimate_loss(Model &model, const TrainingData &dataset,
   }
 
   model.train();
-  return total / static_cast<double>(config.eval_iters);
+  return total / static_cast<double>(batches);
 }
 
 void run_sample(const TrainConfig &config) {
@@ -676,6 +706,9 @@ int main(int argc, char **argv) {
                             config.seed);
     std::cout << "train samples per epoch: " << train_order.samples_per_epoch()
               << "\n";
+    std::cout << "val pass: " << val_batches(dataset, config) << " of "
+              << dataset.val_windows(config.block_size) / config.batch_size
+              << " available batches\n";
     GPTConfig model_config = build_model_config(config);
     Model model(dataset.vocab_size(), model_config);
 
