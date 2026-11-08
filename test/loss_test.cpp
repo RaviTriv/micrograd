@@ -94,7 +94,35 @@ TEST(Loss, CrossEntropyRejectsEmptyBatch) {
   EXPECT_THROW(cross_entropy(Make({0, 3}, {}), {}), std::invalid_argument);
 }
 
-TEST(Loss, CrossEntropyRejectsNonMatrixLogits) {
+TEST(Loss, CrossEntropyFlattensLeadingDimensions) {
+  const std::vector<scalar_t> values = {0.0f, 1.0f, 2.0f, 3.0f, 1.0f, 0.5f,
+                                        -1.0f, 2.0f, 0.0f, 4.0f, 4.0f, 4.0f};
+  const std::vector<size_t> targets = {2, 0, 1, 1};
+  auto rank3 = cross_entropy(Make({2, 2, 3}, values), targets);
+  auto rank2 = cross_entropy(Make({4, 3}, values), targets);
+  EXPECT_NEAR(Scalar(rank3), Scalar(rank2), kTolerance);
+}
+
+TEST(Loss, CrossEntropyRank3GradientMatchesRank2) {
+  const std::vector<scalar_t> values = {0.0f, 1.0f, 2.0f, 3.0f, 1.0f, 0.5f,
+                                        -1.0f, 2.0f, 0.0f, 4.0f, 4.0f, 4.0f};
+  const std::vector<size_t> targets = {2, 0, 1, 1};
+  auto rank3 = leaf({2, 2, 3}, values);
+  auto rank2 = leaf({4, 3}, values);
+  cross_entropy(rank3, targets)->backward();
+  cross_entropy(rank2, targets)->backward();
+  for (size_t i = 0; i < values.size(); i++) {
+    EXPECT_NEAR(rank3->grad()[i], rank2->grad()[i], kTolerance)
+        << "at index " << i;
+  }
+}
+
+TEST(Loss, CrossEntropyRank3RejectsTargetCountMismatch) {
+  EXPECT_THROW(cross_entropy(Make({2, 2, 3}, Arange(12)), {0, 1, 2}),
+               std::invalid_argument);
+}
+
+TEST(Loss, CrossEntropyRejectsRankOneLogits) {
   EXPECT_THROW(cross_entropy(Make({3}, {0.0f, 0.0f, 0.0f}), {0}),
                std::invalid_argument);
 }

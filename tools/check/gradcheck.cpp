@@ -275,6 +275,11 @@ std::vector<Case> AllCases() {
         return micrograd::cross_entropy(in[0], {0, 2});
       },
       {signed_matrix()});
+  add("cross_entropy_rank3",
+      [](const TensorList &in) {
+        return micrograd::cross_entropy(in[0], {0, 2, 1, 2, 0, 1});
+      },
+      {signed_cube()});
   add("binary_cross_entropy",
       [](const TensorList &in) {
         return micrograd::binary_cross_entropy(in[0], in[1]);

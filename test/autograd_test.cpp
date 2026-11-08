@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 #include "test_helpers.h"
@@ -43,6 +44,22 @@ TEST(Autograd, TrackedIndicesDoNotEnableGrad) {
 
   EXPECT_FALSE(weights->embedding_lookup(indices)->requires_grad());
   EXPECT_FALSE(weights->gather_per_row(indices)->requires_grad());
+}
+
+TEST(Autograd, GatherPerRowFromHostIndicesMatchesTensorIndices) {
+  auto values = Tensor::from_values({3, 2}, {1, 2, 3, 4, 5, 6});
+  auto from_tensor = values->gather_per_row(vec({1, 0, 1}));
+  auto from_host = values->gather_per_row(std::vector<size_t>{1, 0, 1});
+  EXPECT_EQ(Values(from_host), Values(from_tensor));
+  EXPECT_EQ(Values(from_host), (std::vector<scalar_t>{2, 3, 6}));
+}
+
+TEST(Autograd, GatherPerRowRejectsOutOfRangeHostIndex) {
+  auto values = Tensor::from_values({2, 2}, {1, 2, 3, 4});
+  EXPECT_THROW(values->gather_per_row(std::vector<size_t>{0, 2}),
+               std::out_of_range);
+  EXPECT_THROW(values->gather_per_row(std::vector<size_t>{0}),
+               std::invalid_argument);
 }
 
 TEST(Autograd, GradientSkipsIndices) {

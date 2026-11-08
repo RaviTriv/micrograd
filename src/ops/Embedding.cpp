@@ -10,6 +10,19 @@
 #include "micrograd/ops/Dispatch.h"
 
 namespace micrograd {
+namespace {
+
+void RequireRowGather(const std::vector<size_t> &shape, size_t index_count) {
+  if (shape.size() != 2) {
+    throw std::invalid_argument("gather_per_row expects a rank 2 input");
+  }
+  if (index_count != shape[0]) {
+    throw std::invalid_argument(
+        "gather_per_row index count does not match the row count");
+  }
+}
+
+}  // namespace
 
 std::shared_ptr<Tensor> Tensor::embedding_lookup(
     const std::shared_ptr<Tensor> &indices) {
@@ -42,17 +55,10 @@ std::shared_ptr<Tensor> Tensor::embedding_lookup(
 
 std::shared_ptr<Tensor> Tensor::gather_per_row(
     const std::shared_ptr<Tensor> &indices) {
-  if (shape_.size() != 2) {
-    throw std::invalid_argument("gather_per_row expects a rank 2 input");
-  }
+  RequireRowGather(shape_, indices->size());
 
   size_t rows = shape_[0];
   size_t cols = shape_[1];
-  if (indices->size() != rows) {
-    throw std::invalid_argument(
-        "gather_per_row index count does not match the row count");
-  }
-
   Storage host_indices = indices->data_storage().copy_to(Device::CPU);
   const auto *index_values =
       static_cast<const scalar_t *>(host_indices.host_pointer());
@@ -66,6 +72,29 @@ std::shared_ptr<Tensor> Tensor::gather_per_row(
   return apply(OpId::kGatherPerRow, {rows},
                {.lhs = shared_from_this(),
                 .rhs = indices,
+                .grad_through_lhs_only = true});
+}
+
+std::shared_ptr<Tensor> Tensor::gather_per_row(
+    const std::vector<size_t> &indices) {
+  RequireRowGather(shape_, indices.size());
+
+  size_t rows = shape_[0];
+  size_t cols = shape_[1];
+  std::vector<scalar_t> index_values(rows);
+  for (size_t i = 0; i < rows; i++) {
+    if (indices[i] >= cols) {
+      throw std::out_of_range("gather_per_row index is out of range");
+    }
+    index_values[i] = static_cast<scalar_t>(indices[i]);
+  }
+  auto index_tensor =
+      Tensor::from_values(std::vector<size_t>{rows}, std::move(index_values));
+  index_tensor->to(backend());
+
+  return apply(OpId::kGatherPerRow, {rows},
+               {.lhs = shared_from_this(),
+                .rhs = index_tensor,
                 .grad_through_lhs_only = true});
 }
 

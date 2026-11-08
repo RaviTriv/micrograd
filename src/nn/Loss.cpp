@@ -47,34 +47,31 @@ std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
 std::shared_ptr<Tensor> cross_entropy(
     const std::shared_ptr<Tensor> &logits,
     const std::vector<size_t> &target_indices) {
-  if (logits->shape().size() != 2) {
-    throw std::invalid_argument("cross_entropy expects rank 2 logits");
+  const std::vector<size_t> &shape = logits->shape();
+  if (shape.size() < 2) {
+    throw std::invalid_argument("cross_entropy expects logits of rank 2 or more");
   }
 
-  size_t batch = logits->shape()[0];
-  size_t classes = logits->shape()[1];
-  if (batch == 0) {
+  size_t rows = 1;
+  for (size_t i = 0; i + 1 < shape.size(); i++) {
+    rows *= shape[i];
+  }
+  size_t classes = shape.back();
+  if (rows == 0) {
     throw std::invalid_argument("cross_entropy requires a nonempty batch");
   }
-  if (target_indices.size() != batch) {
+  if (target_indices.size() != rows) {
     throw std::invalid_argument(
         "cross_entropy target count does not match the batch size");
   }
 
-  std::vector<scalar_t> index_values(batch);
-  for (size_t i = 0; i < batch; i++) {
-    if (target_indices[i] >= classes) {
-      throw std::out_of_range("cross_entropy target index is out of range");
-    }
-    index_values[i] = static_cast<scalar_t>(target_indices[i]);
-  }
-  auto indices = Tensor::from_values(std::vector<size_t>{batch}, index_values);
-  indices->to(logits->backend());
+  auto flat = shape.size() == 2
+                  ? logits
+                  : logits->reshape({static_cast<int64_t>(rows),
+                                     static_cast<int64_t>(classes)});
+  auto picked = flat->log_softmax(1)->gather_per_row(target_indices);
 
-  auto log_probs = logits->log_softmax(1);
-  auto picked = log_probs->gather_per_row(indices);
-
-  return picked->sum()->neg()->div(static_cast<scalar_t>(batch));
+  return picked->sum()->neg()->div(static_cast<scalar_t>(rows));
 }
 
 std::shared_ptr<Tensor> binary_cross_entropy(
