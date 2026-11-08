@@ -60,3 +60,5 @@ compile_commands.json
 data/*
 !data/march-native-*/
 /training.log
+/gpt.bin
+/gpt.bin.opt

@@ -12,7 +12,7 @@ namespace micrograd {
 
 class Linear : public nn::Module {
  public:
-  Linear(size_t in_features, size_t out_features);
+  Linear(size_t in_features, size_t out_features, bool bias = true);
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;
   std::shared_ptr<Tensor> weights();

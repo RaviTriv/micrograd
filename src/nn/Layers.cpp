@@ -16,23 +16,23 @@
 
 namespace micrograd {
 
-Linear::Linear(size_t in_features, size_t out_features) {
+Linear::Linear(size_t in_features, size_t out_features, bool bias) {
   weights_ = Tensor::zeros(std::vector<size_t>{in_features, out_features});
   init::normal_(weights_, 0.0f,
                 std::sqrt(1.0f / static_cast<scalar_t>(in_features)));
-
-  std::vector<scalar_t> b_data(out_features, 0.0f);
-  bias_ = Tensor::from_values(std::vector<size_t>{1, out_features}, b_data);
-
   weights_->set_requires_grad(true);
-  bias_->set_requires_grad(true);
-
   register_parameter("weight", weights_);
-  register_parameter("bias", bias_);
+
+  if (bias) {
+    bias_ = Tensor::zeros(std::vector<size_t>{out_features});
+    bias_->set_requires_grad(true);
+    register_parameter("bias", bias_);
+  }
 }
 
 std::shared_ptr<Tensor> Linear::forward(const std::shared_ptr<Tensor> &input) {
-  return input->matmul(weights_)->add(bias_);
+  auto output = input->matmul(weights_);
+  return bias_ ? output->add(bias_) : output;
 }
 
 std::shared_ptr<Tensor> Linear::weights() { return weights_; }

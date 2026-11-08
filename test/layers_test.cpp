@@ -39,7 +39,43 @@ void Fill(const std::shared_ptr<Tensor> &tensor,
 TEST(Linear, ParameterShapes) {
   Linear layer(3, 2);
   EXPECT_EQ(layer.weights()->shape(), (std::vector<size_t>{3, 2}));
-  EXPECT_EQ(layer.bias()->shape(), (std::vector<size_t>{1, 2}));
+  EXPECT_EQ(layer.bias()->shape(), (std::vector<size_t>{2}));
+}
+
+TEST(Linear, NoBias) {
+  Linear layer(3, 2, false);
+  EXPECT_EQ(layer.bias(), nullptr);
+
+  const auto params = layer.parameters();
+  ASSERT_EQ(params.size(), 1u);
+  EXPECT_EQ(params[0], layer.weights());
+
+  const auto named = layer.named_parameters();
+  ASSERT_EQ(named.size(), 1u);
+  EXPECT_EQ(named[0].first, "weight");
+
+  Fill(layer.weights(), {1, 2, 3, 4, 5, 6});
+  const auto values = Values(layer.forward(Make({1, 3}, {1, 0, -1})));
+  ASSERT_EQ(values.size(), 2u);
+  EXPECT_NEAR(values[0], -4.0f, kTolerance);
+  EXPECT_NEAR(values[1], -4.0f, kTolerance);
+}
+
+TEST(Linear, RankOneBiasBroadcastsOverThreeDimInput) {
+  Linear layer(2, 2);
+  Fill(layer.weights(), {1, 0, 0, 1});
+  Fill(layer.bias(), {10, 20});
+
+  auto output = layer.forward(Make({2, 2, 2}, {1, 2, 3, 4, 5, 6, 7, 8}));
+  EXPECT_EQ(output->shape(), (std::vector<size_t>{2, 2, 2}));
+  const std::vector<scalar_t> expected = {11, 22, 13, 24, 15, 26, 17, 28};
+  EXPECT_EQ(Values(output), expected);
+
+  output->sum()->backward();
+  EXPECT_EQ(layer.bias()->shape(), (std::vector<size_t>{2}));
+  for (auto value : layer.bias()->grad()) {
+    EXPECT_NEAR(value, 4.0f, kTolerance);
+  }
 }
 
 TEST(Linear, OutputShapeForBatch) {
