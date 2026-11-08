@@ -754,6 +754,7 @@ int main(int argc, char **argv) {
         tokens_per_micro_step * config.grad_accum_steps;
     size_t timed_steps = 0;
     double timed_seconds = 0.0;
+    double timed_data_seconds = 0.0;
 
     for (size_t it = start_iter; it < config.max_iters; it++) {
       if (config.eval_interval > 0 && it % config.eval_interval == 0) {
@@ -779,12 +780,15 @@ int main(int argc, char **argv) {
       const auto step_start = std::chrono::steady_clock::now();
       model.train();
       optimizer.zero_grad();
+      double step_data_seconds = 0.0;
       for (size_t micro_step = 0; micro_step < config.grad_accum_steps;
            micro_step++) {
+        const auto data_start = std::chrono::steady_clock::now();
         Dataset::Batch batch =
             dataset.train_batch(config.batch_size, train_order);
         auto input = token_tensor(batch.inputs, config.batch_size,
                                   config.block_size, config.device);
+        step_data_seconds += seconds_since(data_start);
         auto logits = model.forward(input);
         auto flat_logits = logits->reshape(
             {static_cast<int64_t>(config.batch_size * config.block_size),
@@ -805,16 +809,22 @@ int main(int argc, char **argv) {
         continue;
       }
       timed_seconds += seconds_since(step_start);
+      timed_data_seconds += step_data_seconds;
       timed_steps++;
       if (timed_steps == config.throughput_interval) {
         double seconds_per_step =
             timed_seconds / static_cast<double>(timed_steps);
         double tokens_per_second =
             static_cast<double>(tokens_per_step) / seconds_per_step;
+        double data_ms_per_step =
+            timed_data_seconds * 1000.0 / static_cast<double>(timed_steps);
         std::cout << "step " << it << ": " << tokens_per_second << " tok/s, "
-                  << seconds_per_step * 1000.0 << " ms/step\n";
+                  << seconds_per_step * 1000.0 << " ms/step, data "
+                  << data_ms_per_step << " ms/step ("
+                  << 100.0 * timed_data_seconds / timed_seconds << "%)\n";
         timed_steps = 0;
         timed_seconds = 0.0;
+        timed_data_seconds = 0.0;
       }
     }
 
