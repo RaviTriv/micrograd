@@ -34,6 +34,12 @@ TEST(Stats, SequentialSumsAllLayers) {
   EXPECT_EQ(param_bytes(net), 109386u * 4);
 }
 
+TEST(Stats, SharedLayerCountedOnce) {
+  auto layer = std::make_shared<Linear>(3, 2);
+  Sequential net({layer, layer});
+  EXPECT_EQ(param_count(net), 3u * 2 + 2);
+}
+
 TEST(Stats, LinearFlopsMatchBook) {
   EXPECT_EQ(linear_flops(32, 784, 256), 12853248u);
   EXPECT_EQ(linear_flops(32, 784, 256, false), 12845056u);

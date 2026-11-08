@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -25,14 +26,17 @@ class Module {
 
   std::vector<std::shared_ptr<Tensor>> parameters() const {
     std::vector<std::shared_ptr<Tensor>> result;
-    collect_parameters(result);
+    for (auto &entry : named_parameters()) {
+      result.push_back(std::move(entry.second));
+    }
     return result;
   }
 
   std::vector<std::pair<std::string, std::shared_ptr<Tensor>>>
   named_parameters() const {
     std::vector<std::pair<std::string, std::shared_ptr<Tensor>>> result;
-    collect_named_parameters("", result);
+    std::unordered_set<const Tensor *> seen;
+    collect_named_parameters("", seen, result);
     return result;
   }
 
@@ -71,24 +75,17 @@ class Module {
   }
 
  private:
-  void collect_parameters(std::vector<std::shared_ptr<Tensor>> &result) const {
-    for (const auto &entry : parameters_) {
-      result.push_back(entry.second);
-    }
-    for (const auto &entry : modules_) {
-      entry.second->collect_parameters(result);
-    }
-  }
-
   void collect_named_parameters(
-      const std::string &prefix,
+      const std::string &prefix, std::unordered_set<const Tensor *> &seen,
       std::vector<std::pair<std::string, std::shared_ptr<Tensor>>> &result)
       const {
     for (const auto &entry : parameters_) {
-      result.emplace_back(prefix + entry.first, entry.second);
+      if (seen.insert(entry.second.get()).second) {
+        result.emplace_back(prefix + entry.first, entry.second);
+      }
     }
     for (const auto &entry : modules_) {
-      entry.second->collect_named_parameters(prefix + entry.first + ".",
+      entry.second->collect_named_parameters(prefix + entry.first + ".", seen,
                                              result);
     }
   }

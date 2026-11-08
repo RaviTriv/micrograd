@@ -265,6 +265,43 @@ TEST(Sequential, CollectsParametersInOrder) {
   EXPECT_EQ(named[3].first, "2.bias");
 }
 
+TEST(Sequential, SharedLayerCountedOnce) {
+  auto layer = std::make_shared<Linear>(3, 2);
+  Sequential net({layer, layer});
+
+  const auto params = net.parameters();
+  ASSERT_EQ(params.size(), 2u);
+  EXPECT_EQ(params[0], layer->weights());
+  EXPECT_EQ(params[1], layer->bias());
+
+  const auto named = net.named_parameters();
+  ASSERT_EQ(named.size(), 2u);
+  EXPECT_EQ(named[0].first, "0.weight");
+  EXPECT_EQ(named[1].first, "0.bias");
+}
+
+TEST(Module, SharedTensorKeepsFirstName) {
+  struct Tied : nn::Module {
+    explicit Tied(const std::shared_ptr<Tensor> &shared) {
+      register_parameter("first", shared);
+      register_parameter("second", shared);
+    }
+    std::shared_ptr<Tensor> forward(
+        const std::shared_ptr<Tensor> &input) override {
+      return input;
+    }
+  };
+
+  auto shared = leaf({2}, {1, 2});
+  Tied module(shared);
+
+  const auto named = module.named_parameters();
+  ASSERT_EQ(named.size(), 1u);
+  EXPECT_EQ(named[0].first, "first");
+  EXPECT_EQ(named[0].second, shared);
+  EXPECT_EQ(module.parameters().size(), 1u);
+}
+
 TEST(Sequential, ChainsForward) {
   auto first = std::make_shared<Linear>(2, 2);
   auto second = std::make_shared<Linear>(2, 1);
