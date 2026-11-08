@@ -9,6 +9,14 @@ namespace micrograd {
 
 std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
                                  const std::shared_ptr<Tensor> &target) {
+  if (prediction->shape() != target->shape()) {
+    throw std::invalid_argument(
+        "mse_loss prediction and target shapes do not match");
+  }
+  if (prediction->size() == 0) {
+    throw std::invalid_argument("mse_loss requires a nonempty input");
+  }
+
   auto diff = prediction->sub(target);
   auto squared = diff->pow(2.0f);
 
