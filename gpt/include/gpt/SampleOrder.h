@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <istream>
+#include <ostream>
 #include <vector>
 
 namespace micrograd::gpt {
@@ -17,11 +19,16 @@ class SampleOrder {
               uint64_t seed);
 
   Location next();
+  void seek(size_t samples);
+
+  void write_state(std::ostream &out) const;
+  void read_state(std::istream &in);
 
   size_t block_size() const { return block_size_; }
   size_t samples_per_epoch() const { return order_.size(); }
   size_t epoch() const { return epoch_; }
   size_t position() const { return position_; }
+  size_t consumed() const { return (epoch_ * order_.size()) + position_; }
 
  private:
   void shuffle();

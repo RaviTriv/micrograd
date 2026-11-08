@@ -421,6 +421,34 @@ void save_optimizer_state(const std::string &path,
   }
 }
 
+std::string data_state_path(const std::string &checkpoint_path) {
+  return checkpoint_path + ".data";
+}
+
+void save_data_state(const std::string &path, const SampleOrder &order) {
+  std::ofstream file(path, std::ios::binary);
+  if (!file.is_open()) {
+    throw std::runtime_error("Could not open file for saving: " + path);
+  }
+  order.write_state(file);
+  if (!file) {
+    throw std::runtime_error("Failed while writing data state: " + path);
+  }
+}
+
+void load_data_state(const std::string &path, size_t samples_from_steps,
+                     SampleOrder &order) {
+  std::ifstream file(path, std::ios::binary);
+  if (!file.is_open()) {
+    std::cout << "no data state at " << path << ", assuming "
+              << samples_from_steps
+              << " samples consumed from the optimizer step count\n";
+    order.seek(samples_from_steps);
+    return;
+  }
+  order.read_state(file);
+}
+
 void load_optimizer_state(const std::string &path, TrainOptimizer &optimizer) {
   std::ifstream file(path, std::ios::binary);
   if (!file.is_open()) {
@@ -638,6 +666,12 @@ int main(int argc, char **argv) {
       load(config.resume_path, model);
       load_optimizer_state(optimizer_state_path(config.resume_path), optimizer);
       start_iter = optimizer.step_count();
+      load_data_state(
+          data_state_path(config.resume_path),
+          start_iter * config.batch_size * config.grad_accum_steps,
+          train_order);
+      std::cout << "resuming data order at epoch " << train_order.epoch()
+                << ", sample " << train_order.position() << "\n";
     }
 
     std::ofstream log_file(config.log_path,
@@ -674,6 +708,7 @@ int main(int argc, char **argv) {
         save(config.checkpoint_path, model);
         save_optimizer_state(optimizer_state_path(config.checkpoint_path),
                              optimizer);
+        save_data_state(data_state_path(config.checkpoint_path), train_order);
       }
 
       const auto step_start = std::chrono::steady_clock::now();
@@ -725,6 +760,7 @@ int main(int argc, char **argv) {
     save(config.checkpoint_path, model);
     save_optimizer_state(optimizer_state_path(config.checkpoint_path),
                          optimizer);
+    save_data_state(data_state_path(config.checkpoint_path), train_order);
     std::cout << "Saved trained model to " << config.checkpoint_path << "\n";
   } catch (const std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";

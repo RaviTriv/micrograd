@@ -6,9 +6,38 @@
 #include <numeric>
 #include <random>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace micrograd::gpt {
+
+namespace {
+constexpr uint32_t kStateMagic = 20261108;
+constexpr uint32_t kStateVersion = 1;
+
+template <typename T>
+void write_value(std::ostream &out, T value) {
+  out.write(reinterpret_cast<const char *>(&value), sizeof(value));
+}
+
+template <typename T>
+T read_value(std::istream &in) {
+  T value{};
+  in.read(reinterpret_cast<char *>(&value), sizeof(value));
+  if (!in) {
+    throw std::runtime_error("SampleOrder: data state is truncated");
+  }
+  return value;
+}
+
+void expect_match(const char *field, uint64_t saved, uint64_t current) {
+  if (saved != current) {
+    throw std::runtime_error(
+        std::string("SampleOrder: data state was saved with ") + field + " " +
+        std::to_string(saved) + ", this run has " + std::to_string(current));
+  }
+}
+}  // namespace
 
 SampleOrder::SampleOrder(const std::vector<size_t> &span_tokens, size_t block,
                          uint64_t seed)
@@ -46,6 +75,36 @@ SampleOrder::Location SampleOrder::next() {
     shuffle();
   }
   return locate(order_[position_++]);
+}
+
+void SampleOrder::seek(size_t samples) {
+  epoch_ = samples / order_.size();
+  position_ = samples % order_.size();
+  shuffle();
+}
+
+void SampleOrder::write_state(std::ostream &out) const {
+  write_value(out, kStateMagic);
+  write_value(out, kStateVersion);
+  write_value(out, seed_);
+  write_value(out, static_cast<uint64_t>(block_size_));
+  write_value(out, static_cast<uint64_t>(order_.size()));
+  write_value(out, static_cast<uint64_t>(consumed()));
+}
+
+void SampleOrder::read_state(std::istream &in) {
+  if (read_value<uint32_t>(in) != kStateMagic) {
+    throw std::runtime_error("SampleOrder: not a data state file");
+  }
+  auto version = read_value<uint32_t>(in);
+  if (version != kStateVersion) {
+    throw std::runtime_error("SampleOrder: unsupported data state version " +
+                             std::to_string(version));
+  }
+  expect_match("seed", read_value<uint64_t>(in), seed_);
+  expect_match("block size", read_value<uint64_t>(in), block_size_);
+  expect_match("samples per epoch", read_value<uint64_t>(in), order_.size());
+  seek(static_cast<size_t>(read_value<uint64_t>(in)));
 }
 
 void SampleOrder::shuffle() {

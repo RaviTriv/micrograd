@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -116,4 +117,69 @@ TEST(SampleOrder, DatasetTrainBatchTargetsAreNextTokens) {
 
   SampleOrder wrong({0, 100}, block, 3);
   EXPECT_THROW(dataset.train_batch(1, wrong), std::out_of_range);
+}
+
+TEST(SampleOrder, ConsumedCountsAcrossEpochs) {
+  SampleOrder order({100}, 8, 1);
+  const size_t per_epoch = order.samples_per_epoch();
+  EXPECT_EQ(order.consumed(), 0u);
+  draw(order, per_epoch + 3);
+  EXPECT_EQ(order.epoch(), 1u);
+  EXPECT_EQ(order.consumed(), per_epoch + 3);
+}
+
+TEST(SampleOrder, SeekMatchesDrawing) {
+  const size_t per_epoch = SampleOrder({100}, 8, 1).samples_per_epoch();
+  for (size_t skip : {size_t{0}, size_t{5}, per_epoch, (2 * per_epoch) + 4}) {
+    SampleOrder drawn({100}, 8, 1);
+    draw(drawn, skip);
+    SampleOrder sought({100}, 8, 1);
+    sought.seek(skip);
+    EXPECT_EQ(sought.consumed(), skip);
+    EXPECT_EQ(draw(drawn, 2 * per_epoch), draw(sought, 2 * per_epoch))
+        << "skip " << skip;
+  }
+}
+
+TEST(SampleOrder, ResumeMatchesUninterruptedRun) {
+  const std::vector<size_t> spans{500, 300};
+  SampleOrder uninterrupted(spans, 8, 9);
+  const size_t before = (2 * uninterrupted.samples_per_epoch()) + 7;
+  const size_t after = 3 * uninterrupted.samples_per_epoch();
+  draw(uninterrupted, before);
+  auto expected = draw(uninterrupted, after);
+
+  SampleOrder first(spans, 8, 9);
+  draw(first, before);
+  std::stringstream state;
+  first.write_state(state);
+
+  SampleOrder resumed(spans, 8, 9);
+  resumed.read_state(state);
+  EXPECT_EQ(resumed.consumed(), before);
+  EXPECT_EQ(draw(resumed, after), expected);
+}
+
+TEST(SampleOrder, RejectsMismatchedState) {
+  SampleOrder saved({500, 300}, 8, 9);
+  draw(saved, 10);
+  std::stringstream state;
+  saved.write_state(state);
+  const std::string bytes = state.str();
+
+  auto load_into = [&](SampleOrder order, const std::string &data) {
+    std::stringstream in(data);
+    order.read_state(in);
+  };
+  EXPECT_NO_THROW(load_into(SampleOrder({500, 300}, 8, 9), bytes));
+  EXPECT_THROW(load_into(SampleOrder({500, 300}, 8, 10), bytes),
+               std::runtime_error);
+  EXPECT_THROW(load_into(SampleOrder({500, 300}, 16, 9), bytes),
+               std::runtime_error);
+  EXPECT_THROW(load_into(SampleOrder({500, 400}, 8, 9), bytes),
+               std::runtime_error);
+  EXPECT_THROW(load_into(SampleOrder({500, 300}, 8, 9), bytes.substr(0, 20)),
+               std::runtime_error);
+  EXPECT_THROW(load_into(SampleOrder({500, 300}, 8, 9), "not a state file!!"),
+               std::runtime_error);
 }
