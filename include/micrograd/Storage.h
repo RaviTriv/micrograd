@@ -5,10 +5,6 @@
 #include "micrograd/DType.h"
 #include "micrograd/Device.h"
 
-namespace MTL {
-class Buffer;
-}
-
 namespace micrograd {
 
 class Storage {
@@ -29,7 +25,6 @@ class Storage {
   void *host_pointer();
   const void *host_pointer() const;
   void *device_pointer() const;
-  MTL::Buffer *buffer() const;
   size_t bytes() const { return bytes_; }
   Device device() const { return device_; }
   DType dtype() const { return dtype_; }

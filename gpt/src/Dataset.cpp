@@ -17,6 +17,20 @@ constexpr int32_t kShardMagic = 20240520;
 constexpr int32_t kShardVersion = 1;
 constexpr size_t kShardHeaderInts = 256;
 constexpr size_t kShardHeaderBytes = kShardHeaderInts * sizeof(int32_t);
+
+template <typename Token>
+void copy_window(const Token *tokens, size_t token_count, size_t offset,
+                 size_t block_size, size_t row, Dataset::Batch &batch) {
+  if (offset + block_size >= token_count) {
+    throw std::out_of_range(
+        "train_batch: sample order was built for a different dataset");
+  }
+  for (size_t col = 0; col < block_size; col++) {
+    size_t index = (row * block_size) + col;
+    batch.inputs[index] = tokens[offset + col];
+    batch.targets[index] = tokens[offset + col + 1];
+  }
+}
 }  // namespace
 
 Dataset::Dataset(const std::string &path, double val_fraction) {
@@ -84,6 +98,29 @@ Dataset::Batch Dataset::sample(size_t batch_size, size_t block_size,
       batch.inputs[index] = tokens_[start + col];
       batch.targets[index] = tokens_[start + col + 1];
     }
+  }
+  return batch;
+}
+
+std::vector<size_t> Dataset::train_span_tokens() const {
+  return {train_size_};
+}
+
+Dataset::Batch Dataset::train_batch(size_t batch_size,
+                                    SampleOrder &order) const {
+  size_t block_size = order.block_size();
+  Batch batch;
+  batch.inputs.resize(batch_size * block_size);
+  batch.targets.resize(batch_size * block_size);
+  for (size_t row = 0; row < batch_size; row++) {
+    SampleOrder::Location location = order.next();
+    if (location.span != 0) {
+      throw std::out_of_range(
+          "Dataset::train_batch: sample order was built for a different "
+          "dataset");
+    }
+    copy_window(tokens_.data(), train_size_, location.offset, block_size, row,
+                batch);
   }
   return batch;
 }
@@ -215,6 +252,35 @@ Dataset::Batch ShardedDataset::sample(size_t batch_size, size_t block_size,
       batch.inputs[index] = shard.tokens[start + col];
       batch.targets[index] = shard.tokens[start + col + 1];
     }
+  }
+  return batch;
+}
+
+std::vector<size_t> ShardedDataset::train_span_tokens() const {
+  std::vector<size_t> spans;
+  spans.reserve(train_shards_.size());
+  for (const auto &shard : train_shards_) {
+    spans.push_back(shard.token_count);
+  }
+  return spans;
+}
+
+Dataset::Batch ShardedDataset::train_batch(size_t batch_size,
+                                           SampleOrder &order) const {
+  size_t block_size = order.block_size();
+  Dataset::Batch batch;
+  batch.inputs.resize(batch_size * block_size);
+  batch.targets.resize(batch_size * block_size);
+  for (size_t row = 0; row < batch_size; row++) {
+    SampleOrder::Location location = order.next();
+    if (location.span >= train_shards_.size()) {
+      throw std::out_of_range(
+          "ShardedDataset::train_batch: sample order was built for a "
+          "different dataset");
+    }
+    const Shard &shard = train_shards_[location.span];
+    copy_window(shard.tokens, shard.token_count, location.offset, block_size,
+                row, batch);
   }
   return batch;
 }

@@ -49,7 +49,6 @@ using Activation =
 struct ActivationCase {
   std::string name;
   Activation apply;
-  bool needs_softmax_kernel;
 };
 
 struct Row {
@@ -63,9 +62,6 @@ struct Row {
 
 std::vector<Device> CompiledDevices() {
   std::vector<Device> devices{Device::CPU};
-#ifdef MICROGRAD_METAL_ENABLED
-  devices.push_back(Device::Metal);
-#endif
 #ifdef MICROGRAD_CUDA_ENABLED
   devices.push_back(Device::CUDA);
 #endif
@@ -76,8 +72,6 @@ std::string DeviceName(Device device) {
   switch (device) {
     case Device::CPU:
       return "cpu";
-    case Device::Metal:
-      return "metal";
     case Device::CUDA:
       return "cuda";
   }
@@ -220,16 +214,12 @@ Row BenchEpoch(Device device, size_t batch_size, size_t total_samples) {
 
 std::vector<ActivationCase> ActivationCases() {
   return {
-      {"relu", [](const auto &x) { return x->relu(); }, false},
-      {"sigmoid", [](const auto &x) { return x->sigmoid(); }, false},
-      {"tanh", [](const auto &x) { return x->tanh(); }, false},
-      {"gelu", [](const auto &x) { return micrograd::gelu(x); }, false},
-      {"softmax", [](const auto &x) { return x->softmax(-1); }, true},
+      {"relu", [](const auto &x) { return x->relu(); }},
+      {"sigmoid", [](const auto &x) { return x->sigmoid(); }},
+      {"tanh", [](const auto &x) { return x->tanh(); }},
+      {"gelu", [](const auto &x) { return micrograd::gelu(x); }},
+      {"softmax", [](const auto &x) { return x->softmax(-1); }},
   };
-}
-
-bool SupportsActivation(Device device, const ActivationCase &activation) {
-  return !activation.needs_softmax_kernel || device != Device::Metal;
 }
 
 std::shared_ptr<Tensor> StandardNormal(size_t elements) {
@@ -342,9 +332,6 @@ int main() {
   for (auto device : CompiledDevices()) {
     for (const auto &size : activation_sizes) {
       for (const auto &activation : ActivationCases()) {
-        if (!SupportsActivation(device, activation)) {
-          continue;
-        }
         rows.push_back(BenchActivationForward(device, activation, size));
         rows.push_back(BenchActivationBackward(device, activation, size));
       }

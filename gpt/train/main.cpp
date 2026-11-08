@@ -59,6 +59,7 @@ using micrograd::gpt::gpt2_124m;
 using micrograd::gpt::GPTConfig;
 using micrograd::gpt::Model;
 using micrograd::gpt::sample_token;
+using micrograd::gpt::SampleOrder;
 using micrograd::gpt::ShardedDataset;
 
 constexpr size_t kGpt2VocabSize = 50257;
@@ -104,9 +105,6 @@ struct TrainConfig {
 Device parse_device(const std::string &value) {
   if (value == "cpu") {
     return Device::CPU;
-  }
-  if (value == "metal") {
-    return Device::Metal;
   }
   if (value == "cuda") {
     return Device::CUDA;
@@ -480,6 +478,20 @@ class TrainingData {
     return chars_->sample(batch_size, block_size, split, rng);
   }
 
+  std::vector<size_t> train_span_tokens() const {
+    if (shards_) {
+      return shards_->train_span_tokens();
+    }
+    return chars_->train_span_tokens();
+  }
+
+  Dataset::Batch train_batch(size_t batch_size, SampleOrder &order) const {
+    if (shards_) {
+      return shards_->train_batch(batch_size, order);
+    }
+    return chars_->train_batch(batch_size, order);
+  }
+
   size_t vocab_size() const {
     if (shards_) {
       return kGpt2VocabSize;
@@ -602,6 +614,10 @@ int main(int argc, char **argv) {
     }
 
     TrainingData dataset(config);
+    SampleOrder train_order(dataset.train_span_tokens(), config.block_size,
+                            config.seed);
+    std::cout << "train samples per epoch: " << train_order.samples_per_epoch()
+              << "\n";
     GPTConfig model_config = build_model_config(config);
     Model model(dataset.vocab_size(), model_config);
 
@@ -666,8 +682,7 @@ int main(int argc, char **argv) {
       for (size_t micro_step = 0; micro_step < config.grad_accum_steps;
            micro_step++) {
         Dataset::Batch batch =
-            dataset.sample(config.batch_size, config.block_size,
-                           Dataset::Split::kTrain, global_rng());
+            dataset.train_batch(config.batch_size, train_order);
         auto input = token_tensor(batch.inputs, config.batch_size,
                                   config.block_size, config.device);
         auto logits = model.forward(input);

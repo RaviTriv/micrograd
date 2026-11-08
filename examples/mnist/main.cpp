@@ -31,9 +31,6 @@ Device parse_device(const std::string &value) {
   if (value == "cpu") {
     return Device::CPU;
   }
-  if (value == "metal") {
-    return Device::Metal;
-  }
   if (value == "cuda") {
     return Device::CUDA;
   }

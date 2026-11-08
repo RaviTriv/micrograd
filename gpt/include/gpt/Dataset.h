@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include "gpt/SampleOrder.h"
+
 namespace micrograd::gpt {
 
 class Dataset {
@@ -22,6 +24,9 @@ class Dataset {
 
   Batch sample(size_t batch_size, size_t block_size, Split split,
                std::mt19937_64 &rng) const;
+
+  std::vector<size_t> train_span_tokens() const;
+  Batch train_batch(size_t batch_size, SampleOrder &order) const;
 
   std::vector<size_t> encode(const std::string &text) const;
   char decode(size_t token) const;
@@ -48,6 +53,9 @@ class ShardedDataset {
 
   Dataset::Batch sample(size_t batch_size, size_t block_size,
                         Dataset::Split split, std::mt19937_64 &rng) const;
+
+  std::vector<size_t> train_span_tokens() const;
+  Dataset::Batch train_batch(size_t batch_size, SampleOrder &order) const;
 
   size_t token_count(Dataset::Split split) const;
 

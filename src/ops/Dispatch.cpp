@@ -8,7 +8,6 @@
 #include "micrograd/Tensor.h"
 #include "micrograd/backends/cpu/Ops.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
-#include "micrograd/backends/metal/ops/Ops.h"
 
 namespace micrograd {
 namespace {
@@ -25,7 +24,6 @@ void RegisterBuiltinKernels() {
   ops::cpu::RegisterRmsNormOps();
   ops::cpu::RegisterRotaryOps();
   ops::cpu::RegisterAttentionOps();
-  metal::ops::RegisterMetalOps();
   cuda::ops::RegisterCudaOps();
 }
 

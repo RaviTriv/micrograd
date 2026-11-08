@@ -23,14 +23,7 @@ if(ENABLE_NATIVE_ARCH)
     add_compile_options("$<$<COMPILE_LANGUAGE:CXX>:-march=native>")
 endif()
 
-if(APPLE)
-    option(ENABLE_METAL "Metal GPU acceleration" ON)
-endif()
 option(ENABLE_CUDA "CUDA GPU acceleration" OFF)
-
-if(ENABLE_METAL AND ENABLE_CUDA)
-    message(FATAL_ERROR "ENABLE_METAL and ENABLE_CUDA are mutually exclusive")
-endif()
 
 if(ENABLE_CUDA)
     include(CheckLanguage)
@@ -85,15 +78,6 @@ add_library(micrograd
     src/nn/Serialize.cpp
     src/nn/Stats.cpp
     src/nn/Checkpoint.cpp
-    src/backends/metal/MetalContext.cpp
-    src/backends/metal/Kernels.cpp
-    src/backends/metal/Dispatch.cpp
-
-    src/backends/metal/ops/Register.cpp
-    src/backends/metal/ops/Activations.cpp
-    src/backends/metal/ops/Arithmetic.cpp
-    src/backends/metal/ops/Matmul.cpp
-    src/backends/metal/ops/Reduction.cpp
 
     src/backends/cuda/ops/Register.cpp
 )
@@ -101,23 +85,6 @@ add_library(micrograd
 target_compile_options(micrograd PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Werror>)
 
 target_include_directories(micrograd PUBLIC include)
-
-if(APPLE AND ENABLE_METAL)
-    include(FetchContent)
-    FetchContent_Declare(metalcpp
-        URL https://developer.apple.com/metal/cpp/files/metal-cpp_macOS15_iOS18.zip
-        URL_HASH SHA256=0433df1e0ab13c2b0becbd78665071e3fa28381e9714a3fce28a497892b8a184
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    )
-    FetchContent_MakeAvailable(metalcpp)
-
-    target_compile_definitions(micrograd PUBLIC MICROGRAD_METAL_ENABLED)
-    target_include_directories(micrograd SYSTEM PUBLIC ${metalcpp_SOURCE_DIR})
-    target_link_libraries(micrograd PUBLIC
-        "-framework Metal"
-        "-framework Foundation"
-    )
-endif()
 
 if(ENABLE_CUDA)
     find_package(CUDAToolkit REQUIRED)
@@ -169,6 +136,7 @@ add_library(micrograd_gpt
     gpt/src/GRPO.cpp
     gpt/src/KVCache.cpp
     gpt/src/Model.cpp
+    gpt/src/SampleOrder.cpp
 )
 target_include_directories(micrograd_gpt PUBLIC gpt/include include)
 target_link_libraries(micrograd_gpt PUBLIC micrograd)

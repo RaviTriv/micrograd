@@ -5,10 +5,6 @@
 #include <stdexcept>
 #include <utility>
 
-#ifdef MICROGRAD_METAL_ENABLED
-#include "micrograd/backends/metal/MetalContext.h"
-#endif
-
 #ifdef MICROGRAD_CUDA_ENABLED
 #include "micrograd/backends/cuda/CudaContext.h"
 #endif
@@ -24,21 +20,6 @@ void *allocate(size_t bytes, Device device) {
   switch (device) {
     case Device::CPU:
       return ::operator new(bytes);
-    case Device::Metal: {
-#ifdef MICROGRAD_METAL_ENABLED
-      auto &ctx = MetalContext::instance();
-      if (!ctx.isAvailable() && !ctx.initialize()) {
-        throw std::runtime_error("Metal device is unavailable");
-      }
-      MTL::Buffer *buffer = ctx.createBuffer(bytes);
-      if (!buffer) {
-        throw std::runtime_error("Metal allocation failed");
-      }
-      return buffer;
-#else
-      throw std::runtime_error("Metal support is not compiled in");
-#endif
-    }
     case Device::CUDA: {
 #ifdef MICROGRAD_CUDA_ENABLED
       auto &ctx = CudaContext::instance();
@@ -67,11 +48,6 @@ void deallocate(void *data, [[maybe_unused]] size_t bytes, Device device) {
   switch (device) {
     case Device::CPU:
       ::operator delete(data);
-      return;
-    case Device::Metal:  // NOLINT(bugprone-branch-clone)
-#ifdef MICROGRAD_METAL_ENABLED
-      MetalContext::instance().releaseBuffer(static_cast<MTL::Buffer *>(data));
-#endif
       return;
     case Device::CUDA:
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -166,10 +142,8 @@ Storage &Storage::operator=(  // NOLINT(bugprone-exception-escape)
 Storage Storage::copy_to(Device device) const {
   switch (device_) {
     case Device::CPU:
-    case Device::Metal:
       switch (device) {
         case Device::CPU:
-        case Device::Metal:
           return copy_via_host(*this, device);
         case Device::CUDA:
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -182,7 +156,6 @@ Storage Storage::copy_to(Device device) const {
     case Device::CUDA:
       switch (device) {
         case Device::CPU:
-        case Device::Metal:
 #ifdef MICROGRAD_CUDA_ENABLED
           return copy_cuda_to_host(*this, device);
 #else
@@ -220,25 +193,10 @@ const void *Storage::host_pointer() const {
   if (device_ == Device::CUDA) {
     throw std::runtime_error("Storage host_pointer is not available for CUDA");
   }
-  if (device_ != Device::Metal) {
-    return data_;
-  }
-#ifdef MICROGRAD_METAL_ENABLED
-  MetalContext::instance().synchronize();
-  return static_cast<MTL::Buffer *>(data_)->contents();
-#else
-  return nullptr;
-#endif
+  return data_;
 }
 
 void *Storage::device_pointer() const { return data_; }
-
-MTL::Buffer *Storage::buffer() const {
-  if (device_ != Device::Metal) {
-    return nullptr;
-  }
-  return static_cast<MTL::Buffer *>(device_pointer());
-}
 
 void Storage::release() {
   deallocate(data_, bytes_, device_);
@@ -249,11 +207,6 @@ void Storage::release() {
 void synchronize(Device device) {
   switch (device) {
     case Device::CPU:
-      return;
-    case Device::Metal:
-#ifdef MICROGRAD_METAL_ENABLED
-      MetalContext::instance().synchronize();
-#endif
       return;
     case Device::CUDA:
 #ifdef MICROGRAD_CUDA_ENABLED

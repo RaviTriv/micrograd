@@ -319,9 +319,6 @@ Device ParseDevice(const std::string &value) {
   if (value == "cpu") {
     return Device::CPU;
   }
-  if (value == "metal") {
-    return Device::Metal;
-  }
   if (value == "cuda") {
     return Device::CUDA;
   }
@@ -340,8 +337,6 @@ const char *DeviceName(Device device) {
   switch (device) {
     case Device::CPU:
       return "cpu";
-    case Device::Metal:
-      return "metal";
     case Device::CUDA:
       return "cuda";
   }

@@ -15,12 +15,13 @@ add_executable(micrograd_tests
     init_test.cpp
     layers_test.cpp
     loss_test.cpp
+    sample_order_test.cpp
     serialization_test.cpp
     stats_test.cpp
     tensor_core_test.cpp
     training_test.cpp
 )
-target_link_libraries(micrograd_tests PRIVATE micrograd GTest::gtest_main)
+target_link_libraries(micrograd_tests PRIVATE micrograd_gpt GTest::gtest_main)
 target_compile_options(micrograd_tests PRIVATE -Werror)
 
 include(GoogleTest)
