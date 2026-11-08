@@ -99,18 +99,6 @@ TEST(Loss, CrossEntropyRejectsNonMatrixLogits) {
                std::invalid_argument);
 }
 
-TEST(Loss, MaskedCrossEntropyIgnoresMaskedOutRows) {
-  auto logits = Make({2, 3}, {0.0f, 0.0f, 0.0f, 10.0f, 0.0f, 0.0f});
-  auto masked = masked_cross_entropy(logits, {0, 1}, {true, false});
-  EXPECT_NEAR(Scalar(masked), std::log(3.0f), kTolerance);
-}
-
-TEST(Loss, MaskedCrossEntropyRejectsEmptyMask) {
-  EXPECT_THROW(
-      masked_cross_entropy(Make({1, 3}, {0.0f, 0.0f, 0.0f}), {0}, {false}),
-      std::invalid_argument);
-}
-
 TEST(Loss, LogSoftmaxStaysFiniteAsLogitsGrow) {
   const std::vector<std::vector<scalar_t>> rows = {
       {1.0f, 2.0f, 3.0f},

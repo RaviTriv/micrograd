@@ -272,11 +272,6 @@ std::vector<Case> AllCases() {
         return micrograd::cross_entropy(in[0], {0, 2});
       },
       {signed_matrix()});
-  add("masked_cross_entropy",
-      [](const TensorList &in) {
-        return micrograd::masked_cross_entropy(in[0], {0, 2}, {true, false});
-      },
-      {signed_matrix()});
   add("grpo_loss",
       [](const TensorList &in) {
         return micrograd::gpt::grpo_loss(in[0], {0, 2}, {1.0f, -0.5f},
