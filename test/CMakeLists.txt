@@ -15,6 +15,7 @@ add_executable(micrograd_tests
     init_test.cpp
     layers_test.cpp
     serialization_test.cpp
+    stats_test.cpp
     tensor_core_test.cpp
     training_test.cpp
 )

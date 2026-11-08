@@ -8,3 +8,4 @@
 #include "micrograd/nn/Module.h"
 #include "micrograd/nn/Optim.h"
 #include "micrograd/nn/Serialize.h"
+#include "micrograd/nn/Stats.h"

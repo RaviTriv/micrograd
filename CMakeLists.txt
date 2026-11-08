@@ -83,6 +83,7 @@ add_library(micrograd
     src/nn/Loss.cpp
     src/nn/Optim.cpp
     src/nn/Serialize.cpp
+    src/nn/Stats.cpp
     src/nn/Checkpoint.cpp
     src/backends/metal/MetalContext.cpp
     src/backends/metal/Kernels.cpp
