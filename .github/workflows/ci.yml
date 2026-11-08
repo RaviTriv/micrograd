@@ -40,8 +40,12 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   cuda:
-    name: CUDA
+    name: CUDA (cuBLAS ${{ matrix.cublas }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cublas: ["OFF", "ON"]
     steps:
       - uses: actions/checkout@v4
 
@@ -50,16 +54,17 @@ jobs:
           wget -q https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
           sudo dpkg -i cuda-keyring_1.1-1_all.deb
           sudo apt-get update
-          sudo apt-get install -y cuda-nvcc-12-8 cuda-cudart-dev-12-8
+          sudo apt-get install -y cuda-nvcc-12-8 cuda-cudart-dev-12-8 libcublas-dev-12-8
 
       - name: Configure
         run: >
           cmake -S . -B build -DBUILD_TESTING=OFF -DFETCH_MNIST=OFF
-          -DENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=80
+          -DENABLE_CUDA=ON -DENABLE_CUBLAS=${{ matrix.cublas }}
+          -DCMAKE_CUDA_ARCHITECTURES=80
           -DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.8/bin/nvcc
 
       - name: Build
-        run: cmake --build build -j --target micrograd
+        run: cmake --build build -j --target micrograd train_gpt
 
   sanitizers:
     name: Sanitizers (ASan + UBSan)
