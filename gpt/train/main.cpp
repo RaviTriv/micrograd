@@ -449,6 +449,36 @@ void load_data_state(const std::string &path, size_t samples_from_steps,
   order.read_state(file);
 }
 
+std::string rng_state_path(const std::string &checkpoint_path) {
+  return checkpoint_path + ".rng";
+}
+
+void save_rng_state(const std::string &path) {
+  std::ofstream file(path);
+  if (!file.is_open()) {
+    throw std::runtime_error("Could not open file for saving: " + path);
+  }
+  file << global_rng();
+  if (!file) {
+    throw std::runtime_error("Failed while writing RNG state: " + path);
+  }
+}
+
+void load_rng_state(const std::string &path) {
+  std::ifstream file(path);
+  if (!file.is_open()) {
+    std::cout << "no RNG state at " << path
+              << ", dropout will not match the original run\n";
+    return;
+  }
+  std::mt19937_64 rng;
+  file >> rng;
+  if (!file) {
+    throw std::runtime_error("Could not read RNG state: " + path);
+  }
+  global_rng() = rng;
+}
+
 void load_optimizer_state(const std::string &path, TrainOptimizer &optimizer) {
   std::ifstream file(path, std::ios::binary);
   if (!file.is_open()) {
@@ -533,9 +563,9 @@ class TrainingData {
 };
 
 double estimate_loss(Model &model, const TrainingData &dataset,
-                     Dataset::Split split, const TrainConfig &config,
-                     std::mt19937_64 &rng) {
+                     Dataset::Split split, const TrainConfig &config) {
   const NoGradGuard no_grad;
+  std::mt19937_64 rng(config.seed);
   model.eval();
 
   double total = 0.0;
@@ -670,6 +700,7 @@ int main(int argc, char **argv) {
           data_state_path(config.resume_path),
           start_iter * config.batch_size * config.grad_accum_steps,
           train_order);
+      load_rng_state(rng_state_path(config.resume_path));
       std::cout << "resuming data order at epoch " << train_order.epoch()
                 << ", sample " << train_order.position() << "\n";
     }
@@ -693,10 +724,10 @@ int main(int argc, char **argv) {
 
     for (size_t it = start_iter; it < config.max_iters; it++) {
       if (config.eval_interval > 0 && it % config.eval_interval == 0) {
-        double train_loss = estimate_loss(
-            model, dataset, Dataset::Split::kTrain, config, global_rng());
-        double val_loss = estimate_loss(model, dataset, Dataset::Split::kVal,
-                                        config, global_rng());
+        double train_loss =
+            estimate_loss(model, dataset, Dataset::Split::kTrain, config);
+        double val_loss =
+            estimate_loss(model, dataset, Dataset::Split::kVal, config);
         std::cout << "step " << it << ": train loss " << train_loss
                   << ", val loss " << val_loss << "\n";
         log_file << it << "," << train_loss << "," << val_loss << "\n";
@@ -709,6 +740,7 @@ int main(int argc, char **argv) {
         save_optimizer_state(optimizer_state_path(config.checkpoint_path),
                              optimizer);
         save_data_state(data_state_path(config.checkpoint_path), train_order);
+        save_rng_state(rng_state_path(config.checkpoint_path));
       }
 
       const auto step_start = std::chrono::steady_clock::now();
@@ -753,14 +785,15 @@ int main(int argc, char **argv) {
       }
     }
 
-    double final_val_loss = estimate_loss(model, dataset, Dataset::Split::kVal,
-                                          config, global_rng());
+    double final_val_loss =
+        estimate_loss(model, dataset, Dataset::Split::kVal, config);
     std::cout << "final val loss " << final_val_loss << "\n";
 
     save(config.checkpoint_path, model);
     save_optimizer_state(optimizer_state_path(config.checkpoint_path),
                          optimizer);
     save_data_state(data_state_path(config.checkpoint_path), train_order);
+    save_rng_state(rng_state_path(config.checkpoint_path));
     std::cout << "Saved trained model to " << config.checkpoint_path << "\n";
   } catch (const std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
