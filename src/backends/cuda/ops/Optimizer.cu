@@ -104,6 +104,33 @@ const scalar_t *GradPtr(const Tensor *t) {
   return static_cast<const scalar_t *>(t->grad_storage().device_pointer());
 }
 
+bool SameEntry(const AdamWTensor &a, const AdamWTensor &b) {
+  return a.data == b.data && a.grad == b.grad && a.m == b.m && a.v == b.v &&
+         a.n == b.n && a.decay == b.decay;
+}
+
+const AdamWTensor *UploadAdamWTable(const std::vector<AdamWTensor> &tensors) {
+  static std::vector<AdamWTensor> cached;
+  static AdamWTensor *device_table = nullptr;
+  static size_t device_bytes = 0;
+
+  if (device_table != nullptr && cached.size() == tensors.size() &&
+      std::equal(cached.begin(), cached.end(), tensors.begin(), SameEntry)) {
+    return device_table;
+  }
+
+  auto &ctx = CudaContext::instance();
+  if (device_table != nullptr) {
+    ctx.deallocate(device_table, device_bytes);
+  }
+  device_bytes = tensors.size() * sizeof(AdamWTensor);
+  device_table = static_cast<AdamWTensor *>(ctx.allocate(device_bytes));
+  cached = tensors;
+  cudaMemcpyAsync(device_table, cached.data(), device_bytes,
+                  cudaMemcpyHostToDevice, ctx.stream());
+  return device_table;
+}
+
 }  // namespace
 
 scalar_t GradNormSquared(const Tensor &param) {
@@ -113,6 +140,26 @@ scalar_t GradNormSquared(const Tensor &param) {
   cudaMemsetAsync(scratch, 0, sizeof(scalar_t), ctx.stream());
   GradNormSquaredKernel<<<GridSize(n), kBlockSize, 0, ctx.stream()>>>(
       GradPtr(&param), scratch, n);
+  scalar_t result = 0.0f;
+  cudaMemcpyAsync(&result, scratch, sizeof(scalar_t), cudaMemcpyDeviceToHost,
+                  ctx.stream());
+  ctx.synchronize();
+  ctx.deallocate(scratch, sizeof(scalar_t));
+  return result;
+}
+
+scalar_t GradNormSquaredSum(const std::vector<const Tensor *> &params) {
+  if (params.empty()) {
+    return 0.0f;
+  }
+  auto &ctx = CudaContext::instance();
+  auto *scratch = static_cast<scalar_t *>(ctx.allocate(sizeof(scalar_t)));
+  cudaMemsetAsync(scratch, 0, sizeof(scalar_t), ctx.stream());
+  for (const Tensor *param : params) {
+    size_t n = param->size();
+    GradNormSquaredKernel<<<GridSize(n), kBlockSize, 0, ctx.stream()>>>(
+        GradPtr(param), scratch, n);
+  }
   scalar_t result = 0.0f;
   cudaMemcpyAsync(&result, scratch, sizeof(scalar_t), cudaMemcpyDeviceToHost,
                   ctx.stream());
@@ -151,19 +198,13 @@ void FusedAdamWStep(const std::vector<AdamWTensor> &tensors, scalar_t lr,
   }
 
   auto &ctx = CudaContext::instance();
-  size_t bytes = tensors.size() * sizeof(AdamWTensor);
-  auto *device_tensors = static_cast<AdamWTensor *>(ctx.allocate(bytes));
-  cudaMemcpyAsync(device_tensors, tensors.data(), bytes, cudaMemcpyHostToDevice,
-                  ctx.stream());
+  const AdamWTensor *device_tensors = UploadAdamWTable(tensors);
 
   dim3 grid(static_cast<unsigned>(GridSize(max_n)),
             static_cast<unsigned>(tensors.size()));
   FusedAdamWStepKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(
       device_tensors, lr, beta1, beta2, eps, weight_decay, bias_correction1,
       bias_correction2);
-
-  ctx.synchronize();
-  ctx.deallocate(device_tensors, bytes);
 }
 
 }  // namespace micrograd::cuda::ops

@@ -39,6 +39,9 @@ class CudaContext {
 
   void synchronize();
 
+  void setAllowTf32(bool allow);
+  bool allowTf32() const;
+
  private:
   CudaContext();
   ~CudaContext();
@@ -53,6 +56,7 @@ class CudaContext {
 #endif
   std::unordered_map<size_t, std::vector<void *>> free_blocks_;
   bool initialized_ = false;
+  bool allow_tf32_ = false;
 };
 
 }  // namespace micrograd

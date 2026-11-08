@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <stdexcept>
 
 #include "micrograd/Tensor.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
@@ -166,6 +167,38 @@ void MatmulCublas(const OpArgs &args, size_t batch, size_t m, size_t k,
       static_cast<long long>(m * n), static_cast<int>(batch));
 }
 
+void CheckCublas(cublasStatus_t status) {
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    throw std::runtime_error(cublasGetStatusString(status));
+  }
+}
+
+void MatmulBackwardCublas(const scalar_t *grad_out, const scalar_t *lhs,
+                          const scalar_t *rhs, scalar_t *grad_lhs,
+                          scalar_t *grad_rhs, size_t batch, size_t m, size_t k,
+                          size_t n) {
+  cublasHandle_t handle = CudaContext::instance().cublasHandle();
+  const scalar_t alpha = 1.0f;
+  const scalar_t beta = 1.0f;
+  const int mi = static_cast<int>(m);
+  const int ki = static_cast<int>(k);
+  const int ni = static_cast<int>(n);
+  const int batch_count = static_cast<int>(batch);
+  const auto stride_lhs = static_cast<long long>(m * k);
+  const auto stride_rhs = static_cast<long long>(k * n);
+  const auto stride_out = static_cast<long long>(m * n);
+
+  CheckCublas(cublasSgemmStridedBatched(
+      handle, CUBLAS_OP_T, CUBLAS_OP_N, ki, mi, ni, &alpha, rhs, ni,
+      stride_rhs, grad_out, ni, stride_out, &beta, grad_lhs, ki, stride_lhs,
+      batch_count));
+
+  CheckCublas(cublasSgemmStridedBatched(
+      handle, CUBLAS_OP_N, CUBLAS_OP_T, ni, ki, mi, &alpha, grad_out, ni,
+      stride_out, lhs, ki, stride_lhs, &beta, grad_rhs, ni, stride_rhs,
+      batch_count));
+}
+
 constexpr size_t kCublasLtWorkspaceBytes = 4 * 1024 * 1024;
 
 cublasLtMatrixLayout_t MakeBf16BatchLayout(uint64_t rows, uint64_t cols,
@@ -271,6 +304,11 @@ std::function<void()> MatmulBackward(const GradArgs &args) {
     const auto &rhs_shape = rhs->shape();
     const auto [batch, m, k, n] = ResolveMatmulDims(lhs_shape, rhs_shape);
 
+#ifdef MICROGRAD_CUBLAS_ENABLED
+    MatmulBackwardCublas(GradPtr(out), DataPtr(lhs.get()), DataPtr(rhs.get()),
+                         GradPtr(lhs.get()), GradPtr(rhs.get()), batch, m, k,
+                         n);
+#else
     const dim3 block(kTile, kTile);
     cudaStream_t stream = CudaContext::instance().stream();
 
@@ -281,6 +319,7 @@ std::function<void()> MatmulBackward(const GradArgs &args) {
     const dim3 grid_b(GridDim(n), GridDim(k), static_cast<unsigned int>(batch));
     MatmulTNKernel<<<grid_b, block, 0, stream>>>(
         DataPtr(lhs.get()), GradPtr(out), GradPtr(rhs.get()), m, k, n);
+#endif
   };
 }
 

@@ -2,7 +2,9 @@
 
 #include <cmath>
 #include <cstddef>
+#include <memory>
 #include <stdexcept>
+#include <vector>
 
 #include "micrograd/Tensor.h"
 
@@ -58,6 +60,29 @@ scalar_t GradNormSquared(const Tensor &param) {
 #endif
   }
   return CpuGradNormSquared(param);
+}
+
+double GlobalGradNormSquared(
+    const std::vector<std::shared_ptr<Tensor>> &params) {
+  double sum_sq = 0.0;
+#ifdef MICROGRAD_CUDA_ENABLED
+  std::vector<const Tensor *> cuda_params;
+#endif
+  for (const auto &p : params) {
+    if (p->backend() == Device::CUDA) {
+#ifdef MICROGRAD_CUDA_ENABLED
+      cuda_params.push_back(p.get());
+      continue;
+#else
+      throw std::runtime_error("CUDA support is not compiled in");
+#endif
+    }
+    sum_sq += static_cast<double>(GradNormSquared(*p));
+  }
+#ifdef MICROGRAD_CUDA_ENABLED
+  sum_sq += static_cast<double>(cuda::ops::GradNormSquaredSum(cuda_params));
+#endif
+  return sum_sq;
 }
 
 void ScaleGrad(Tensor &param, scalar_t scale) {

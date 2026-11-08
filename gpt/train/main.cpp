@@ -28,6 +28,7 @@
 #include "micrograd/ops/Optimizer.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/backends/cuda/CudaContext.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #endif
 
@@ -90,6 +91,7 @@ struct TrainConfig {
   size_t checkpoint_interval = 250;
   size_t throughput_interval = 10;
   Device device = Device::CPU;
+  bool tf32 = false;
   uint64_t seed = 1337;
   bool sample = false;
   std::string prompt = "\n";
@@ -180,6 +182,8 @@ TrainConfig parse_args(int argc, char **argv) {
           static_cast<size_t>(std::stoul(next_value()));
     } else if (arg == "--device") {
       config.device = parse_device(next_value());
+    } else if (arg == "--tf32") {
+      config.tf32 = true;
     } else if (arg == "--seed") {
       config.seed = std::stoull(next_value());
     } else if (arg == "--sample") {
@@ -231,11 +235,8 @@ std::shared_ptr<Tensor> token_tensor(const std::vector<size_t> &tokens,
 
 scalar_t GlobalGradNorm(
     const std::vector<std::shared_ptr<Tensor>> &parameters) {
-  double sum_sq = 0.0;
-  for (const auto &p : parameters) {
-    sum_sq += static_cast<double>(micrograd::ops::GradNormSquared(*p));
-  }
-  return static_cast<scalar_t>(std::sqrt(sum_sq));
+  return static_cast<scalar_t>(
+      std::sqrt(micrograd::ops::GlobalGradNormSquared(parameters)));
 }
 
 void ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &parameters,
@@ -589,6 +590,15 @@ int main(int argc, char **argv) {
     if (config.sample) {
       run_sample(config);
       return 0;
+    }
+
+    if (config.tf32) {
+      if (config.device != Device::CUDA) {
+        throw std::invalid_argument("--tf32 requires --device cuda");
+      }
+#ifdef MICROGRAD_CUDA_ENABLED
+      micrograd::CudaContext::instance().setAllowTf32(true);
+#endif
     }
 
     TrainingData dataset(config);

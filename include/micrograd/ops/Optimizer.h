@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "micrograd/Scalar.h"
 
 namespace micrograd {
@@ -9,6 +12,8 @@ class Tensor;
 namespace ops {
 
 scalar_t GradNormSquared(const Tensor &param);
+double GlobalGradNormSquared(
+    const std::vector<std::shared_ptr<Tensor>> &params);
 void ScaleGrad(Tensor &param, scalar_t scale);
 
 void AdamWStep(Tensor &param, Tensor &m, Tensor &v, scalar_t lr, scalar_t beta1,

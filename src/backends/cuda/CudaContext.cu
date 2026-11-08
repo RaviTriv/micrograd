@@ -42,6 +42,8 @@ bool CudaContext::initialize() {
     return false;
   }
   cublasSetStream(cublas_handle_, stream_);
+  cublasSetMathMode(cublas_handle_, allow_tf32_ ? CUBLAS_TF32_TENSOR_OP_MATH
+                                                : CUBLAS_DEFAULT_MATH);
 
   if (cublasLtCreate(&cublas_lt_handle_) != CUBLAS_STATUS_SUCCESS) {
     std::cerr << "Failed to create cuBLASLt handle.\n";
@@ -54,6 +56,18 @@ bool CudaContext::initialize() {
 }
 
 void CudaContext::synchronize() { cudaStreamSynchronize(stream_); }
+
+void CudaContext::setAllowTf32(bool allow) {
+  allow_tf32_ = allow;
+#ifdef MICROGRAD_CUBLAS_ENABLED
+  if (cublas_handle_) {
+    cublasSetMathMode(cublas_handle_, allow ? CUBLAS_TF32_TENSOR_OP_MATH
+                                            : CUBLAS_DEFAULT_MATH);
+  }
+#endif
+}
+
+bool CudaContext::allowTf32() const { return allow_tf32_; }
 
 size_t CudaContext::bucketSize(size_t bytes) {
   size_t size = 1;
