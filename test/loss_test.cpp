@@ -99,6 +99,63 @@ TEST(Loss, CrossEntropyRejectsNonMatrixLogits) {
                std::invalid_argument);
 }
 
+TEST(Loss, BinaryCrossEntropyKnownValue) {
+  auto loss = binary_cross_entropy(Make({4}, {0.9f, 0.1f, 0.7f, 0.3f}),
+                                   Make({4}, {1.0f, 0.0f, 1.0f, 0.0f}));
+  EXPECT_NEAR(Scalar(loss), -(std::log(0.9f) + std::log(0.7f)) / 2.0f,
+              kTolerance);
+}
+
+TEST(Loss, BinaryCrossEntropyUniformPredictionGivesLogTwo) {
+  auto loss = binary_cross_entropy(Make({2}, {0.5f, 0.5f}),
+                                   Make({2}, {1.0f, 0.0f}));
+  EXPECT_NEAR(Scalar(loss), std::log(2.0f), kTolerance);
+}
+
+TEST(Loss, BinaryCrossEntropyPerfectPredictionIsFiniteAndNearZero) {
+  auto loss = binary_cross_entropy(Make({2}, {1.0f, 0.0f}),
+                                   Make({2}, {1.0f, 0.0f}));
+  EXPECT_TRUE(std::isfinite(Scalar(loss)));
+  EXPECT_LT(Scalar(loss), 0.01f);
+}
+
+TEST(Loss, BinaryCrossEntropyWorstPredictionIsFiniteAndLarge) {
+  auto loss = binary_cross_entropy(Make({2}, {0.0f, 1.0f}),
+                                   Make({2}, {1.0f, 0.0f}));
+  EXPECT_TRUE(std::isfinite(Scalar(loss)));
+  EXPECT_GT(Scalar(loss), 5.0f);
+}
+
+TEST(Loss, BinaryCrossEntropyHasNoPredictionGradientWhereClamped) {
+  auto predictions = leaf({2}, {0.0f, 1.0f});
+  binary_cross_entropy(predictions, Make({2}, {1.0f, 0.0f}))->backward();
+  EXPECT_EQ(predictions->grad()[0], 0.0f);
+  EXPECT_EQ(predictions->grad()[1], 0.0f);
+}
+
+TEST(Loss, BinaryCrossEntropyRejectsMismatchedShapes) {
+  EXPECT_THROW(binary_cross_entropy(Make({2, 1}, {0.5f, 0.5f}),
+                                    Make({2}, {1.0f, 0.0f})),
+               std::invalid_argument);
+}
+
+TEST(Loss, BinaryCrossEntropyRejectsEmptyInput) {
+  EXPECT_THROW(binary_cross_entropy(Make({0}, {}), Make({0}, {})),
+               std::invalid_argument);
+}
+
+TEST(Loss, BinaryCrossEntropyRejectsValuesOutsideUnitInterval) {
+  auto targets = Make({2}, {1.0f, 0.0f});
+  EXPECT_THROW(binary_cross_entropy(Make({2}, {1.5f, 0.5f}), targets),
+               std::invalid_argument);
+  EXPECT_THROW(binary_cross_entropy(Make({2}, {0.5f, 0.5f}),
+                                    Make({2}, {-0.1f, 0.0f})),
+               std::invalid_argument);
+  EXPECT_THROW(
+      binary_cross_entropy(Make({2}, {std::nanf(""), 0.5f}), targets),
+      std::invalid_argument);
+}
+
 TEST(Loss, LogSoftmaxStaysFiniteAsLogitsGrow) {
   const std::vector<std::vector<scalar_t>> rows = {
       {1.0f, 2.0f, 3.0f},

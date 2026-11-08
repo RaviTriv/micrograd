@@ -168,6 +168,46 @@ __global__ void PowBackwardKernel(const scalar_t *out_grad,
   }
 }
 
+__global__ void ClampMinKernel(const scalar_t *lhs, scalar_t *out,
+                               scalar_t bound, size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    out[i] = lhs[i] < bound ? bound : lhs[i];
+  }
+}
+
+__global__ void ClampMaxKernel(const scalar_t *lhs, scalar_t *out,
+                               scalar_t bound, size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    out[i] = lhs[i] > bound ? bound : lhs[i];
+  }
+}
+
+__global__ void ClampMinBackwardKernel(const scalar_t *out_grad,
+                                       const scalar_t *a_data,
+                                       scalar_t *a_grad, scalar_t bound,
+                                       size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    if (a_data[i] >= bound) {
+      a_grad[i] += out_grad[i];
+    }
+  }
+}
+
+__global__ void ClampMaxBackwardKernel(const scalar_t *out_grad,
+                                       const scalar_t *a_data,
+                                       scalar_t *a_grad, scalar_t bound,
+                                       size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    if (a_data[i] <= bound) {
+      a_grad[i] += out_grad[i];
+    }
+  }
+}
+
 const scalar_t *DataPtr(const Tensor *t) {
   return static_cast<const scalar_t *>(t->data_storage().device_pointer());
 }
@@ -244,6 +284,22 @@ void Pow(const OpArgs &args) {
   args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   PowKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
+}
+
+void ClampMin(const OpArgs &args) {
+  args.out->to(Backend::CUDA);
+  size_t n = args.lhs->size();
+  ClampMinKernel<<<GridSize(n), kBlockSize, 0,
+                   CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
+}
+
+void ClampMax(const OpArgs &args) {
+  args.out->to(Backend::CUDA);
+  size_t n = args.lhs->size();
+  ClampMaxKernel<<<GridSize(n), kBlockSize, 0,
+                   CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
 }
 
@@ -330,6 +386,24 @@ std::function<void()> PowBackward(const GradArgs &args) {
   };
 }
 
+std::function<void()> ClampMinBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, bound = args.scalar]() {
+    size_t n = lhs->size();
+    ClampMinBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                             CudaContext::instance().stream()>>>(
+        GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), bound, n);
+  };
+}
+
+std::function<void()> ClampMaxBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, bound = args.scalar]() {
+    size_t n = lhs->size();
+    ClampMaxBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                             CudaContext::instance().stream()>>>(
+        GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), bound, n);
+  };
+}
+
 }  // namespace
 
 void RegisterArithmeticOps() {
@@ -343,6 +417,8 @@ void RegisterArithmeticOps() {
   registry.Register(OpId::kMulScalar, Device::CUDA, MulScalar);
   registry.Register(OpId::kDivScalar, Device::CUDA, DivScalar);
   registry.Register(OpId::kPow, Device::CUDA, Pow);
+  registry.Register(OpId::kClampMin, Device::CUDA, ClampMin);
+  registry.Register(OpId::kClampMax, Device::CUDA, ClampMax);
   registry.RegisterBackward(OpId::kAdd, Device::CUDA, AddBackward);
   registry.RegisterBackward(OpId::kSub, Device::CUDA, SubBackward);
   registry.RegisterBackward(OpId::kMul, Device::CUDA, MulBackward);
@@ -352,6 +428,8 @@ void RegisterArithmeticOps() {
   registry.RegisterBackward(OpId::kMulScalar, Device::CUDA, MulScalarBackward);
   registry.RegisterBackward(OpId::kDivScalar, Device::CUDA, DivScalarBackward);
   registry.RegisterBackward(OpId::kPow, Device::CUDA, PowBackward);
+  registry.RegisterBackward(OpId::kClampMin, Device::CUDA, ClampMinBackward);
+  registry.RegisterBackward(OpId::kClampMax, Device::CUDA, ClampMaxBackward);
 }
 
 }  // namespace micrograd::cuda::ops

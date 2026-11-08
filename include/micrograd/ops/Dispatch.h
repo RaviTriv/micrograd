@@ -26,6 +26,8 @@ enum class OpId {
   kSubScalar,
   kMulScalar,
   kDivScalar,
+  kClampMin,
+  kClampMax,
   kPow,
   kSum,
   kMatmul,

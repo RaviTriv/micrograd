@@ -332,3 +332,19 @@ TEST(TensorCore, InvalidShapesThrow) {
                                std::vector<scalar_t>(6, 1.0));
   EXPECT_THROW(a->matmul(a), std::invalid_argument);
 }
+
+TEST(TensorClamp, ClampsToTheGivenRange) {
+  EXPECT_EQ(Values(Make({4}, {-1.0f, 0.25f, 0.75f, 2.0f})->clamp(0.0f, 1.0f)),
+            (std::vector<scalar_t>{0.0f, 0.25f, 0.75f, 1.0f}));
+}
+
+TEST(TensorClamp, GradientPassesInsideRangeAndAtBounds) {
+  auto x = leaf({5}, {-1.0f, 0.0f, 0.5f, 1.0f, 2.0f});
+  x->clamp(0.0f, 1.0f)->sum()->backward();
+  const std::vector<scalar_t> grad(x->grad().begin(), x->grad().end());
+  EXPECT_EQ(grad, (std::vector<scalar_t>{0.0f, 1.0f, 1.0f, 1.0f, 0.0f}));
+}
+
+TEST(TensorClamp, RejectsMinGreaterThanMax) {
+  EXPECT_THROW(Make({1}, {0.0f})->clamp(1.0f, 0.0f), std::invalid_argument);
+}

@@ -63,4 +63,13 @@ std::shared_ptr<Tensor> Tensor::pow(scalar_t exponent) {
                {.lhs = shared_from_this(), .scalar = exponent});
 }
 
+std::shared_ptr<Tensor> Tensor::clamp(scalar_t min, scalar_t max) {
+  if (!(min <= max)) {
+    throw std::invalid_argument("clamp requires min <= max");
+  }
+  auto lower = apply(OpId::kClampMin, shape_,
+                     {.lhs = shared_from_this(), .scalar = min});
+  return lower->apply(OpId::kClampMax, shape_, {.lhs = lower, .scalar = max});
+}
+
 }  // namespace micrograd

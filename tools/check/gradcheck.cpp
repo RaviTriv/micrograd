@@ -264,6 +264,9 @@ std::vector<Case> AllCases() {
   add("qk_norm", [](const TensorList &in) { return micrograd::qk_norm(in[0]); },
       {signed_matrix()});
 
+  add("clamp",
+      [](const TensorList &in) { return in[0]->clamp(-0.5f, 0.5f); },
+      {signed_matrix()});
   add("mse_loss",
       [](const TensorList &in) { return micrograd::mse_loss(in[0], in[1]); },
       {signed_matrix(), positive_matrix()});
@@ -272,6 +275,11 @@ std::vector<Case> AllCases() {
         return micrograd::cross_entropy(in[0], {0, 2});
       },
       {signed_matrix()});
+  add("binary_cross_entropy",
+      [](const TensorList &in) {
+        return micrograd::binary_cross_entropy(in[0], in[1]);
+      },
+      {Ramp({2, 3}, 0.3f, 0.08f), Ramp({2, 3}, 0.2f, 0.12f)});
   add("grpo_loss",
       [](const TensorList &in) {
         return micrograd::gpt::grpo_loss(in[0], {0, 2}, {1.0f, -0.5f},

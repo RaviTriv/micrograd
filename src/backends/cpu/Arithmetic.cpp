@@ -84,6 +84,22 @@ void Pow(const OpArgs &args) {
   }
 }
 
+void ClampMin(const OpArgs &args) {
+  auto lhs = args.lhs->data();
+  auto out = args.out->data();
+  for (size_t i = 0; i < lhs.size(); i++) {
+    out[i] = lhs[i] < args.scalar ? args.scalar : lhs[i];
+  }
+}
+
+void ClampMax(const OpArgs &args) {
+  auto lhs = args.lhs->data();
+  auto out = args.out->data();
+  for (size_t i = 0; i < lhs.size(); i++) {
+    out[i] = lhs[i] > args.scalar ? args.scalar : lhs[i];
+  }
+}
+
 std::function<void()> AddBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
     auto a_grad = lhs->grad();
@@ -188,6 +204,32 @@ std::function<void()> PowBackward(const GradArgs &args) {
   };
 }
 
+std::function<void()> ClampMinBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, bound = args.scalar]() {
+    auto a_data = lhs->data();
+    auto a_grad = lhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      if (a_data[i] >= bound) {
+        a_grad[i] += out_grad[i];
+      }
+    }
+  };
+}
+
+std::function<void()> ClampMaxBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, bound = args.scalar]() {
+    auto a_data = lhs->data();
+    auto a_grad = lhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      if (a_data[i] <= bound) {
+        a_grad[i] += out_grad[i];
+      }
+    }
+  };
+}
+
 }  // namespace
 
 void RegisterArithmeticOps() {
@@ -201,6 +243,8 @@ void RegisterArithmeticOps() {
   registry.Register(OpId::kMulScalar, Device::CPU, MulScalar);
   registry.Register(OpId::kDivScalar, Device::CPU, DivScalar);
   registry.Register(OpId::kPow, Device::CPU, Pow);
+  registry.Register(OpId::kClampMin, Device::CPU, ClampMin);
+  registry.Register(OpId::kClampMax, Device::CPU, ClampMax);
   registry.RegisterBackward(OpId::kAdd, Device::CPU, AddBackward);
   registry.RegisterBackward(OpId::kSub, Device::CPU, SubBackward);
   registry.RegisterBackward(OpId::kMul, Device::CPU, MulBackward);
@@ -210,6 +254,8 @@ void RegisterArithmeticOps() {
   registry.RegisterBackward(OpId::kMulScalar, Device::CPU, MulScalarBackward);
   registry.RegisterBackward(OpId::kDivScalar, Device::CPU, DivScalarBackward);
   registry.RegisterBackward(OpId::kPow, Device::CPU, PowBackward);
+  registry.RegisterBackward(OpId::kClampMin, Device::CPU, ClampMinBackward);
+  registry.RegisterBackward(OpId::kClampMax, Device::CPU, ClampMaxBackward);
 }
 
 }  // namespace micrograd::ops::cpu

@@ -45,6 +45,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> mul(scalar_t scalar);
   std::shared_ptr<Tensor> div(scalar_t scalar);
   std::shared_ptr<Tensor> pow(scalar_t exponent);
+  std::shared_ptr<Tensor> clamp(scalar_t min, scalar_t max);
 
   std::shared_ptr<Tensor> reshape(const std::vector<int64_t> &shape);
   std::shared_ptr<Tensor> view(const std::vector<int64_t> &shape);
