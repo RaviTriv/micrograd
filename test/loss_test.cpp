@@ -90,6 +90,10 @@ TEST(Loss, CrossEntropyRejectsTargetCountMismatch) {
                std::invalid_argument);
 }
 
+TEST(Loss, CrossEntropyRejectsEmptyBatch) {
+  EXPECT_THROW(cross_entropy(Make({0, 3}, {}), {}), std::invalid_argument);
+}
+
 TEST(Loss, CrossEntropyRejectsNonMatrixLogits) {
   EXPECT_THROW(cross_entropy(Make({3}, {0.0f, 0.0f, 0.0f}), {0}),
                std::invalid_argument);

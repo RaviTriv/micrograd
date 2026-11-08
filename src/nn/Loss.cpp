@@ -35,6 +35,9 @@ std::shared_ptr<Tensor> cross_entropy(
 
   size_t batch = logits->shape()[0];
   size_t classes = logits->shape()[1];
+  if (batch == 0) {
+    throw std::invalid_argument("cross_entropy requires a nonempty batch");
+  }
   if (target_indices.size() != batch) {
     throw std::invalid_argument(
         "cross_entropy target count does not match the batch size");
