@@ -1,5 +1,6 @@
 #include "micrograd/nn/Layers.h"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -17,7 +18,8 @@ namespace micrograd {
 
 Linear::Linear(size_t in_features, size_t out_features) {
   weights_ = Tensor::zeros(std::vector<size_t>{in_features, out_features});
-  init::kaiming_uniform_(weights_, in_features);
+  init::normal_(weights_, 0.0f,
+                std::sqrt(1.0f / static_cast<scalar_t>(in_features)));
 
   std::vector<scalar_t> b_data(out_features, 0.0f);
   bias_ = Tensor::from_values(std::vector<size_t>{1, out_features}, b_data);

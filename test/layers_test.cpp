@@ -85,25 +85,23 @@ TEST(Linear, BiasStartsAtZero) {
   }
 }
 
-TEST(Linear, KaimingUniformInit) {
+TEST(Linear, LeCunNormalInit) {
   manual_seed(7);
   constexpr size_t kFanIn = 512;
   Linear layer(kFanIn, 512);
 
-  const scalar_t bound = std::sqrt(6.0f / kFanIn);
   const auto values = Values(layer.weights());
 
   double sum = 0.0;
   double sum_sq = 0.0;
   for (auto value : values) {
-    EXPECT_LE(std::abs(value), bound);
     sum += value;
     sum_sq += static_cast<double>(value) * value;
   }
   const auto n = static_cast<double>(values.size());
   const double mean = sum / n;
   const double variance = sum_sq / n - mean * mean;
-  const double expected_variance = 2.0 / kFanIn;
+  const double expected_variance = 1.0 / kFanIn;
 
   EXPECT_NEAR(mean, 0.0, 1e-3);
   EXPECT_NEAR(variance, expected_variance, 0.02 * expected_variance);

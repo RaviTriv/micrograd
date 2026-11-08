@@ -8,6 +8,7 @@
 
 #include "MNIST.h"
 #include "micrograd/Autograd.h"
+#include "micrograd/Init.h"
 #include "micrograd/NN.h"
 
 using namespace micrograd;
@@ -137,6 +138,8 @@ int main(int argc, char **argv) {
 
     auto l1 = std::make_shared<Linear>(196, 100);
     auto l2 = std::make_shared<Linear>(100, 10);
+    init::kaiming_uniform_(l1->weights(), 196);
+    init::kaiming_uniform_(l2->weights(), 100);
     Sequential net({l1, std::make_shared<ReLU>(), l2});
     for (auto &parameter : net.parameters()) {
       parameter->to(config.device);
