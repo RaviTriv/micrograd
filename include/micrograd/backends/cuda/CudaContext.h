@@ -34,6 +34,7 @@ class CudaContext {
 
   cudaStream_t stream() const;
   int device() const;
+  void setDevice(int device);
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
   cublasHandle_t cublasHandle() const;

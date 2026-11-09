@@ -50,6 +50,7 @@ add_library(micrograd
     src/core/Storage.cpp
     src/core/Init.cpp
     src/core/CachingAllocator.cpp
+    src/core/Distributed.cpp
     src/core/Profiler.cpp
 
     src/ops/Activations.cpp
@@ -113,6 +114,20 @@ if(ENABLE_CUDA)
     )
     target_compile_definitions(micrograd PUBLIC MICROGRAD_CUDA_ENABLED)
     target_link_libraries(micrograd PUBLIC CUDA::cudart)
+
+    option(ENABLE_NCCL "Use NCCL for multi-GPU all-reduce" OFF)
+    if(ENABLE_NCCL)
+        find_path(NCCL_INCLUDE_DIR nccl.h
+            HINTS ${CUDAToolkit_INCLUDE_DIRS} /usr/include /usr/local/include)
+        find_library(NCCL_LIBRARY nccl
+            HINTS ${CUDAToolkit_LIBRARY_DIR} /usr/lib/x86_64-linux-gnu /usr/local/lib)
+        if(NOT NCCL_INCLUDE_DIR OR NOT NCCL_LIBRARY)
+            message(FATAL_ERROR "ENABLE_NCCL requested but nccl.h or libnccl was not found")
+        endif()
+        target_include_directories(micrograd SYSTEM PUBLIC ${NCCL_INCLUDE_DIR})
+        target_link_libraries(micrograd PUBLIC ${NCCL_LIBRARY})
+        target_compile_definitions(micrograd PUBLIC MICROGRAD_NCCL_ENABLED)
+    endif()
 
     option(ENABLE_CUBLAS "Use cuBLAS for the CUDA matmul path" OFF)
     if(ENABLE_CUBLAS)

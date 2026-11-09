@@ -3,6 +3,8 @@
 #ifdef MICROGRAD_CUDA_ENABLED
 
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 #include "micrograd/backends/cuda/CudaCheck.h"
 
@@ -126,6 +128,15 @@ bool CudaContext::isAvailable() const {
 
 cudaStream_t CudaContext::stream() const { return stream_; }
 int CudaContext::device() const { return device_; }
+
+void CudaContext::setDevice(int device) {
+  if (initialized_ && device != device_) {
+    throw std::runtime_error(
+        "CudaContext::setDevice called after CUDA was initialized on device " +
+        std::to_string(device_));
+  }
+  device_ = device;
+}
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
 cublasHandle_t CudaContext::cublasHandle() const { return cublas_handle_; }

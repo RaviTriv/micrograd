@@ -49,3 +49,9 @@ micrograd_add_check(gradcheck tools/check/gradcheck.cpp)
 micrograd_add_check(bpe_roundtrip tools/check/bpe_roundtrip.cpp)
 micrograd_add_check(core_eval tools/eval/core_eval.cpp)
 micrograd_add_check(grpo_check tools/check/grpo_check.cpp)
+micrograd_add_check(dist_check tools/check/dist_check.cpp)
+
+add_test(NAME dist_check_two_ranks
+    COMMAND bash "${PROJECT_SOURCE_DIR}/tools/launch.sh" 2 $<TARGET_FILE:dist_check>)
+set_tests_properties(dist_check_two_ranks PROPERTIES
+    LABELS check TIMEOUT 120 ENVIRONMENT "MASTER_PORT=29517")
