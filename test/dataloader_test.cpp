@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <numeric>
 #include <stdexcept>
+#include <type_traits>
 #include <vector>
 
 #include "micrograd/Tensor.h"
@@ -146,4 +147,22 @@ TEST(DataLoader, RejectsBadInput) {
   auto negative = Tensor::from_values({1}, {-1.0f});
   EXPECT_THROW(class_indices(*fractional), std::invalid_argument);
   EXPECT_THROW(class_indices(*negative), std::invalid_argument);
+}
+
+TEST(DataLoader, RefusesTemporaryDatasets) {
+  static_assert(
+      !std::is_constructible_v<DataLoader, TensorDataset, size_t, bool>);
+  static_assert(
+      std::is_constructible_v<DataLoader, TensorDataset &, size_t, bool>);
+}
+
+TEST(DataLoader, CanBeReassigned) {
+  TensorDataset first = numbered_dataset(4);
+  TensorDataset second = numbered_dataset(6);
+  DataLoader loader(first, 4, false);
+  EXPECT_EQ(loader.size(), 1u);
+
+  loader = DataLoader(second, 4, false);
+  EXPECT_EQ(loader.size(), 2u);
+  EXPECT_EQ(epoch_targets(loader), std::vector<size_t>({0, 1, 2, 3, 4, 5}));
 }

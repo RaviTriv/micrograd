@@ -70,6 +70,8 @@ class DataLoader {
 
   DataLoader(const Dataset &dataset, size_t batch_size, bool shuffle,
              uint64_t seed = 0);
+  DataLoader(const Dataset &&dataset, size_t batch_size, bool shuffle,
+             uint64_t seed = 0) = delete;
 
   void set_epoch(size_t epoch);
   size_t size() const;
@@ -80,7 +82,7 @@ class DataLoader {
   Iterator end() const { return {this, size()}; }
 
  private:
-  const Dataset &dataset_;
+  const Dataset *dataset_;
   size_t batch_size_;
   bool shuffle_;
   uint64_t seed_;

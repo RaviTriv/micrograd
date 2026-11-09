@@ -70,7 +70,7 @@ Example TensorDataset::get(size_t index) const {
 
 DataLoader::DataLoader(const Dataset &dataset, size_t batch_size, bool shuffle,
                        uint64_t seed)
-    : dataset_(dataset),
+    : dataset_(&dataset),
       batch_size_(batch_size),
       shuffle_(shuffle),
       seed_(seed) {
@@ -81,7 +81,7 @@ DataLoader::DataLoader(const Dataset &dataset, size_t batch_size, bool shuffle,
 }
 
 void DataLoader::set_epoch(size_t epoch) {
-  order_.resize(dataset_.size());
+  order_.resize(dataset_->size());
   std::iota(order_.begin(), order_.end(), size_t{0});
   if (!shuffle_) {
     return;
@@ -105,8 +105,8 @@ Batch DataLoader::batch(size_t index) const {
   }
   const size_t start = index * batch_size_;
   const size_t count = std::min(batch_size_, order_.size() - start);
-  const std::vector<size_t> input_shape = dataset_.input_shape();
-  const std::vector<size_t> target_shape = dataset_.target_shape();
+  const std::vector<size_t> input_shape = dataset_->input_shape();
+  const std::vector<size_t> target_shape = dataset_->target_shape();
   const size_t input_size = element_count(input_shape);
   const size_t target_size = element_count(target_shape);
 
@@ -115,7 +115,7 @@ Batch DataLoader::batch(size_t index) const {
   inputs.reserve(count * input_size);
   targets.reserve(count * target_size);
   for (size_t row = 0; row < count; row++) {
-    Example example = dataset_.get(order_[start + row]);
+    Example example = dataset_->get(order_[start + row]);
     if (example.input.size() != input_size ||
         example.target.size() != target_size) {
       throw std::runtime_error("DataLoader: sample " +
