@@ -3,6 +3,7 @@
 #include <cstring>
 #include <new>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -29,7 +30,9 @@ void *allocate(size_t bytes, Device device) {
       }
       void *ptr = ctx.allocate(bytes);
       if (!ptr) {
-        throw std::runtime_error("CUDA allocation failed");
+        throw std::runtime_error("CUDA allocation of " +
+                                 std::to_string(bytes >> 20) +
+                                 " MiB failed: " + ctx.memorySummary());
       }
       return ptr;
 #else

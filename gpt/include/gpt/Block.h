@@ -13,7 +13,8 @@ namespace micrograd::gpt {
 
 class Block : public nn::Module {
  public:
-  Block(size_t n_embd, size_t n_head, scalar_t dropout);
+  Block(size_t n_embd, size_t n_head, scalar_t dropout,
+        bool recompute_activations = true);
 
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;

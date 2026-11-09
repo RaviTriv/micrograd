@@ -10,7 +10,8 @@ constexpr size_t kMlpRatio = 4;
 
 }  // namespace
 
-Block::Block(size_t n_embd, size_t n_head, scalar_t dropout) {
+Block::Block(size_t n_embd, size_t n_head, scalar_t dropout,
+             bool recompute_activations) {
   ln1_ = std::make_shared<LayerNorm>(std::vector<size_t>{n_embd});
   attn_ = std::make_shared<CausalSelfAttention>(n_embd, n_head, dropout);
   ln2_ = std::make_shared<LayerNorm>(std::vector<size_t>{n_embd});
@@ -25,7 +26,7 @@ Block::Block(size_t n_embd, size_t n_head, scalar_t dropout) {
   register_module("mlp_proj", mlp_proj_);
   register_module("mlp_dropout", mlp_dropout_);
 
-  set_checkpointing();
+  set_checkpointing(recompute_activations);
 }
 
 std::shared_ptr<Tensor> Block::forward(const std::shared_ptr<Tensor> &input) {

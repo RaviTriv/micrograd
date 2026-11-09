@@ -70,6 +70,20 @@ void Tanh(const OpArgs &args) {
   }
 }
 
+constexpr scalar_t kGeluSqrt2OverPi = 0.7978845608028654f;
+constexpr scalar_t kGeluCubicCoeff = 0.044715f;
+
+void Gelu(const OpArgs &args) {
+  auto lhs = args.lhs->data();
+  auto out = args.out->data();
+  for (size_t i = 0; i < lhs.size(); i++) {
+    const scalar_t x = lhs[i];
+    const scalar_t t =
+        std::tanh(kGeluSqrt2OverPi * (x + (kGeluCubicCoeff * x * x * x)));
+    out[i] = 0.5f * x * (1.0f + t);
+  }
+}
+
 void Exp(const OpArgs &args) {
   auto lhs = args.lhs->data();
   auto out = args.out->data();
@@ -133,6 +147,24 @@ std::function<void()> TanhBackward(const GradArgs &args) {
     for (size_t i = 0; i < a_grad.size(); i++) {
       scalar_t tanh_val = out_data[i];
       a_grad[i] += out_grad[i] * (1.0f - tanh_val * tanh_val);
+    }
+  };
+}
+
+std::function<void()> GeluBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    auto in_data = lhs->data();
+    auto a_grad = lhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      const scalar_t x = in_data[i];
+      const scalar_t t =
+          std::tanh(kGeluSqrt2OverPi * (x + (kGeluCubicCoeff * x * x * x)));
+      const scalar_t du_dx =
+          kGeluSqrt2OverPi * (1.0f + (3.0f * kGeluCubicCoeff * x * x));
+      const scalar_t dy_dx =
+          (0.5f * (1.0f + t)) + (0.5f * x * (1.0f - (t * t)) * du_dx);
+      a_grad[i] += out_grad[i] * dy_dx;
     }
   };
 }
@@ -281,6 +313,7 @@ void RegisterActivationOps() {
   registry.Register(OpId::kRelu, Device::CPU, Relu);
   registry.Register(OpId::kSigmoid, Device::CPU, Sigmoid);
   registry.Register(OpId::kTanh, Device::CPU, Tanh);
+  registry.Register(OpId::kGelu, Device::CPU, Gelu);
   registry.Register(OpId::kExp, Device::CPU, Exp);
   registry.Register(OpId::kLog, Device::CPU, Log);
   registry.Register(OpId::kSqrt, Device::CPU, Sqrt);
@@ -290,6 +323,7 @@ void RegisterActivationOps() {
   registry.RegisterBackward(OpId::kRelu, Device::CPU, ReluBackward);
   registry.RegisterBackward(OpId::kSigmoid, Device::CPU, SigmoidBackward);
   registry.RegisterBackward(OpId::kTanh, Device::CPU, TanhBackward);
+  registry.RegisterBackward(OpId::kGelu, Device::CPU, GeluBackward);
   registry.RegisterBackward(OpId::kExp, Device::CPU, ExpBackward);
   registry.RegisterBackward(OpId::kLog, Device::CPU, LogBackward);
   registry.RegisterBackward(OpId::kSqrt, Device::CPU, SqrtBackward);

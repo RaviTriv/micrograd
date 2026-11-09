@@ -19,6 +19,7 @@ class Tensor;
 
 enum class OpId {
   kAdd,
+  kAddBias,
   kSub,
   kMul,
   kDiv,
@@ -34,6 +35,7 @@ enum class OpId {
   kRelu,
   kSigmoid,
   kTanh,
+  kGelu,
   kExp,
   kLog,
   kSqrt,
@@ -164,6 +166,8 @@ class OpRegistry {
   std::array<OpFn, kOpCount * kDeviceCount * kDTypeCount> table_{};
   std::array<GradFn, kOpCount * kDeviceCount * kDTypeCount> backward_table_{};
 };
+
+const char *OpName(OpId op);
 
 void DispatchOp(OpId op, Device device, const OpArgs &args);
 

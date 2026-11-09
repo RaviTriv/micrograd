@@ -19,6 +19,10 @@ std::shared_ptr<Tensor> Tensor::tanh() {
   return apply(OpId::kTanh, shape_, {.lhs = shared_from_this()});
 }
 
+std::shared_ptr<Tensor> Tensor::gelu() {
+  return apply(OpId::kGelu, shape_, {.lhs = shared_from_this()});
+}
+
 std::shared_ptr<Tensor> Tensor::exp() {
   return apply(OpId::kExp, shape_, {.lhs = shared_from_this()});
 }

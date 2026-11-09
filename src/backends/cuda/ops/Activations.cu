@@ -44,6 +44,35 @@ __global__ void TanhKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
   }
 }
 
+constexpr scalar_t kGeluSqrt2OverPi = 0.7978845608028654f;
+constexpr scalar_t kGeluCubicCoeff = 0.044715f;
+
+__global__ void GeluKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    const scalar_t x = lhs[i];
+    const scalar_t t =
+        tanhf(kGeluSqrt2OverPi * (x + (kGeluCubicCoeff * x * x * x)));
+    out[i] = 0.5f * x * (1.0f + t);
+  }
+}
+
+__global__ void GeluBackwardKernel(const scalar_t *out_grad,
+                                   const scalar_t *in_data, scalar_t *a_grad,
+                                   size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    const scalar_t x = in_data[i];
+    const scalar_t t =
+        tanhf(kGeluSqrt2OverPi * (x + (kGeluCubicCoeff * x * x * x)));
+    const scalar_t du_dx =
+        kGeluSqrt2OverPi * (1.0f + (3.0f * kGeluCubicCoeff * x * x));
+    const scalar_t dy_dx =
+        (0.5f * (1.0f + t)) + (0.5f * x * (1.0f - (t * t)) * du_dx);
+    a_grad[i] += out_grad[i] * dy_dx;
+  }
+}
+
 __global__ void ExpKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
@@ -170,6 +199,13 @@ void Tanh(const OpArgs &args) {
   MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
+void Gelu(const OpArgs &args) {
+  size_t n = args.lhs->size();
+  GeluKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
 void Exp(const OpArgs &args) {
   size_t n = args.lhs->size();
   ExpKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
@@ -228,6 +264,16 @@ std::function<void()> TanhBackward(const GradArgs &args) {
   };
 }
 
+std::function<void()> GeluBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    size_t n = lhs->size();
+    GeluBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                         CudaContext::instance().stream()>>>(
+        GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  };
+}
+
 std::function<void()> ExpBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
@@ -275,6 +321,7 @@ void RegisterActivationOps() {
   registry.Register(OpId::kRelu, Device::CUDA, Relu);
   registry.Register(OpId::kSigmoid, Device::CUDA, Sigmoid);
   registry.Register(OpId::kTanh, Device::CUDA, Tanh);
+  registry.Register(OpId::kGelu, Device::CUDA, Gelu);
   registry.Register(OpId::kExp, Device::CUDA, Exp);
   registry.Register(OpId::kLog, Device::CUDA, Log);
   registry.Register(OpId::kSqrt, Device::CUDA, Sqrt);
@@ -282,6 +329,7 @@ void RegisterActivationOps() {
   registry.RegisterBackward(OpId::kRelu, Device::CUDA, ReluBackward);
   registry.RegisterBackward(OpId::kSigmoid, Device::CUDA, SigmoidBackward);
   registry.RegisterBackward(OpId::kTanh, Device::CUDA, TanhBackward);
+  registry.RegisterBackward(OpId::kGelu, Device::CUDA, GeluBackward);
   registry.RegisterBackward(OpId::kExp, Device::CUDA, ExpBackward);
   registry.RegisterBackward(OpId::kLog, Device::CUDA, LogBackward);
   registry.RegisterBackward(OpId::kSqrt, Device::CUDA, SqrtBackward);

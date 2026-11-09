@@ -112,6 +112,29 @@ std::function<void()> AddBackward(const GradArgs &args) {
   };
 }
 
+void AddBias(const OpArgs &args) {
+  auto lhs = args.lhs->data();
+  auto bias = args.rhs->data();
+  auto out = args.out->data();
+  const size_t cols = bias.size();
+  for (size_t i = 0; i < lhs.size(); i++) {
+    out[i] = lhs[i] + bias[i % cols];
+  }
+}
+
+std::function<void()> AddBiasBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    auto a_grad = lhs->grad();
+    auto b_grad = rhs->grad();
+    auto out_grad = out->grad();
+    const size_t cols = b_grad.size();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i];
+      b_grad[i % cols] += out_grad[i];
+    }
+  };
+}
+
 std::function<void()> SubBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
     auto a_grad = lhs->grad();
@@ -235,6 +258,7 @@ std::function<void()> ClampMaxBackward(const GradArgs &args) {
 void RegisterArithmeticOps() {
   OpRegistry &registry = OpRegistry::Instance();
   registry.Register(OpId::kAdd, Device::CPU, Add);
+  registry.Register(OpId::kAddBias, Device::CPU, AddBias);
   registry.Register(OpId::kSub, Device::CPU, Sub);
   registry.Register(OpId::kMul, Device::CPU, Mul);
   registry.Register(OpId::kDiv, Device::CPU, Div);
@@ -246,6 +270,7 @@ void RegisterArithmeticOps() {
   registry.Register(OpId::kClampMin, Device::CPU, ClampMin);
   registry.Register(OpId::kClampMax, Device::CPU, ClampMax);
   registry.RegisterBackward(OpId::kAdd, Device::CPU, AddBackward);
+  registry.RegisterBackward(OpId::kAddBias, Device::CPU, AddBiasBackward);
   registry.RegisterBackward(OpId::kSub, Device::CPU, SubBackward);
   registry.RegisterBackward(OpId::kMul, Device::CPU, MulBackward);
   registry.RegisterBackward(OpId::kDiv, Device::CPU, DivBackward);

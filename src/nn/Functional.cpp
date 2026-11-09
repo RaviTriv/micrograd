@@ -55,14 +55,7 @@ std::shared_ptr<Tensor> avg_pool2d(const std::shared_ptr<Tensor> &input,
 }
 
 std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input) {
-  constexpr scalar_t kSqrt2OverPi = 0.7978845608028654f;
-  constexpr scalar_t kCubicCoeff = 0.044715f;
-
-  auto cubed = input->mul(input)->mul(input);
-  auto inner = input->add(cubed->mul(kCubicCoeff))->mul(kSqrt2OverPi);
-  auto gate = inner->tanh()->add(1.0f)->mul(0.5f);
-
-  return input->mul(gate);
+  return input->gelu();
 }
 
 std::shared_ptr<Tensor> relu_squared(const std::shared_ptr<Tensor> &input) {

@@ -18,6 +18,7 @@ struct GPTConfig {
   scalar_t matrix_lr;
   scalar_t embedding_lr;
   scalar_t unembedding_lr;
+  bool recompute_activations = true;
 };
 
 GPTConfig config_for_depth(size_t depth);

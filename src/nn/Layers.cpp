@@ -32,7 +32,7 @@ Linear::Linear(size_t in_features, size_t out_features, bool bias) {
 
 std::shared_ptr<Tensor> Linear::forward(const std::shared_ptr<Tensor> &input) {
   auto output = input->matmul(weights_);
-  return bias_ ? output->add(bias_) : output;
+  return bias_ ? output->add_bias(bias_) : output;
 }
 
 std::shared_ptr<Tensor> Linear::weights() { return weights_; }

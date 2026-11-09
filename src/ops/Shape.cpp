@@ -5,6 +5,7 @@
 
 #include "micrograd/Autograd.h"
 #include "micrograd/Broadcast.h"
+#include "micrograd/Profiler.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -75,8 +76,13 @@ std::vector<size_t> NormalizeDims(const std::vector<int64_t> &dims,
 std::shared_ptr<Tensor> Tensor::reshape(const std::vector<int64_t> &shape) {
   std::vector<size_t> resolved = ResolveShape(shape, size());
 
+  Storage copied;
+  {
+    profiler::Scope scope("reshape_copy", "fwd", backend());
+    copied = data_.copy_to(backend());
+  }
   auto result = std::make_shared<Tensor>(ConstructorKey{}, std::move(resolved),
-                                         data_.copy_to(backend()));
+                                         std::move(copied));
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
   if (result->requires_grad_) {

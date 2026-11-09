@@ -105,32 +105,90 @@ const scalar_t *GradPtr(const Tensor *t) {
   return static_cast<const scalar_t *>(t->grad_storage().device_pointer());
 }
 
+template <typename Entry>
+struct DeviceTable {
+  std::vector<Entry> cached;
+  Entry *device = nullptr;
+  size_t bytes = 0;
+};
+
+template <typename Entry, typename Equal>
+const Entry *UploadTable(DeviceTable<Entry> &table,
+                         const std::vector<Entry> &entries, Equal equal) {
+  if (table.device != nullptr && table.cached.size() == entries.size() &&
+      std::equal(table.cached.begin(), table.cached.end(), entries.begin(),
+                 equal)) {
+    return table.device;
+  }
+
+  auto &ctx = CudaContext::instance();
+  if (table.device != nullptr) {
+    ctx.deallocate(table.device, table.bytes);
+  }
+  table.bytes = entries.size() * sizeof(Entry);
+  table.device = static_cast<Entry *>(ctx.allocate(table.bytes));
+  table.cached = entries;
+  MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(table.device, table.cached.data(),
+                                       table.bytes, cudaMemcpyHostToDevice,
+                                       ctx.stream()));
+  return table.device;
+}
+
 bool SameEntry(const AdamWTensor &a, const AdamWTensor &b) {
   return a.data == b.data && a.grad == b.grad && a.m == b.m && a.v == b.v &&
          a.n == b.n && a.decay == b.decay;
 }
 
 const AdamWTensor *UploadAdamWTable(const std::vector<AdamWTensor> &tensors) {
-  static std::vector<AdamWTensor> cached;
-  static AdamWTensor *device_table = nullptr;
-  static size_t device_bytes = 0;
+  static DeviceTable<AdamWTensor> table;
+  return UploadTable(table, tensors, SameEntry);
+}
 
-  if (device_table != nullptr && cached.size() == tensors.size() &&
-      std::equal(cached.begin(), cached.end(), tensors.begin(), SameEntry)) {
-    return device_table;
+struct ClipTensor {
+  scalar_t *grad;
+  size_t n;
+};
+
+constexpr size_t kClipMaxBlocksPerTensor = 128;
+
+__global__ void MultiGradNormSquaredKernel(const ClipTensor *tensors,
+                                           scalar_t *total) {
+  __shared__ scalar_t shared[kBlockSize];
+  const ClipTensor t = tensors[blockIdx.y];
+  size_t tid = threadIdx.x;
+
+  scalar_t local = 0.0f;
+  for (size_t i = blockIdx.x * blockDim.x + tid; i < t.n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    scalar_t g = t.grad[i];
+    local += g * g;
+  }
+  shared[tid] = local;
+  __syncthreads();
+  for (size_t stride = kBlockSize / 2; stride > 0; stride >>= 1) {
+    if (tid < stride) {
+      shared[tid] += shared[tid + stride];
+    }
+    __syncthreads();
   }
 
-  auto &ctx = CudaContext::instance();
-  if (device_table != nullptr) {
-    ctx.deallocate(device_table, device_bytes);
+  if (tid == 0) {
+    atomicAdd(total, shared[0]);
   }
-  device_bytes = tensors.size() * sizeof(AdamWTensor);
-  device_table = static_cast<AdamWTensor *>(ctx.allocate(device_bytes));
-  cached = tensors;
-  MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(device_table, cached.data(),
-                                       device_bytes, cudaMemcpyHostToDevice,
-                                       ctx.stream()));
-  return device_table;
+}
+
+__global__ void MultiClipScaleKernel(const ClipTensor *tensors,
+                                     const scalar_t *total, scalar_t max_norm) {
+  const ClipTensor t = tensors[blockIdx.y];
+  const scalar_t scale = fminf(1.0f, max_norm / (sqrtf(*total) + 1e-6f));
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < t.n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    t.grad[i] *= scale;
+  }
+}
+
+bool SameClipEntry(const ClipTensor &a, const ClipTensor &b) {
+  return a.grad == b.grad && a.n == b.n;
 }
 
 }  // namespace
@@ -152,26 +210,37 @@ scalar_t GradNormSquared(const Tensor &param) {
   return result;
 }
 
-scalar_t GradNormSquaredSum(const std::vector<const Tensor *> &params) {
+void ClipGradNorm(const std::vector<Tensor *> &params, scalar_t max_norm) {
   if (params.empty()) {
-    return 0.0f;
+    return;
   }
+  std::vector<ClipTensor> tensors;
+  tensors.reserve(params.size());
+  size_t max_n = 0;
+  for (Tensor *param : params) {
+    tensors.push_back({.grad = GradPtr(param), .n = param->size()});
+    max_n = std::max(max_n, param->size());
+  }
+
+  static DeviceTable<ClipTensor> table;
+  const ClipTensor *device_tensors = UploadTable(table, tensors, SameClipEntry);
+
   auto &ctx = CudaContext::instance();
-  auto *scratch = static_cast<scalar_t *>(ctx.allocate(sizeof(scalar_t)));
+  auto *total = static_cast<scalar_t *>(ctx.allocate(sizeof(scalar_t)));
   MICROGRAD_CUDA_CHECK(
-      cudaMemsetAsync(scratch, 0, sizeof(scalar_t), ctx.stream()));
-  for (const Tensor *param : params) {
-    size_t n = param->size();
-    GradNormSquaredKernel<<<GridSize(n), kBlockSize, 0, ctx.stream()>>>(
-        GradPtr(param), scratch, n);
-    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
-  }
-  scalar_t result = 0.0f;
-  MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(&result, scratch, sizeof(scalar_t),
-                                       cudaMemcpyDeviceToHost, ctx.stream()));
-  ctx.synchronize();
-  ctx.deallocate(scratch, sizeof(scalar_t));
-  return result;
+      cudaMemsetAsync(total, 0, sizeof(scalar_t), ctx.stream()));
+
+  const size_t blocks = std::clamp<size_t>(
+      (max_n + kBlockSize - 1) / kBlockSize, 1, kClipMaxBlocksPerTensor);
+  const dim3 grid(static_cast<unsigned>(blocks),
+                  static_cast<unsigned>(tensors.size()));
+  MultiGradNormSquaredKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(
+      device_tensors, total);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  MultiClipScaleKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(device_tensors,
+                                                              total, max_norm);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  ctx.deallocate(total, sizeof(scalar_t));
 }
 
 void ScaleGrad(Tensor &param, scalar_t scale) {

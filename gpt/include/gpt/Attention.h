@@ -10,6 +10,14 @@
 
 namespace micrograd::gpt {
 
+std::shared_ptr<Tensor> causal_mask(size_t seq_len, Device device);
+
+std::shared_ptr<Tensor> causal_attention(const std::shared_ptr<Tensor> &q,
+                                         const std::shared_ptr<Tensor> &k,
+                                         const std::shared_ptr<Tensor> &v,
+                                         scalar_t scale,
+                                         const std::shared_ptr<Tensor> &mask);
+
 class CausalSelfAttention : public nn::Module {
  public:
   CausalSelfAttention(size_t n_embd, size_t n_head, scalar_t dropout);

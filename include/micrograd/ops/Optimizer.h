@@ -12,9 +12,9 @@ class Tensor;
 namespace ops {
 
 scalar_t GradNormSquared(const Tensor &param);
-double GlobalGradNormSquared(
-    const std::vector<std::shared_ptr<Tensor>> &params);
 void ScaleGrad(Tensor &param, scalar_t scale);
+void ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &params,
+                  scalar_t max_norm);
 
 void AdamWStep(Tensor &param, Tensor &m, Tensor &v, scalar_t lr, scalar_t beta1,
                scalar_t beta2, scalar_t eps, scalar_t weight_decay, bool decay,

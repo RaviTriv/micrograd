@@ -24,6 +24,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   static std::shared_ptr<Tensor> zeros(std::vector<size_t> shape);
   static std::shared_ptr<Tensor> zeros(std::vector<size_t> shape,
                                        Backend device);
+  static std::shared_ptr<Tensor> empty(std::vector<size_t> shape,
+                                       Backend device);
   static std::shared_ptr<Tensor> from_values(std::vector<size_t> shape,
                                              std::vector<scalar_t> values);
 
@@ -40,6 +42,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   Tensor &operator=(Tensor &&) = delete;
 
   std::shared_ptr<Tensor> add(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> add_bias(const std::shared_ptr<Tensor> &bias);
   std::shared_ptr<Tensor> sub(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> mul(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> div(const std::shared_ptr<Tensor> &b);
@@ -83,6 +86,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> relu();
   std::shared_ptr<Tensor> sigmoid();
   std::shared_ptr<Tensor> tanh();
+  std::shared_ptr<Tensor> gelu();
   std::shared_ptr<Tensor> exp();
   std::shared_ptr<Tensor> log();
   std::shared_ptr<Tensor> sqrt();

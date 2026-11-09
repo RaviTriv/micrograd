@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "gpt/Attention.h"
 #include "gpt/GRPO.h"
 #include "micrograd/Device.h"
 #include "micrograd/NN.h"
@@ -95,6 +96,11 @@ std::vector<Case> AllCases() {
 
   add("add_broadcast", [](const TensorList &in) { return in[0]->add(in[1]); },
       {signed_matrix(), row_vector()});
+  add("add_bias", [](const TensorList &in) { return in[0]->add_bias(in[1]); },
+      {signed_matrix(), row_vector()});
+  add("add_bias_many_rows_and_cols",
+      [](const TensorList &in) { return in[0]->add_bias(in[1]); },
+      {Wave({2, 150, 40}, 0.2f), Wave({40}, 1.3f)}, {.eps = 0.5f});
   add("sub_broadcast", [](const TensorList &in) { return in[0]->sub(in[1]); },
       {signed_matrix(), row_vector()});
   add("mul_broadcast", [](const TensorList &in) { return in[0]->mul(in[1]); },
@@ -223,14 +229,14 @@ std::vector<Case> AllCases() {
       {Ramp({2, 150, 4}, -0.9f, 0.0015f), Ramp({4, 5}, -1.1f, 0.15f)},
       {.eps = 0.5f});
   add("matmul_past_one_tile",
-      [](const TensorList& in) { return in[0]->matmul(in[1]); },
+      [](const TensorList &in) { return in[0]->matmul(in[1]); },
       {Wave({33, 34}, 0.1f), Wave({34, 35}, 0.7f)},
       {.eps = 0.5f, .atol = 1e-4f});
   add("matmul_fold_rows_past_one_tile",
-      [](const TensorList& in) { return in[0]->matmul(in[1]); },
+      [](const TensorList &in) { return in[0]->matmul(in[1]); },
       {Wave({2, 3, 33}, 0.2f), Wave({33, 34}, 0.9f)}, {.eps = 0.5f});
   add("matmul_batched_past_one_tile",
-      [](const TensorList& in) { return in[0]->matmul(in[1]); },
+      [](const TensorList &in) { return in[0]->matmul(in[1]); },
       {Wave({2, 5, 33}, 0.3f), Wave({2, 33, 6}, 1.1f)}, {.eps = 0.5f});
 
   add("layer_norm",
@@ -253,6 +259,22 @@ std::vector<Case> AllCases() {
       },
       {Ramp({2, 3, 2}, -0.9f, 0.3f), Ramp({2, 3, 2}, -0.5f, 0.25f),
        Ramp({2, 3, 2}, 0.2f, 0.15f)});
+  add("causal_attention",
+      [](const TensorList &in) {
+        return micrograd::gpt::causal_attention(
+            in[0], in[1], in[2], 0.5f,
+            micrograd::gpt::causal_mask(3, in[0]->backend()));
+      },
+      {Ramp({2, 3, 2}, -0.9f, 0.3f), Ramp({2, 3, 2}, -0.5f, 0.25f),
+       Ramp({2, 3, 2}, 0.2f, 0.15f)});
+  add("causal_attention_past_one_tile",
+      [](const TensorList &in) {
+        return micrograd::gpt::causal_attention(
+            in[0], in[1], in[2], 0.35f,
+            micrograd::gpt::causal_mask(33, in[0]->backend()));
+      },
+      {Wave({1, 33, 4}, 0.1f), Wave({1, 33, 4}, 0.8f), Wave({1, 33, 4}, 1.7f)},
+      {.atol = 1e-4f});
 
   add("relu", [](const TensorList &in) { return in[0]->relu(); },
       {signed_matrix()});
@@ -260,6 +282,8 @@ std::vector<Case> AllCases() {
       {signed_matrix()});
   add("tanh", [](const TensorList &in) { return in[0]->tanh(); },
       {signed_matrix()});
+  add("gelu_wide", [](const TensorList &in) { return in[0]->gelu(); },
+      {Wave({7, 9}, 0.3f)}, {.atol = 5e-5f});
   add("exp", [](const TensorList &in) { return in[0]->exp(); },
       {signed_matrix()});
   add("log", [](const TensorList &in) { return in[0]->log(); },
@@ -381,9 +405,9 @@ struct DeviceRun {
   std::vector<std::vector<scalar_t>> gradients;
 };
 
-DeviceRun RunForwardBackward(const GradCheckFunction& function,
-                             const std::vector<std::vector<size_t>>& shapes,
-                             const std::vector<std::vector<scalar_t>>& values,
+DeviceRun RunForwardBackward(const GradCheckFunction &function,
+                             const std::vector<std::vector<size_t>> &shapes,
+                             const std::vector<std::vector<scalar_t>> &values,
                              Device device) {
   auto leaves = MakeGradCheckLeaves(shapes, values);
   for (auto &leaf : leaves) {
@@ -409,10 +433,10 @@ DeviceRun RunForwardBackward(const GradCheckFunction& function,
   return run;
 }
 
-void CompareValues(const std::vector<scalar_t>& cpu,
-                   const std::vector<scalar_t>& device, size_t slot,
-                   const GradCheckOptions& options,
-                   std::vector<DeviceMismatch>& mismatches) {
+void CompareValues(const std::vector<scalar_t> &cpu,
+                   const std::vector<scalar_t> &device, size_t slot,
+                   const GradCheckOptions &options,
+                   std::vector<DeviceMismatch> &mismatches) {
   for (size_t j = 0; j < cpu.size(); j++) {
     const scalar_t difference = std::abs(cpu[j] - device[j]);
     const scalar_t scale = std::max(std::abs(cpu[j]), std::abs(device[j]));

@@ -142,6 +142,46 @@ __global__ void AccumulateKernel(const scalar_t *out_grad, scalar_t *a_grad,
   }
 }
 
+__global__ void AddBiasKernel(const scalar_t *lhs, const scalar_t *bias,
+                              scalar_t *out, size_t n, size_t cols) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    out[i] = lhs[i] + bias[i % cols];
+  }
+}
+
+constexpr unsigned int kBiasCols = 32;
+constexpr unsigned int kBiasRowThreads = 8;
+constexpr size_t kBiasRowsPerBlock = 256;
+
+__global__ void BiasGradKernel(const scalar_t *out_grad, scalar_t *bias_grad,
+                               size_t rows, size_t cols) {
+  __shared__ scalar_t partial[kBiasRowThreads][kBiasCols];
+  const size_t col = (blockIdx.x * kBiasCols) + threadIdx.x;
+  const size_t row_begin = blockIdx.y * kBiasRowsPerBlock;
+  const size_t row_end = row_begin + kBiasRowsPerBlock < rows
+                             ? row_begin + kBiasRowsPerBlock
+                             : rows;
+
+  scalar_t sum = 0.0f;
+  if (col < cols) {
+    for (size_t row = row_begin + threadIdx.y; row < row_end;
+         row += kBiasRowThreads) {
+      sum += out_grad[(row * cols) + col];
+    }
+  }
+  partial[threadIdx.y][threadIdx.x] = sum;
+  __syncthreads();
+
+  if (threadIdx.y == 0 && col < cols) {
+    scalar_t total = 0.0f;
+    for (unsigned int k = 0; k < kBiasRowThreads; k++) {
+      total += partial[k][threadIdx.x];
+    }
+    atomicAdd(&bias_grad[col], total);
+  }
+}
+
 __global__ void MulScalarBackwardKernel(const scalar_t *out_grad,
                                         scalar_t *a_grad, scalar_t scalar,
                                         size_t n) {
@@ -314,6 +354,37 @@ std::function<void()> AddBackward(const GradArgs &args) {
   };
 }
 
+void AddBias(const OpArgs &args) {
+  size_t n = args.lhs->size();
+  size_t cols = args.rhs->size();
+  AddBiasKernel<<<GridSize(n), kBlockSize, 0,
+                  CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n, cols);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+std::function<void()> AddBiasBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    cudaStream_t stream = CudaContext::instance().stream();
+    size_t n = lhs->size();
+    size_t cols = rhs->size();
+    size_t rows = n / cols;
+
+    AccumulateKernel<<<GridSize(n), kBlockSize, 0, stream>>>(
+        GradPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+
+    const dim3 block(kBiasCols, kBiasRowThreads);
+    const dim3 grid(
+        static_cast<unsigned int>((cols + kBiasCols - 1) / kBiasCols),
+        static_cast<unsigned int>((rows + kBiasRowsPerBlock - 1) /
+                                  kBiasRowsPerBlock));
+    BiasGradKernel<<<grid, block, 0, stream>>>(GradPtr(out), GradPtr(rhs.get()),
+                                               rows, cols);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  };
+}
+
 std::function<void()> SubBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
     size_t n = lhs->size();
@@ -421,6 +492,7 @@ std::function<void()> ClampMaxBackward(const GradArgs &args) {
 void RegisterArithmeticOps() {
   OpRegistry &registry = OpRegistry::Instance();
   registry.Register(OpId::kAdd, Device::CUDA, Add);
+  registry.Register(OpId::kAddBias, Device::CUDA, AddBias);
   registry.Register(OpId::kSub, Device::CUDA, Sub);
   registry.Register(OpId::kMul, Device::CUDA, Mul);
   registry.Register(OpId::kDiv, Device::CUDA, Div);
@@ -432,6 +504,7 @@ void RegisterArithmeticOps() {
   registry.Register(OpId::kClampMin, Device::CUDA, ClampMin);
   registry.Register(OpId::kClampMax, Device::CUDA, ClampMax);
   registry.RegisterBackward(OpId::kAdd, Device::CUDA, AddBackward);
+  registry.RegisterBackward(OpId::kAddBias, Device::CUDA, AddBiasBackward);
   registry.RegisterBackward(OpId::kSub, Device::CUDA, SubBackward);
   registry.RegisterBackward(OpId::kMul, Device::CUDA, MulBackward);
   registry.RegisterBackward(OpId::kDiv, Device::CUDA, DivBackward);

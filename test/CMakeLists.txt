@@ -11,17 +11,24 @@ FetchContent_MakeAvailable(googletest)
 
 add_executable(micrograd_tests
     activation_test.cpp
+    add_bias_test.cpp
+    attention_test.cpp
     autograd_test.cpp
+    caching_allocator_test.cpp
     dataloader_test.cpp
     dataset_test.cpp
+    gelu_test.cpp
+    grad_clip_test.cpp
     init_test.cpp
     layers_test.cpp
     loss_test.cpp
     optim_test.cpp
+    profiler_test.cpp
     sample_order_test.cpp
     serialization_test.cpp
     stats_test.cpp
     tensor_core_test.cpp
+    tensor_empty_test.cpp
     training_test.cpp
 )
 target_link_libraries(micrograd_tests PRIVATE micrograd_gpt GTest::gtest_main)

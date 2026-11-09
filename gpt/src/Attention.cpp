@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
+#include <span>
 #include <stdexcept>
 #include <vector>
 
@@ -30,6 +32,43 @@ std::shared_ptr<Tensor> merge_heads(const std::shared_ptr<Tensor> &heads,
       ->permute({0, 2, 1, 3})
       ->reshape({static_cast<int64_t>(batch), static_cast<int64_t>(seq_len),
                  static_cast<int64_t>(n_head * head_dim)});
+}
+
+}  // namespace
+
+std::shared_ptr<Tensor> causal_mask(size_t seq_len, Device device) {
+  auto mask = Tensor::zeros({seq_len, seq_len});
+  std::span<scalar_t> values = mask->data();
+  for (size_t row = 0; row < seq_len; row++) {
+    for (size_t col = row + 1; col < seq_len; col++) {
+      values[(row * seq_len) + col] =
+          -std::numeric_limits<scalar_t>::infinity();
+    }
+  }
+  mask->to(device);
+  return mask;
+}
+
+std::shared_ptr<Tensor> causal_attention(const std::shared_ptr<Tensor> &q,
+                                         const std::shared_ptr<Tensor> &k,
+                                         const std::shared_ptr<Tensor> &v,
+                                         scalar_t scale,
+                                         const std::shared_ptr<Tensor> &mask) {
+  auto scores = q->mul(scale)->matmul(k->transpose(1, 2))->add(mask);
+  return scores->softmax(-1)->matmul(v);
+}
+
+namespace {
+
+std::shared_ptr<Tensor> BroadcastCausalMask(size_t batch_heads, size_t seq_len,
+                                            Device device) {
+  static std::shared_ptr<Tensor> cached;
+  const std::vector<size_t> shape = {batch_heads, seq_len, seq_len};
+  if (cached && cached->backend() == device && cached->shape() == shape) {
+    return cached;
+  }
+  cached = Tensor::zeros(shape, device)->add(causal_mask(seq_len, device));
+  return cached;
 }
 
 }  // namespace
@@ -75,7 +114,8 @@ std::shared_ptr<Tensor> CausalSelfAttention::forward(
       split_heads(value_->forward(input), batch, seq_len, n_head_, head_dim);
 
   scalar_t scale = 1.0f / std::sqrt(static_cast<scalar_t>(head_dim));
-  std::shared_ptr<Tensor> attended = q->flash_attention(k, v, scale);
+  const auto mask = BroadcastCausalMask(batch * n_head_, seq_len, q->backend());
+  std::shared_ptr<Tensor> attended = causal_attention(q, k, v, scale, mask);
   std::shared_ptr<Tensor> merged =
       merge_heads(attended, batch, seq_len, n_head_, head_dim);
 

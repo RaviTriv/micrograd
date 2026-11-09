@@ -21,6 +21,7 @@
 #include "gpt/Model.h"
 #include "micrograd/Autograd.h"
 #include "micrograd/NN.h"
+#include "micrograd/Profiler.h"
 #include "micrograd/Random.h"
 #include "micrograd/Scalar.h"
 #include "micrograd/Storage.h"
@@ -93,6 +94,8 @@ struct TrainConfig {
   size_t throughput_interval = 10;
   Device device = Device::CPU;
   bool tf32 = false;
+  bool profile = false;
+  bool recompute = true;
   uint64_t seed = 1337;
   bool sample = false;
   std::string prompt = "\n";
@@ -182,6 +185,10 @@ TrainConfig parse_args(int argc, char **argv) {
       config.device = parse_device(next_value());
     } else if (arg == "--tf32") {
       config.tf32 = true;
+    } else if (arg == "--profile") {
+      config.profile = true;
+    } else if (arg == "--no-recompute") {
+      config.recompute = false;
     } else if (arg == "--seed") {
       config.seed = std::stoull(next_value());
     } else if (arg == "--sample") {
@@ -216,6 +223,7 @@ GPTConfig build_model_config(const TrainConfig &config) {
   model_config.matrix_lr = 0.0f;
   model_config.embedding_lr = 0.0f;
   model_config.unembedding_lr = 0.0f;
+  model_config.recompute_activations = config.recompute;
   return model_config;
 }
 
@@ -229,27 +237,6 @@ std::shared_ptr<Tensor> token_tensor(const std::vector<size_t> &tokens,
       Tensor::from_values(std::vector<size_t>{rows, cols}, std::move(values));
   tensor->to(device);
   return tensor;
-}
-
-scalar_t GlobalGradNorm(
-    const std::vector<std::shared_ptr<Tensor>> &parameters) {
-  return static_cast<scalar_t>(
-      std::sqrt(micrograd::ops::GlobalGradNormSquared(parameters)));
-}
-
-void ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &parameters,
-                  scalar_t max_norm) {
-  if (max_norm <= 0.0f) {
-    return;
-  }
-  scalar_t norm = GlobalGradNorm(parameters);
-  if (norm <= max_norm) {
-    return;
-  }
-  scalar_t scale = max_norm / (norm + 1e-6f);
-  for (const auto &p : parameters) {
-    micrograd::ops::ScaleGrad(*p, scale);
-  }
 }
 
 scalar_t LrAt(size_t it, const TrainConfig &config) {
@@ -674,6 +661,7 @@ void run_sample(const TrainConfig &config) {
 }
 
 constexpr size_t kThroughputWarmupSteps = 10;
+constexpr size_t kProfileWarmupSteps = 3;
 
 double seconds_since(std::chrono::steady_clock::time_point start) {
   auto elapsed = std::chrono::steady_clock::now() - start;
@@ -753,6 +741,7 @@ int main(int argc, char **argv) {
     const size_t tokens_per_step =
         tokens_per_micro_step * config.grad_accum_steps;
     size_t timed_steps = 0;
+    size_t profiled_steps = 0;
     double timed_seconds = 0.0;
     double timed_data_seconds = 0.0;
 
@@ -777,17 +766,29 @@ int main(int argc, char **argv) {
         save_rng_state(rng_state_path(config.checkpoint_path));
       }
 
+      if (config.profile && it == start_iter + kProfileWarmupSteps) {
+        micrograd::profiler::Enable();
+      }
+
       const auto step_start = std::chrono::steady_clock::now();
       model.train();
-      optimizer.zero_grad();
+      {
+        micrograd::profiler::Scope scope("zero_grad", "step", config.device);
+        optimizer.zero_grad();
+      }
       double step_data_seconds = 0.0;
       for (size_t micro_step = 0; micro_step < config.grad_accum_steps;
            micro_step++) {
         const auto data_start = std::chrono::steady_clock::now();
         Dataset::Batch batch =
             dataset.train_batch(config.batch_size, train_order);
-        auto input = token_tensor(batch.inputs, config.batch_size,
-                                  config.block_size, config.device);
+        std::shared_ptr<Tensor> input;
+        {
+          micrograd::profiler::Scope scope("batch_to_device", "step",
+                                           config.device);
+          input = token_tensor(batch.inputs, config.batch_size,
+                               config.block_size, config.device);
+        }
         step_data_seconds += seconds_since(data_start);
         auto logits = model.forward(input);
         auto flat_logits = logits->reshape(
@@ -798,8 +799,18 @@ int main(int argc, char **argv) {
             loss->div(static_cast<scalar_t>(config.grad_accum_steps));
         scaled_loss->backward();
       }
-      ClipGradNorm(parameters, config.grad_clip);
-      optimizer.step(LrAt(it, config));
+      {
+        micrograd::profiler::Scope scope("grad_clip", "step", config.device);
+        micrograd::ops::ClipGradNorm(parameters, config.grad_clip);
+      }
+      {
+        micrograd::profiler::Scope scope("optimizer", "step", config.device);
+        optimizer.step(LrAt(it, config));
+      }
+      if (micrograd::profiler::Enabled()) {
+        micrograd::profiler::Flush();
+        profiled_steps++;
+      }
 
       if (config.throughput_interval == 0) {
         continue;
@@ -827,6 +838,17 @@ int main(int argc, char **argv) {
         timed_data_seconds = 0.0;
       }
     }
+
+    if (config.profile) {
+      std::cout << micrograd::profiler::Report(profiled_steps);
+      micrograd::profiler::Disable();
+    }
+#ifdef MICROGRAD_CUDA_ENABLED
+    if (config.device == Device::CUDA) {
+      std::cout << "gpu memory: "
+                << micrograd::CudaContext::instance().memorySummary() << "\n";
+    }
+#endif
 
     double final_val_loss =
         estimate_loss(model, dataset, Dataset::Split::kVal, config);

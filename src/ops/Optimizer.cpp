@@ -1,5 +1,6 @@
 #include "micrograd/ops/Optimizer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <memory>
@@ -62,27 +63,42 @@ scalar_t GradNormSquared(const Tensor &param) {
   return CpuGradNormSquared(param);
 }
 
-double GlobalGradNormSquared(
-    const std::vector<std::shared_ptr<Tensor>> &params) {
-  double sum_sq = 0.0;
+void ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &params,
+                  scalar_t max_norm) {
+  if (max_norm <= 0.0f || params.empty()) {
+    return;
+  }
+
+  const bool all_cuda =
+      std::ranges::all_of(params, [](const std::shared_ptr<Tensor> &p) {
+        return p->backend() == Device::CUDA;
+      });
+  if (all_cuda) {
 #ifdef MICROGRAD_CUDA_ENABLED
-  std::vector<const Tensor *> cuda_params;
-#endif
-  for (const auto &p : params) {
-    if (p->backend() == Device::CUDA) {
-#ifdef MICROGRAD_CUDA_ENABLED
-      cuda_params.push_back(p.get());
-      continue;
-#else
-      throw std::runtime_error("CUDA support is not compiled in");
-#endif
+    std::vector<Tensor *> raw;
+    raw.reserve(params.size());
+    for (const auto &p : params) {
+      raw.push_back(p.get());
     }
+    cuda::ops::ClipGradNorm(raw, max_norm);
+    return;
+#else
+    throw std::runtime_error("CUDA support is not compiled in");
+#endif
+  }
+
+  double sum_sq = 0.0;
+  for (const auto &p : params) {
     sum_sq += static_cast<double>(GradNormSquared(*p));
   }
-#ifdef MICROGRAD_CUDA_ENABLED
-  sum_sq += static_cast<double>(cuda::ops::GradNormSquaredSum(cuda_params));
-#endif
-  return sum_sq;
+  const auto norm = static_cast<scalar_t>(std::sqrt(sum_sq));
+  if (norm <= max_norm) {
+    return;
+  }
+  const scalar_t scale = max_norm / (norm + 1e-6f);
+  for (const auto &p : params) {
+    ScaleGrad(*p, scale);
+  }
 }
 
 void ScaleGrad(Tensor &param, scalar_t scale) {

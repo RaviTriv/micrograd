@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.24)
 project(micrograd
     VERSION 0.1.0
     LANGUAGES CXX
@@ -32,6 +32,10 @@ if(ENABLE_CUDA)
         if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
             set(CMAKE_CUDA_ARCHITECTURES native)
         endif()
+        if(NOT DEFINED CMAKE_CUDA_STANDARD)
+            set(CMAKE_CUDA_STANDARD 20)
+        endif()
+        set(CMAKE_CUDA_STANDARD_REQUIRED ON)
         enable_language(CUDA)
     else()
         message(FATAL_ERROR "ENABLE_CUDA requested but no CUDA compiler was found")
@@ -45,6 +49,8 @@ add_library(micrograd
     src/core/Random.cpp
     src/core/Storage.cpp
     src/core/Init.cpp
+    src/core/CachingAllocator.cpp
+    src/core/Profiler.cpp
 
     src/ops/Activations.cpp
     src/ops/Arithmetic.cpp

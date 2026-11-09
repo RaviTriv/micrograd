@@ -1,11 +1,14 @@
 #include "micrograd/Tensor.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string>
 #include <utility>
+
+#include "micrograd/Profiler.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
 #include "micrograd/backends/cuda/CudaCheck.h"
@@ -31,21 +34,32 @@ size_t ElementCount(const std::vector<size_t> &shape) {
   return total;
 }
 
-void ZeroFill(Storage &storage) {
+void FillBytes(Storage &storage, int value, const char *name) {
   if (storage.bytes() == 0) {
     return;
   }
+  profiler::Scope scope(name, "-", storage.device());
   if (storage.device() != Device::CUDA) {
-    std::memset(storage.host_pointer(), 0, storage.bytes());
+    std::memset(storage.host_pointer(), value, storage.bytes());
     return;
   }
 #ifdef MICROGRAD_CUDA_ENABLED
-  MICROGRAD_CUDA_CHECK(cudaMemsetAsync(storage.device_pointer(), 0,
+  MICROGRAD_CUDA_CHECK(cudaMemsetAsync(storage.device_pointer(), value,
                                        storage.bytes(),
                                        CudaContext::instance().stream()));
 #else
   throw std::runtime_error("CUDA support is not compiled in");
 #endif
+}
+
+void ZeroFill(Storage &storage) { FillBytes(storage, 0, "zero_fill"); }
+
+bool PoisonEmptyTensors() {
+  static const bool poison = [] {
+    const char *value = std::getenv("MICROGRAD_POISON_EMPTY");
+    return value != nullptr && std::string(value) == "1";
+  }();
+  return poison;
 }
 
 }  // namespace
@@ -57,6 +71,16 @@ std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape) {
 std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape,
                                       Backend device) {
   return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape), device);
+}
+
+std::shared_ptr<Tensor> Tensor::empty(std::vector<size_t> shape,
+                                      Backend device) {
+  Storage data(ElementCount(shape) * sizeof(scalar_t), device);
+  if (PoisonEmptyTensors()) {
+    FillBytes(data, 0xFF, "poison_fill");
+  }
+  return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape),
+                                  std::move(data));
 }
 
 std::shared_ptr<Tensor> Tensor::from_values(std::vector<size_t> shape,

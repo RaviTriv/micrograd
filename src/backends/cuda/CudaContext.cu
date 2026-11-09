@@ -13,7 +13,17 @@ CudaContext &CudaContext::instance() {
   return context;
 }
 
-CudaContext::CudaContext() = default;
+CudaContext::CudaContext()
+    : allocator_(
+          [](size_t bytes) -> void * {
+            void *ptr = nullptr;
+            if (cudaMalloc(&ptr, bytes) != cudaSuccess) {
+              cudaGetLastError();
+              return nullptr;
+            }
+            return ptr;
+          },
+          [](void *ptr) { cudaFree(ptr); }) {}
 
 CudaContext::~CudaContext() { shutdown(); }
 
@@ -75,44 +85,20 @@ void CudaContext::setAllowTf32(bool allow) {
 
 bool CudaContext::allowTf32() const { return allow_tf32_; }
 
-size_t CudaContext::bucketSize(size_t bytes) {
-  size_t size = 1;
-  while (size < bytes) {
-    size <<= 1;
-  }
-  return size;
+void *CudaContext::allocate(size_t bytes) { return allocator_.allocate(bytes); }
+
+void CudaContext::deallocate(void *ptr, size_t /*bytes*/) {
+  allocator_.deallocate(ptr);
 }
 
-void *CudaContext::allocate(size_t bytes) {
-  size_t bucket = bucketSize(bytes);
-  std::vector<void *> &blocks = free_blocks_[bucket];
-  if (!blocks.empty()) {
-    void *ptr = blocks.back();
-    blocks.pop_back();
-    return ptr;
-  }
-
-  void *ptr = nullptr;
-  if (cudaMalloc(&ptr, bucket) != cudaSuccess) {
-    return nullptr;
-  }
-  return ptr;
+CachingAllocator::Stats CudaContext::memoryStats() const {
+  return allocator_.stats();
 }
 
-void CudaContext::deallocate(void *ptr, size_t bytes) {
-  if (!ptr) {
-    return;
-  }
-  free_blocks_[bucketSize(bytes)].push_back(ptr);
-}
+std::string CudaContext::memorySummary() const { return allocator_.summary(); }
 
 void CudaContext::shutdown() {
-  for (auto &entry : free_blocks_) {
-    for (void *ptr : entry.second) {
-      cudaFree(ptr);
-    }
-  }
-  free_blocks_.clear();
+  allocator_.releaseAll();
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
   if (cublas_lt_handle_) {

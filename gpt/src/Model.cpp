@@ -32,7 +32,8 @@ Model::Model(size_t vocab_size, const GPTConfig &config) : config_(config) {
   std::vector<std::shared_ptr<nn::Module>> layers;
   for (size_t i = 0; i < config_.n_layer; i++) {
     layers.push_back(std::make_shared<Block>(config_.n_embd, config_.n_head,
-                                             config_.dropout));
+                                             config_.dropout,
+                                             config_.recompute_activations));
   }
   blocks_ = std::make_shared<Sequential>(std::move(layers));
 

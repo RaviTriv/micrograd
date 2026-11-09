@@ -26,6 +26,18 @@ std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
   return apply_binary(OpId::kAdd, b);
 }
 
+std::shared_ptr<Tensor> Tensor::add_bias(const std::shared_ptr<Tensor> &bias) {
+  if (backend() != bias->backend()) {
+    throw std::invalid_argument("Tensor devices do not match");
+  }
+  if (shape_.empty() || bias->shape_.size() != 1 ||
+      bias->shape_[0] != shape_.back()) {
+    return add(bias);
+  }
+  return apply(OpId::kAddBias, shape_,
+               {.lhs = shared_from_this(), .rhs = bias});
+}
+
 std::shared_ptr<Tensor> Tensor::sub(const std::shared_ptr<Tensor> &b) {
   return apply_binary(OpId::kSub, b);
 }
