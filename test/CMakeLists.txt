@@ -12,6 +12,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(micrograd_tests
     activation_test.cpp
     autograd_test.cpp
+    dataloader_test.cpp
     dataset_test.cpp
     init_test.cpp
     layers_test.cpp

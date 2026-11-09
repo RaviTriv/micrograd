@@ -1,5 +1,5 @@
-#include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -24,6 +24,7 @@ struct TrainingConfig {
   size_t batch_size = 64;
   int epochs = 5;
   scalar_t lr = 1e-3f;
+  uint64_t seed = 0;
   Device device = Device::CPU;
 };
 
@@ -56,6 +57,8 @@ TrainingConfig parse_args(int argc, char **argv) {
       config.epochs = std::stoi(next_value());
     } else if (arg == "--lr") {
       config.lr = std::stof(next_value());
+    } else if (arg == "--seed") {
+      config.seed = std::stoull(next_value());
     } else if (arg == "--device") {
       config.device = parse_device(next_value());
     } else {
@@ -70,47 +73,21 @@ TrainingConfig parse_args(int argc, char **argv) {
   return config;
 }
 
-std::shared_ptr<Tensor> stack_images(
-    const std::vector<std::shared_ptr<Tensor>> &images, size_t start,
-    size_t count) {
-  size_t feature_size = images[start]->size();
-  std::vector<scalar_t> batch_data(count * feature_size);
-  for (size_t i = 0; i < count; i++) {
-    auto values = images[start + i]->data();
-    std::copy(
-        values.begin(), values.end(),
-        batch_data.begin() + static_cast<std::ptrdiff_t>(i * feature_size));
-  }
-  return Tensor::from_values(std::vector<size_t>{count, feature_size},
-                             batch_data);
-}
-
-std::vector<size_t> batch_targets(
-    const std::vector<std::shared_ptr<Tensor>> &labels, size_t start,
-    size_t count) {
-  std::vector<size_t> targets(count);
-  for (size_t i = 0; i < count; i++) {
-    targets[i] = static_cast<size_t>(labels[start + i]->argmax(1)->data()[0]);
-  }
-  return targets;
-}
-
-double evaluate(const MNISTData &set, Sequential &net, size_t batch_size,
+double evaluate(const data::Dataset &set, Sequential &net, size_t batch_size,
                 Device device) {
   const NoGradGuard no_grad;
   size_t correct = 0;
 
-  for (size_t start = 0; start < set.images.size(); start += batch_size) {
-    size_t count = std::min(batch_size, set.images.size() - start);
-    auto pooled = avg_pool2d(stack_images(set.images, start, count), 2);
+  for (const data::Batch &batch : data::DataLoader(set, batch_size, false)) {
+    auto pooled = avg_pool2d(batch.inputs, 2);
     pooled->to(device);
 
     auto out = net.forward(pooled);
     auto predictions = out->argmax(1);
     predictions->to(Device::CPU);
 
-    auto targets = batch_targets(set.labels, start, count);
-    for (size_t i = 0; i < count; i++) {
+    auto targets = data::class_indices(*batch.targets);
+    for (size_t i = 0; i < targets.size(); i++) {
       if (static_cast<size_t>(predictions->data()[i]) == targets[i]) {
         correct++;
       }
@@ -118,7 +95,7 @@ double evaluate(const MNISTData &set, Sequential &net, size_t batch_size,
   }
 
   return 100.0 * static_cast<double>(correct) /
-         static_cast<double>(set.images.size());
+         static_cast<double>(set.size());
 }
 
 }  // namespace
@@ -143,18 +120,18 @@ int main(int argc, char **argv) {
     }
 
     AdamW optimizer(net.parameters(), config.lr);
+    data::DataLoader train_loader(train, config.batch_size, true, config.seed);
 
     for (int epoch = 0; epoch < config.epochs; epoch++) {
       double total_loss = 0.0;
+      train_loader.set_epoch(static_cast<size_t>(epoch));
 
-      for (size_t start = 0; start < train.images.size();
-           start += config.batch_size) {
-        size_t count = std::min(config.batch_size, train.images.size() - start);
-        auto pooled = avg_pool2d(stack_images(train.images, start, count), 2);
+      for (const data::Batch &batch : train_loader) {
+        auto pooled = avg_pool2d(batch.inputs, 2);
         pooled->to(config.device);
 
         auto out = net.forward(pooled);
-        auto targets = batch_targets(train.labels, start, count);
+        auto targets = data::class_indices(*batch.targets);
         auto loss = cross_entropy(out, targets);
 
         optimizer.zero_grad();
@@ -162,12 +139,12 @@ int main(int argc, char **argv) {
         optimizer.step();
 
         loss->to(Device::CPU);
-        total_loss +=
-            static_cast<double>(loss->at({})) * static_cast<double>(count);
+        total_loss += static_cast<double>(loss->at({})) *
+                      static_cast<double>(targets.size());
       }
 
       std::cout << "Epoch " << epoch + 1 << ": loss = "
-                << total_loss / static_cast<double>(train.images.size())
+                << total_loss / static_cast<double>(train.size())
                 << ", test accuracy = "
                 << evaluate(test, net, config.batch_size, config.device)
                 << "%\n";

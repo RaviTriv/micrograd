@@ -1,19 +1,14 @@
 #pragma once
 
-#include <memory>
+#include <cstddef>
 #include <string>
-#include <vector>
 
-#include "micrograd/Tensor.h"
+#include "micrograd/data/DataLoader.h"
 
 namespace micrograd {
 
-struct MNISTData {
-  std::vector<std::shared_ptr<Tensor>> images;
-  std::vector<std::shared_ptr<Tensor>> labels;
-};
-
-MNISTData load_mnist(const std::string &images_path,
-                     const std::string &labels_path, int sample_count);
+data::TensorDataset load_mnist(const std::string &images_path,
+                               const std::string &labels_path,
+                               size_t sample_count);
 
 }  // namespace micrograd

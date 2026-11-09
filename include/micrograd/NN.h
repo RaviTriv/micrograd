@@ -2,6 +2,7 @@
 
 #include "micrograd/Storage.h"
 #include "micrograd/Tensor.h"
+#include "micrograd/data/DataLoader.h"
 #include "micrograd/nn/Functional.h"
 #include "micrograd/nn/Layers.h"
 #include "micrograd/nn/Loss.h"

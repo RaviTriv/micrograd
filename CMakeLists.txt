@@ -79,6 +79,8 @@ add_library(micrograd
     src/nn/Stats.cpp
     src/nn/Checkpoint.cpp
 
+    src/data/DataLoader.cpp
+
     src/backends/cuda/ops/Register.cpp
 )
 

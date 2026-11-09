@@ -2,17 +2,22 @@
 
 #include <cstddef>
 #include <fstream>
-#include <memory>
 #include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "micrograd/Tensor.h"
 
 namespace micrograd {
 
-MNISTData load_mnist(const std::string &images_path,
-                     const std::string &labels_path, int sample_count) {
-  MNISTData data;
+namespace {
+constexpr size_t kPixels = 784;
+}
 
+data::TensorDataset load_mnist(const std::string &images_path,
+                               const std::string &labels_path,
+                               size_t sample_count) {
   std::ifstream images_file(images_path, std::ios::binary);
   if (!images_file) {
     throw std::runtime_error("Could not open MNIST images: " + images_path);
@@ -26,36 +31,41 @@ MNISTData load_mnist(const std::string &images_path,
   images_file.seekg(16);
   labels_file.seekg(8);
 
-  for (int i = 0; i < sample_count; i++) {
-    std::vector<scalar_t> pixels(784);
-    for (size_t j = 0; j < 784; j++) {
-      unsigned char pixel;
-      images_file.read(reinterpret_cast<char *>(&pixel), 1);
-      pixels[j] = static_cast<scalar_t>(pixel) / 255.0f;
-    }
-    if (!images_file) {
-      throw std::runtime_error("MNIST images truncated at sample " +
-                               std::to_string(i) + ": " + images_path);
-    }
-    data.images.push_back(
-        Tensor::from_values(std::vector<size_t>{1, 784}, pixels));
-    unsigned char label;
-    labels_file.read(reinterpret_cast<char *>(&label), 1);
-    if (!labels_file) {
-      throw std::runtime_error("MNIST labels truncated at sample " +
-                               std::to_string(i) + ": " + labels_path);
-    }
-    if (label > 9) {
+  std::vector<unsigned char> raw_pixels(sample_count * kPixels);
+  images_file.read(reinterpret_cast<char *>(raw_pixels.data()),
+                   static_cast<std::streamsize>(raw_pixels.size()));
+  if (!images_file) {
+    throw std::runtime_error("MNIST images truncated, expected " +
+                             std::to_string(sample_count) +
+                             " samples: " + images_path);
+  }
+
+  std::vector<unsigned char> raw_labels(sample_count);
+  labels_file.read(reinterpret_cast<char *>(raw_labels.data()),
+                   static_cast<std::streamsize>(raw_labels.size()));
+  if (!labels_file) {
+    throw std::runtime_error("MNIST labels truncated, expected " +
+                             std::to_string(sample_count) +
+                             " samples: " + labels_path);
+  }
+
+  std::vector<scalar_t> pixels(raw_pixels.size());
+  for (size_t i = 0; i < raw_pixels.size(); i++) {
+    pixels[i] = static_cast<scalar_t>(raw_pixels[i]) / 255.0f;
+  }
+
+  std::vector<scalar_t> labels(sample_count);
+  for (size_t i = 0; i < sample_count; i++) {
+    if (raw_labels[i] > 9) {
       throw std::runtime_error("MNIST label out of range at sample " +
                                std::to_string(i));
     }
-    std::vector<scalar_t> one_hot(10, 0.0f);
-    one_hot[label] = 1.0f;
-    data.labels.push_back(
-        Tensor::from_values(std::vector<size_t>{1, 10}, one_hot));
+    labels[i] = static_cast<scalar_t>(raw_labels[i]);
   }
 
-  return data;
+  auto images = Tensor::from_values({sample_count, kPixels}, std::move(pixels));
+  auto targets = Tensor::from_values({sample_count}, std::move(labels));
+  return {*images, *targets};
 }
 
 }  // namespace micrograd
