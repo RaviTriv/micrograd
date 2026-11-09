@@ -102,7 +102,8 @@ AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
     auto &p = parameters_[i];
     m_.push_back(zero_moment(p->size(), p->backend()));
     v_.push_back(zero_moment(p->size(), p->backend()));
-    if (p->backend() == Device::CPU) {
+    if (p->backend() == Device::CPU &&
+        p->data_storage().dtype() == DType::kBFloat16) {
       std::vector<scalar_t> weights(p->size());
       const Storage &storage = p->data_storage();
       for (size_t j = 0; j < p->size(); j++) {
@@ -145,21 +146,25 @@ void AdamW::step() {
 #endif
       throw std::runtime_error("AdamW: unsupported device");
     }
-    auto &weights = master_[i];
     Storage &storage = p->data_storage();
+    const bool bf16 = storage.dtype() == DType::kBFloat16;
+    auto *weights = bf16 ? master_[i].data()
+                         : static_cast<scalar_t *>(storage.data());
     auto *m = static_cast<scalar_t *>(m_[i].data());
     auto *v = static_cast<scalar_t *>(v_[i].data());
+    auto grad = p->grad();
     for (size_t j = 0; j < p->size(); j++) {
       scalar_t weight =
           weights[j] - learning_rate_ * weight_decay_ * weights[j];
-      scalar_t grad = p->grad()[j];
-      m[j] = beta1_ * m[j] + (1.0f - beta1_) * grad;
-      v[j] = beta2_ * v[j] + (1.0f - beta2_) * grad * grad;
+      m[j] = beta1_ * m[j] + (1.0f - beta1_) * grad[j];
+      v[j] = beta2_ * v[j] + (1.0f - beta2_) * grad[j] * grad[j];
       scalar_t m_hat = m[j] / bias_correction1;
       scalar_t v_hat = v[j] / bias_correction2;
       weight -= learning_rate_ * m_hat / (std::sqrt(v_hat) + eps_);
       weights[j] = weight;
-      write_master_weight(storage, j, weight);
+      if (bf16) {
+        write_master_weight(storage, j, weight);
+      }
     }
   }
 

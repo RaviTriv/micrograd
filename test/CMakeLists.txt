@@ -17,6 +17,7 @@ add_executable(micrograd_tests
     init_test.cpp
     layers_test.cpp
     loss_test.cpp
+    optim_test.cpp
     sample_order_test.cpp
     serialization_test.cpp
     stats_test.cpp
