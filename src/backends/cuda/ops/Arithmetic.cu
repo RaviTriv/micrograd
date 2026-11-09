@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -224,24 +225,28 @@ void Add(const OpArgs &args) {
   size_t n = args.lhs->size();
   AddKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Sub(const OpArgs &args) {
   size_t n = args.lhs->size();
   SubKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Mul(const OpArgs &args) {
   size_t n = args.lhs->size();
   MulKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Div(const OpArgs &args) {
   size_t n = args.lhs->size();
   DivKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void AddScalar(const OpArgs &args) {
@@ -249,6 +254,7 @@ void AddScalar(const OpArgs &args) {
   AddScalarKernel<<<GridSize(n), kBlockSize, 0,
                     CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void SubScalar(const OpArgs &args) {
@@ -256,6 +262,7 @@ void SubScalar(const OpArgs &args) {
   SubScalarKernel<<<GridSize(n), kBlockSize, 0,
                     CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void MulScalar(const OpArgs &args) {
@@ -263,6 +270,7 @@ void MulScalar(const OpArgs &args) {
   MulScalarKernel<<<GridSize(n), kBlockSize, 0,
                     CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void DivScalar(const OpArgs &args) {
@@ -270,12 +278,14 @@ void DivScalar(const OpArgs &args) {
   DivScalarKernel<<<GridSize(n), kBlockSize, 0,
                     CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Pow(const OpArgs &args) {
   size_t n = args.lhs->size();
   PowKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void ClampMin(const OpArgs &args) {
@@ -283,6 +293,7 @@ void ClampMin(const OpArgs &args) {
   ClampMinKernel<<<GridSize(n), kBlockSize, 0,
                    CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void ClampMax(const OpArgs &args) {
@@ -290,6 +301,7 @@ void ClampMax(const OpArgs &args) {
   ClampMaxKernel<<<GridSize(n), kBlockSize, 0,
                    CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> AddBackward(const GradArgs &args) {
@@ -298,6 +310,7 @@ std::function<void()> AddBackward(const GradArgs &args) {
     AddBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), GradPtr(rhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -307,6 +320,7 @@ std::function<void()> SubBackward(const GradArgs &args) {
     SubBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), GradPtr(rhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -317,6 +331,7 @@ std::function<void()> MulBackward(const GradArgs &args) {
                         CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(lhs.get()), DataPtr(rhs.get()), GradPtr(lhs.get()),
         GradPtr(rhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -327,6 +342,7 @@ std::function<void()> DivBackward(const GradArgs &args) {
                         CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(lhs.get()), DataPtr(rhs.get()), GradPtr(lhs.get()),
         GradPtr(rhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -336,6 +352,7 @@ std::function<void()> AddScalarBackward(const GradArgs &args) {
     AccumulateKernel<<<GridSize(n), kBlockSize, 0,
                        CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -345,6 +362,7 @@ std::function<void()> SubScalarBackward(const GradArgs &args) {
     AccumulateKernel<<<GridSize(n), kBlockSize, 0,
                        CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -354,6 +372,7 @@ std::function<void()> MulScalarBackward(const GradArgs &args) {
     MulScalarBackwardKernel<<<GridSize(n), kBlockSize, 0,
                               CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), scalar, n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -363,6 +382,7 @@ std::function<void()> DivScalarBackward(const GradArgs &args) {
     DivScalarBackwardKernel<<<GridSize(n), kBlockSize, 0,
                               CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), scalar, n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -372,6 +392,7 @@ std::function<void()> PowBackward(const GradArgs &args) {
     PowBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), exponent, n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -381,6 +402,7 @@ std::function<void()> ClampMinBackward(const GradArgs &args) {
     ClampMinBackwardKernel<<<GridSize(n), kBlockSize, 0,
                              CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), bound, n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -390,6 +412,7 @@ std::function<void()> ClampMaxBackward(const GradArgs &args) {
     ClampMaxBackwardKernel<<<GridSize(n), kBlockSize, 0,
                              CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), bound, n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 

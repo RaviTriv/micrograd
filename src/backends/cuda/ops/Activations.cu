@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -151,6 +152,7 @@ void Relu(const OpArgs &args) {
   size_t n = args.lhs->size();
   ReluKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Sigmoid(const OpArgs &args) {
@@ -158,36 +160,42 @@ void Sigmoid(const OpArgs &args) {
   SigmoidKernel<<<GridSize(n), kBlockSize, 0,
                   CudaContext::instance().stream()>>>(DataPtr(args.lhs),
                                                       DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Tanh(const OpArgs &args) {
   size_t n = args.lhs->size();
   TanhKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Exp(const OpArgs &args) {
   size_t n = args.lhs->size();
   ExpKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Log(const OpArgs &args) {
   size_t n = args.lhs->size();
   LogKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Sqrt(const OpArgs &args) {
   size_t n = args.lhs->size();
   SqrtKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Neg(const OpArgs &args) {
   size_t n = args.lhs->size();
   NegKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> ReluBackward(const GradArgs &args) {
@@ -196,6 +204,7 @@ std::function<void()> ReluBackward(const GradArgs &args) {
     ReluBackwardKernel<<<GridSize(n), kBlockSize, 0,
                          CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -205,6 +214,7 @@ std::function<void()> SigmoidBackward(const GradArgs &args) {
     SigmoidBackwardKernel<<<GridSize(n), kBlockSize, 0,
                             CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -214,6 +224,7 @@ std::function<void()> TanhBackward(const GradArgs &args) {
     TanhBackwardKernel<<<GridSize(n), kBlockSize, 0,
                          CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -223,6 +234,7 @@ std::function<void()> ExpBackward(const GradArgs &args) {
     ExpBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -232,6 +244,7 @@ std::function<void()> LogBackward(const GradArgs &args) {
     LogBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -241,6 +254,7 @@ std::function<void()> SqrtBackward(const GradArgs &args) {
     SqrtBackwardKernel<<<GridSize(n), kBlockSize, 0,
                          CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -250,6 +264,7 @@ std::function<void()> NegBackward(const GradArgs &args) {
     NegBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 

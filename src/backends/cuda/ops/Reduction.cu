@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -380,11 +381,12 @@ scalar_t *GradPtr(Tensor *t) {
 
 void Sum(const OpArgs &args) {
   size_t n = args.lhs->size();
-  cudaMemsetAsync(DataPtr(args.out), 0, sizeof(scalar_t),
-                  CudaContext::instance().stream());
+  MICROGRAD_CUDA_CHECK(cudaMemsetAsync(DataPtr(args.out), 0, sizeof(scalar_t),
+                                       CudaContext::instance().stream()));
   SumReduceKernel<<<GridSize(n), kBlockSize, 0,
                     CudaContext::instance().stream()>>>(DataPtr(args.lhs),
                                                         DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void SumDim(const OpArgs &args) {
@@ -394,6 +396,7 @@ void SumDim(const OpArgs &args) {
   SumDimKernel<<<static_cast<int>(slices), kBlockSize, 0,
                  CudaContext::instance().stream()>>>(DataPtr(args.lhs),
                                                      DataPtr(args.out), layout);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Max(const OpArgs &args) {
@@ -403,6 +406,7 @@ void Max(const OpArgs &args) {
   MaxKernel<<<static_cast<int>(slices), kBlockSize, 0,
               CudaContext::instance().stream()>>>(DataPtr(args.lhs),
                                                   DataPtr(args.out), layout);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Argmax(const OpArgs &args) {
@@ -412,6 +416,7 @@ void Argmax(const OpArgs &args) {
   ArgmaxKernel<<<static_cast<int>(slices), kBlockSize, 0,
                  CudaContext::instance().stream()>>>(DataPtr(args.lhs),
                                                      DataPtr(args.out), layout);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void Softmax(const OpArgs &args) {
@@ -421,6 +426,7 @@ void Softmax(const OpArgs &args) {
   SoftmaxKernel<<<static_cast<int>(slices), kBlockSize, 0,
                   CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), layout);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 void LogSoftmax(const OpArgs &args) {
@@ -430,6 +436,7 @@ void LogSoftmax(const OpArgs &args) {
   LogSoftmaxKernel<<<static_cast<int>(slices), kBlockSize, 0,
                      CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), layout);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> SumBackward(const GradArgs &args) {
@@ -438,6 +445,7 @@ std::function<void()> SumBackward(const GradArgs &args) {
     SumBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -449,6 +457,7 @@ std::function<void()> SumDimBackward(const GradArgs &args) {
     SumDimBackwardKernel<<<GridSize(n), kBlockSize, 0,
                            CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), layout, n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -460,6 +469,7 @@ std::function<void()> MaxBackward(const GradArgs &args) {
     MaxBackwardKernel<<<static_cast<int>(slices), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
         DataPtr(lhs.get()), GradPtr(out), GradPtr(lhs.get()), layout);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -471,6 +481,7 @@ std::function<void()> SoftmaxBackward(const GradArgs &args) {
     SoftmaxBackwardKernel<<<static_cast<int>(slices), kBlockSize, 0,
                             CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(out), GradPtr(lhs.get()), layout);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -482,6 +493,7 @@ std::function<void()> LogSoftmaxBackward(const GradArgs &args) {
     LogSoftmaxBackwardKernel<<<static_cast<int>(slices), kBlockSize, 0,
                                CudaContext::instance().stream()>>>(
         GradPtr(out), DataPtr(out), GradPtr(lhs.get()), layout);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 

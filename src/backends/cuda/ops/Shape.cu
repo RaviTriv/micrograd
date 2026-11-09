@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -94,6 +95,7 @@ std::function<void()> ReshapeBackward(const GradArgs &args) {
     ReshapeBackwardKernel<<<GridSize(n), kBlockSize, 0,
                             CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -103,6 +105,7 @@ void StridedCopy(const OpArgs &args) {
   StridedCopyKernel<<<GridSize(n), kBlockSize, 0,
                       CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), layout, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> StridedCopyBackward(const GradArgs &args) {
@@ -114,6 +117,7 @@ std::function<void()> StridedCopyBackward(const GradArgs &args) {
     StridedCopyBackwardKernel<<<GridSize(n), kBlockSize, 0,
                                 CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), layout, n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 

@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -90,6 +91,7 @@ void BroadcastTo(const OpArgs &args) {
   BroadcastToKernel<<<GridSize(n), kBlockSize, 0,
                       CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), layout, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> BroadcastToBackward(const GradArgs &args) {
@@ -101,6 +103,7 @@ std::function<void()> BroadcastToBackward(const GradArgs &args) {
     BroadcastToBackwardKernel<<<GridSize(n), kBlockSize, 0,
                                 CudaContext::instance().stream()>>>(
         GradPtr(out), GradPtr(lhs.get()), layout, n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 

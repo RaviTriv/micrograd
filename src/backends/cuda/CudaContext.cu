@@ -4,6 +4,8 @@
 
 #include <iostream>
 
+#include "micrograd/backends/cuda/CudaCheck.h"
+
 namespace micrograd {
 
 CudaContext &CudaContext::instance() {
@@ -41,9 +43,10 @@ bool CudaContext::initialize() {
     std::cerr << "Failed to create cuBLAS handle.\n";
     return false;
   }
-  cublasSetStream(cublas_handle_, stream_);
-  cublasSetMathMode(cublas_handle_, allow_tf32_ ? CUBLAS_TF32_TENSOR_OP_MATH
-                                                : CUBLAS_DEFAULT_MATH);
+  MICROGRAD_CUBLAS_CHECK(cublasSetStream(cublas_handle_, stream_));
+  MICROGRAD_CUBLAS_CHECK(
+      cublasSetMathMode(cublas_handle_, allow_tf32_ ? CUBLAS_TF32_TENSOR_OP_MATH
+                                                    : CUBLAS_DEFAULT_MATH));
 
   if (cublasLtCreate(&cublas_lt_handle_) != CUBLAS_STATUS_SUCCESS) {
     std::cerr << "Failed to create cuBLASLt handle.\n";
@@ -55,14 +58,17 @@ bool CudaContext::initialize() {
   return true;
 }
 
-void CudaContext::synchronize() { cudaStreamSynchronize(stream_); }
+void CudaContext::synchronize() {
+  MICROGRAD_CUDA_CHECK(cudaStreamSynchronize(stream_));
+}
 
 void CudaContext::setAllowTf32(bool allow) {
   allow_tf32_ = allow;
 #ifdef MICROGRAD_CUBLAS_ENABLED
   if (cublas_handle_) {
-    cublasSetMathMode(cublas_handle_, allow ? CUBLAS_TF32_TENSOR_OP_MATH
-                                            : CUBLAS_DEFAULT_MATH);
+    MICROGRAD_CUBLAS_CHECK(
+        cublasSetMathMode(cublas_handle_, allow ? CUBLAS_TF32_TENSOR_OP_MATH
+                                                : CUBLAS_DEFAULT_MATH));
   }
 #endif
 }

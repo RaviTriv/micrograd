@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -374,6 +375,7 @@ void FlashAttention(const OpArgs &args) {
                                 CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.extra),
       DataPtr(args.out), seq_len, head_dim, args.scalar);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> FlashAttentionBackward(const GradArgs &args) {
@@ -399,16 +401,19 @@ std::function<void()> FlashAttentionBackward(const GradArgs &args) {
     FlashAttentionStatsKernel<<<grid, block, stats_shared, stream>>>(
         DataPtr(q.get()), DataPtr(k.get()), row_max, row_sum, seq_len,
         head_dim, scale);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 
     const size_t total_rows = outer * seq_len;
     FlashAttentionDeltaKernel<<<ReduceGridSize(total_rows), kReduceBlockSize,
                                 0, stream>>>(DataPtr(out), GradPtr(out), delta,
                                             total_rows, head_dim);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 
     const size_t qkv_shared = 2 * kTile * head_dim * sizeof(scalar_t);
     FlashAttentionBackwardQKernel<<<grid, block, qkv_shared, stream>>>(
         DataPtr(q.get()), DataPtr(k.get()), DataPtr(v.get()), GradPtr(out),
         row_max, row_sum, delta, GradPtr(q.get()), seq_len, head_dim, scale);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 
     const size_t kv_shared =
         ((2 * kTile * head_dim) + (3 * kTile)) * sizeof(scalar_t);
@@ -416,6 +421,7 @@ std::function<void()> FlashAttentionBackward(const GradArgs &args) {
         DataPtr(q.get()), DataPtr(k.get()), DataPtr(v.get()), GradPtr(out),
         row_max, row_sum, delta, GradPtr(k.get()), GradPtr(v.get()), seq_len,
         head_dim, scale);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 
     ctx.deallocate(row_max, stat_bytes);
     ctx.deallocate(row_sum, stat_bytes);

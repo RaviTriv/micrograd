@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -49,6 +50,19 @@ TensorPtr Ramp(std::vector<size_t> shape, scalar_t start, scalar_t step) {
   std::vector<scalar_t> values(count);
   for (size_t i = 0; i < count; i++) {
     values[i] = start + (step * static_cast<scalar_t>(i));
+  }
+  return Tensor::from_values(std::move(shape), std::move(values));
+}
+
+TensorPtr Wave(std::vector<size_t> shape, scalar_t phase) {
+  size_t count = 1;
+  for (auto dim : shape) {
+    count *= dim;
+  }
+
+  std::vector<scalar_t> values(count);
+  for (size_t i = 0; i < count; i++) {
+    values[i] = std::sin((0.37f * static_cast<scalar_t>(i)) + phase);
   }
   return Tensor::from_values(std::move(shape), std::move(values));
 }
@@ -208,6 +222,16 @@ std::vector<Case> AllCases() {
       [](const TensorList &in) { return in[0]->matmul(in[1]); },
       {Ramp({2, 150, 4}, -0.9f, 0.0015f), Ramp({4, 5}, -1.1f, 0.15f)},
       {.eps = 0.5f});
+  add("matmul_past_one_tile",
+      [](const TensorList& in) { return in[0]->matmul(in[1]); },
+      {Wave({33, 34}, 0.1f), Wave({34, 35}, 0.7f)},
+      {.eps = 0.5f, .atol = 1e-4f});
+  add("matmul_fold_rows_past_one_tile",
+      [](const TensorList& in) { return in[0]->matmul(in[1]); },
+      {Wave({2, 3, 33}, 0.2f), Wave({33, 34}, 0.9f)}, {.eps = 0.5f});
+  add("matmul_batched_past_one_tile",
+      [](const TensorList& in) { return in[0]->matmul(in[1]); },
+      {Wave({2, 5, 33}, 0.3f), Wave({2, 33, 6}, 1.1f)}, {.eps = 0.5f});
 
   add("layer_norm",
       [](const TensorList &in) {
@@ -343,6 +367,8 @@ const char *DeviceName(Device device) {
   throw std::invalid_argument("Unknown device");
 }
 
+constexpr size_t kOutputSlot = std::numeric_limits<size_t>::max();
+
 struct DeviceMismatch {
   size_t input;
   size_t index;
@@ -350,10 +376,15 @@ struct DeviceMismatch {
   scalar_t device;
 };
 
-std::vector<std::vector<scalar_t>> AnalyticGradients(
-    const GradCheckFunction &function,
-    const std::vector<std::vector<size_t>> &shapes,
-    const std::vector<std::vector<scalar_t>> &values, Device device) {
+struct DeviceRun {
+  std::vector<scalar_t> output;
+  std::vector<std::vector<scalar_t>> gradients;
+};
+
+DeviceRun RunForwardBackward(const GradCheckFunction& function,
+                             const std::vector<std::vector<size_t>>& shapes,
+                             const std::vector<std::vector<scalar_t>>& values,
+                             Device device) {
   auto leaves = MakeGradCheckLeaves(shapes, values);
   for (auto &leaf : leaves) {
     leaf->to(device);
@@ -364,14 +395,32 @@ std::vector<std::vector<scalar_t>> AnalyticGradients(
   const auto seed = Tensor::from_values(output->shape(), weights);
   output->backward(*seed);
 
-  std::vector<std::vector<scalar_t>> gradients;
-  gradients.reserve(leaves.size());
+  DeviceRun run;
+  output->to(Device::CPU);
+  std::span<const scalar_t> output_span = output->data();
+  run.output.assign(output_span.begin(), output_span.end());
+
+  run.gradients.reserve(leaves.size());
   for (auto &leaf : leaves) {
     leaf->to(Device::CPU);
     std::span<const scalar_t> span = leaf->grad();
-    gradients.emplace_back(span.begin(), span.end());
+    run.gradients.emplace_back(span.begin(), span.end());
   }
-  return gradients;
+  return run;
+}
+
+void CompareValues(const std::vector<scalar_t>& cpu,
+                   const std::vector<scalar_t>& device, size_t slot,
+                   const GradCheckOptions& options,
+                   std::vector<DeviceMismatch>& mismatches) {
+  for (size_t j = 0; j < cpu.size(); j++) {
+    const scalar_t difference = std::abs(cpu[j] - device[j]);
+    const scalar_t scale = std::max(std::abs(cpu[j]), std::abs(device[j]));
+    if (difference > options.atol + (options.rtol * scale)) {
+      mismatches.push_back(
+          {.input = slot, .index = j, .cpu = cpu[j], .device = device[j]});
+    }
+  }
 }
 
 std::vector<DeviceMismatch> CheckOnDevice(const GradCheckFunction &function,
@@ -386,24 +435,14 @@ std::vector<DeviceMismatch> CheckOnDevice(const GradCheckFunction &function,
     values.emplace_back(span.begin(), span.end());
   }
 
-  const auto cpu_gradients =
-      AnalyticGradients(function, shapes, values, Device::CPU);
-  const auto device_gradients =
-      AnalyticGradients(function, shapes, values, device);
+  const DeviceRun cpu =
+      RunForwardBackward(function, shapes, values, Device::CPU);
+  const DeviceRun other = RunForwardBackward(function, shapes, values, device);
 
   std::vector<DeviceMismatch> mismatches;
-  for (size_t i = 0; i < cpu_gradients.size(); i++) {
-    for (size_t j = 0; j < cpu_gradients[i].size(); j++) {
-      const scalar_t cpu_value = cpu_gradients[i][j];
-      const scalar_t device_value = device_gradients[i][j];
-      const scalar_t difference = std::abs(cpu_value - device_value);
-      const scalar_t scale =
-          std::max(std::abs(cpu_value), std::abs(device_value));
-      if (difference > options.atol + (options.rtol * scale)) {
-        mismatches.push_back(
-            {.input = i, .index = j, .cpu = cpu_value, .device = device_value});
-      }
-    }
+  CompareValues(cpu.output, other.output, kOutputSlot, options, mismatches);
+  for (size_t i = 0; i < cpu.gradients.size(); i++) {
+    CompareValues(cpu.gradients[i], other.gradients[i], i, options, mismatches);
   }
   return mismatches;
 }
@@ -458,7 +497,10 @@ size_t RunAllCases(Device device) {
     failed++;
     std::printf("FAIL  %s\n", test.name.c_str());
     for (const auto &mismatch : mismatches) {
-      std::printf("      input %zu index %zu cpu %g %s %g\n", mismatch.input,
+      const std::string slot = mismatch.input == kOutputSlot
+                                   ? std::string("output")
+                                   : "input " + std::to_string(mismatch.input);
+      std::printf("      %s index %zu cpu %g %s %g\n", slot.c_str(),
                   mismatch.index, static_cast<double>(mismatch.cpu),
                   DeviceName(device), static_cast<double>(mismatch.device));
     }

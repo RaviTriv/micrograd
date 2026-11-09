@@ -8,6 +8,7 @@
 #include <utility>
 
 #ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 #endif
 
@@ -39,8 +40,9 @@ void ZeroFill(Storage &storage) {
     return;
   }
 #ifdef MICROGRAD_CUDA_ENABLED
-  cudaMemsetAsync(storage.device_pointer(), 0, storage.bytes(),
-                  CudaContext::instance().stream());
+  MICROGRAD_CUDA_CHECK(cudaMemsetAsync(storage.device_pointer(), 0,
+                                       storage.bytes(),
+                                       CudaContext::instance().stream()));
 #else
   throw std::runtime_error("CUDA support is not compiled in");
 #endif

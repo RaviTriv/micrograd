@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -111,6 +112,7 @@ void RmsNorm(const OpArgs &args) {
   RmsNormKernel<<<static_cast<int>(outer), kBlockSize, 0,
                   CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n, args.scalar);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> RmsNormBackward(const GradArgs &args) {
@@ -122,6 +124,7 @@ std::function<void()> RmsNormBackward(const GradArgs &args) {
                                 CudaContext::instance().stream()>>>(
             DataPtr(lhs.get()), DataPtr(gain.get()), GradPtr(out),
             GradPtr(lhs.get()), GradPtr(gain.get()), n, eps);
+        MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
       };
 }
 

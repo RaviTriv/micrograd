@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -83,6 +84,7 @@ void EmbeddingLookup(const OpArgs &args) {
   EmbeddingLookupKernel<<<GridSize(count), kBlockSize, 0,
                           CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), dim, count);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> EmbeddingLookupBackward(const GradArgs &args) {
@@ -92,6 +94,7 @@ std::function<void()> EmbeddingLookupBackward(const GradArgs &args) {
     EmbeddingLookupBackwardKernel<<<GridSize(count), kBlockSize, 0,
                                     CudaContext::instance().stream()>>>(
         DataPtr(indices.get()), GradPtr(out), GradPtr(lhs.get()), dim, count);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 
@@ -101,6 +104,7 @@ void GatherPerRow(const OpArgs &args) {
   GatherPerRowKernel<<<GridSize(rows), kBlockSize, 0,
                        CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), cols, rows);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> GatherPerRowBackward(const GradArgs &args) {
@@ -110,6 +114,7 @@ std::function<void()> GatherPerRowBackward(const GradArgs &args) {
     GatherPerRowBackwardKernel<<<GridSize(rows), kBlockSize, 0,
                                  CudaContext::instance().stream()>>>(
         DataPtr(indices.get()), GradPtr(out), GradPtr(lhs.get()), cols, rows);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 

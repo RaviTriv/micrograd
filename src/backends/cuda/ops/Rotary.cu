@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -79,6 +80,7 @@ void RotaryEmbedding(const OpArgs &args) {
       <<<GridSize(total), kBlockSize, 0, CudaContext::instance().stream()>>>(
           DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.extra),
           DataPtr(args.out), outer, seq_len, half);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> RotaryEmbeddingBackward(const GradArgs &args) {
@@ -94,6 +96,7 @@ std::function<void()> RotaryEmbeddingBackward(const GradArgs &args) {
         <<<GridSize(total), kBlockSize, 0, CudaContext::instance().stream()>>>(
             GradPtr(out), DataPtr(cos_table.get()), DataPtr(sin_table.get()),
             GradPtr(lhs.get()), outer, seq_len, half);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 

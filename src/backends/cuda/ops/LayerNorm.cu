@@ -1,3 +1,4 @@
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -163,6 +164,7 @@ void LayerNorm(const OpArgs &args) {
                     CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.extra),
       DataPtr(args.out), n, args.scalar);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 
 std::function<void()> LayerNormBackward(const GradArgs &args) {
@@ -174,6 +176,7 @@ std::function<void()> LayerNormBackward(const GradArgs &args) {
                               CudaContext::instance().stream()>>>(
         DataPtr(lhs.get()), DataPtr(gain.get()), GradPtr(out),
         GradPtr(lhs.get()), GradPtr(gain.get()), GradPtr(bias.get()), n, eps);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
 

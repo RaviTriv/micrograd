@@ -6,6 +6,7 @@
 #include <utility>
 
 #ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
 #endif
 
@@ -66,18 +67,12 @@ Storage copy_via_host(const Storage &src, Device to) {
 }
 
 #ifdef MICROGRAD_CUDA_ENABLED
-void checkCuda(cudaError_t status) {
-  if (status != cudaSuccess) {
-    throw std::runtime_error(cudaGetErrorString(status));
-  }
-}
-
 Storage copy_host_to_cuda(const Storage &src) {
   Storage copy(src.bytes(), Device::CUDA, src.dtype());
   if (src.bytes() > 0) {
-    checkCuda(cudaMemcpyAsync(copy.device_pointer(), src.host_pointer(),
-                              src.bytes(), cudaMemcpyHostToDevice,
-                              CudaContext::instance().stream()));
+    MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(
+        copy.device_pointer(), src.host_pointer(), src.bytes(),
+        cudaMemcpyHostToDevice, CudaContext::instance().stream()));
     CudaContext::instance().synchronize();
   }
   return copy;
@@ -86,9 +81,9 @@ Storage copy_host_to_cuda(const Storage &src) {
 Storage copy_cuda_to_host(const Storage &src, Device to) {
   Storage copy(src.bytes(), to, src.dtype());
   if (src.bytes() > 0) {
-    checkCuda(cudaMemcpyAsync(copy.host_pointer(), src.device_pointer(),
-                              src.bytes(), cudaMemcpyDeviceToHost,
-                              CudaContext::instance().stream()));
+    MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(
+        copy.host_pointer(), src.device_pointer(), src.bytes(),
+        cudaMemcpyDeviceToHost, CudaContext::instance().stream()));
     CudaContext::instance().synchronize();
   }
   return copy;
@@ -97,9 +92,9 @@ Storage copy_cuda_to_host(const Storage &src, Device to) {
 Storage copy_cuda_to_cuda(const Storage &src) {
   Storage copy(src.bytes(), Device::CUDA, src.dtype());
   if (src.bytes() > 0) {
-    checkCuda(cudaMemcpyAsync(copy.device_pointer(), src.device_pointer(),
-                              src.bytes(), cudaMemcpyDeviceToDevice,
-                              CudaContext::instance().stream()));
+    MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(
+        copy.device_pointer(), src.device_pointer(), src.bytes(),
+        cudaMemcpyDeviceToDevice, CudaContext::instance().stream()));
   }
   return copy;
 }
