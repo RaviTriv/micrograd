@@ -66,25 +66,81 @@ SGD::SGD(std::vector<std::shared_ptr<Tensor>> parameters,
   require_nonnegative("learning_rate", learning_rate_);
   require_nonnegative("momentum", momentum_);
   require_nonnegative("weight_decay", weight_decay_);
-  velocity_.reserve(parameters_.size());
-  for (auto &p : parameters_) {
-    velocity_.emplace_back(p->size(), static_cast<scalar_t>(0));
+  if (momentum_ != 0) {
+    velocity_.reserve(parameters_.size());
+    for (auto &p : parameters_) {
+      velocity_.emplace_back(p->size(), static_cast<scalar_t>(0));
+    }
   }
 }
 
 void SGD::step() {
   for (size_t i = 0; i < parameters_.size(); i++) {
     auto &p = parameters_[i];
-    auto &velocity = velocity_[i];
+    auto data = p->data();
+    auto grad = p->grad();
     for (size_t j = 0; j < p->size(); j++) {
-      scalar_t grad = p->grad()[j] + weight_decay_ * p->data()[j];
-      velocity[j] = momentum_ * velocity[j] + grad;
-      scalar_t update =
-          nesterov_ ? grad + momentum_ * velocity[j] : velocity[j];
-      p->data()[j] -= learning_rate_ * update;
+      scalar_t g = grad[j] + weight_decay_ * data[j];
+      scalar_t update = g;
+      if (momentum_ != 0) {
+        auto &velocity = velocity_[i];
+        velocity[j] = momentum_ * velocity[j] + g;
+        update = nesterov_ ? g + momentum_ * velocity[j] : velocity[j];
+      }
+      data[j] -= learning_rate_ * update;
     }
   }
   step_count_++;
+}
+
+Adam::Adam(std::vector<std::shared_ptr<Tensor>> parameters,
+           scalar_t learning_rate, std::pair<scalar_t, scalar_t> betas,
+           scalar_t eps, scalar_t weight_decay)
+    : Optimizer(std::move(parameters)),
+      learning_rate_(learning_rate),
+      beta1_(betas.first),
+      beta2_(betas.second),
+      eps_(eps),
+      weight_decay_(weight_decay) {
+  require_nonnegative("learning_rate", learning_rate_);
+  require_beta("beta1", beta1_);
+  require_beta("beta2", beta2_);
+  require_nonnegative("eps", eps_);
+  require_nonnegative("weight_decay", weight_decay_);
+  m_.reserve(parameters_.size());
+  v_.reserve(parameters_.size());
+  for (auto &p : parameters_) {
+    if (p->backend() != Device::CPU ||
+        p->data_storage().dtype() != DType::kFloat32) {
+      throw std::invalid_argument("Adam requires float32 CPU parameters");
+    }
+    m_.emplace_back(p->size(), static_cast<scalar_t>(0));
+    v_.emplace_back(p->size(), static_cast<scalar_t>(0));
+  }
+}
+
+void Adam::step() {
+  step_count_++;
+  scalar_t bias_correction1 =
+      1.0f - std::pow(beta1_, static_cast<scalar_t>(step_count_));
+  scalar_t bias_correction2 =
+      1.0f - std::pow(beta2_, static_cast<scalar_t>(step_count_));
+
+  for (size_t i = 0; i < parameters_.size(); i++) {
+    auto &p = parameters_[i];
+    auto data = p->data();
+    auto grad = p->grad();
+    auto &m = m_[i];
+    auto &v = v_[i];
+    for (size_t j = 0; j < p->size(); j++) {
+      scalar_t g = grad[j] + weight_decay_ * data[j];
+      m[j] = beta1_ * m[j] + (1.0f - beta1_) * g;
+      v[j] = beta2_ * v[j] + (1.0f - beta2_) * g * g;
+      scalar_t m_hat = m[j] / bias_correction1;
+      scalar_t v_hat = v[j] / bias_correction2;
+      data[j] -= learning_rate_ * m_hat / (std::sqrt(v_hat) + eps_);
+    }
+  }
 }
 
 namespace {

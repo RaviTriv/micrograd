@@ -46,6 +46,24 @@ class SGD : public Optimizer {
   std::vector<std::vector<scalar_t>> velocity_;
 };
 
+class Adam : public Optimizer {
+ public:
+  Adam(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate,
+       std::pair<scalar_t, scalar_t> betas = {0.9f, 0.999f},
+       scalar_t eps = 1e-8f, scalar_t weight_decay = 0);
+
+  void step() override;
+
+ private:
+  scalar_t learning_rate_;
+  scalar_t beta1_;
+  scalar_t beta2_;
+  scalar_t eps_;
+  scalar_t weight_decay_;
+  std::vector<std::vector<scalar_t>> m_;
+  std::vector<std::vector<scalar_t>> v_;
+};
+
 class AdamW : public Optimizer {
  public:
   AdamW(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate,
