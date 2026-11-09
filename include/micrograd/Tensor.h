@@ -86,8 +86,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> softmax(int64_t dim);
   std::shared_ptr<Tensor> log_softmax(int64_t dim);
 
-  void backward();
-  void backward(const Tensor &grad_output);
+  void backward(bool retain_graph = false);
+  void backward(const Tensor &grad_output, bool retain_graph = false);
   void zero_grad();
   bool has_grad() const;
   bool requires_grad() const;
@@ -126,7 +126,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> broadcast_to(const std::vector<size_t> &shape);
   std::shared_ptr<Tensor> strided_copy(const std::vector<size_t> &shape,
                                        const std::vector<size_t> &strides);
-  void propagate_gradients();
+  void propagate_gradients(Storage seed, bool retain_graph);
 
   Storage data_;
   mutable Storage grad_;
@@ -135,6 +135,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::vector<std::shared_ptr<Tensor>> children_;
   std::function<void()> backward_fn_;
   bool requires_grad_ = false;
+  bool graph_released_ = false;
 
   size_t flat_index(const std::vector<size_t> &indices) const;
 };

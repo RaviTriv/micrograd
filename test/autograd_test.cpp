@@ -353,3 +353,61 @@ TEST(Autograd, GraphIsFreed) {
   }
   EXPECT_TRUE(w.expired());
 }
+
+TEST(Autograd, SharedIntermediateAcrossTwoBackwards) {
+  auto x = scalar(2);
+  auto h = x->mul(2.0f);
+  auto left = h->mul(3.0f)->sum();
+  auto right = h->mul(4.0f)->sum();
+
+  left->backward(true);
+  EXPECT_FLOAT_EQ(x->grad()[0], 6.0f);
+
+  right->backward();
+  EXPECT_FLOAT_EQ(x->grad()[0], 14.0f);
+}
+
+TEST(Autograd, SameRootTwiceWithRetainedGraphAddsOnce) {
+  auto x = scalar(3);
+  auto loss = x->mul(x)->mul(2.0f)->sum();
+
+  loss->backward(true);
+  loss->backward();
+
+  EXPECT_FLOAT_EQ(x->grad()[0], 24.0f);
+}
+
+TEST(Autograd, BackwardTwiceWithoutRetainThrows) {
+  auto x = scalar(3);
+  auto loss = x->mul(x)->sum();
+  loss->backward();
+
+  EXPECT_THROW(loss->backward(), std::runtime_error);
+  EXPECT_FLOAT_EQ(x->grad()[0], 6.0f);
+}
+
+TEST(Autograd, NewRootOnReleasedIntermediateThrowsBeforeTouchingGrads) {
+  auto x = scalar(2);
+  auto h = x->mul(2.0f);
+  h->mul(3.0f)->sum()->backward();
+
+  EXPECT_THROW(h->mul(5.0f)->sum()->backward(), std::runtime_error);
+  EXPECT_FLOAT_EQ(x->grad()[0], 6.0f);
+}
+
+TEST(Autograd, BackwardReleasesIntermediatesWhileRootIsAlive) {
+  auto x = scalar(2);
+  std::weak_ptr<Tensor> intermediate;
+  std::shared_ptr<Tensor> loss;
+  {
+    auto h = x->mul(2.0f);
+    intermediate = h;
+    loss = h->relu()->sum();
+  }
+  EXPECT_FALSE(intermediate.expired());
+
+  loss->backward();
+
+  EXPECT_TRUE(intermediate.expired());
+  EXPECT_FLOAT_EQ(x->grad()[0], 2.0f);
+}

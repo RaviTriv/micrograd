@@ -20,7 +20,7 @@ NoGradGuard::NoGradGuard() : previous_(grad_enabled) { grad_enabled = false; }
 
 NoGradGuard::~NoGradGuard() { grad_enabled = previous_; }
 
-void Tensor::backward() {
+void Tensor::backward(bool retain_graph) {
   if (size() != 1) {
     throw std::invalid_argument(
         "backward() requires a scalar tensor, pass an explicit gradient "
@@ -29,24 +29,33 @@ void Tensor::backward() {
 
   Storage seed(sizeof(scalar_t), Device::CPU);
   *static_cast<scalar_t *>(seed.data()) = 1.0f;
-  grad_ = seed.copy_to(backend());
-  propagate_gradients();
+  propagate_gradients(seed.copy_to(backend()), retain_graph);
 }
 
-void Tensor::backward(const Tensor &grad_output) {
+void Tensor::backward(const Tensor &grad_output, bool retain_graph) {
   if (grad_output.shape() != shape_) {
     throw std::invalid_argument("Gradient and tensor shape mismatch");
   }
 
-  grad_ = grad_output.data_storage().copy_to(backend());
-  propagate_gradients();
+  propagate_gradients(grad_output.data_storage().copy_to(backend()),
+                      retain_graph);
 }
 
-void Tensor::propagate_gradients() {
+void Tensor::propagate_gradients(Storage seed, bool retain_graph) {
   std::vector<std::shared_ptr<Tensor>> ordered;
   std::unordered_set<Tensor *> visited;
   std::vector<std::pair<std::shared_ptr<Tensor>, size_t>> pending;
 
+  const auto check_not_released = [](const Tensor &node) {
+    if (node.graph_released_) {
+      throw std::runtime_error(
+          "backward() reached a graph that an earlier backward() released, "
+          "recompute the forward pass or pass retain_graph = true to the "
+          "earlier call");
+    }
+  };
+
+  check_not_released(*this);
   visited.insert(this);
   pending.emplace_back(shared_from_this(), 0);
   while (!pending.empty()) {
@@ -54,6 +63,7 @@ void Tensor::propagate_gradients() {
     if (next_child < node->children_.size()) {
       const std::shared_ptr<Tensor> &child = node->children_[next_child++];
       if (visited.insert(child.get()).second) {
+        check_not_released(*child);
         pending.emplace_back(child, 0);
       }
       continue;
@@ -62,14 +72,30 @@ void Tensor::propagate_gradients() {
     pending.pop_back();
   }
 
+  grad_ = std::move(seed);
   for (const auto &node : ordered) {
-    node->ensure_grad();
+    if (!node->has_grad()) {
+      node->ensure_grad();
+    } else if (node.get() != this && node->backward_fn_) {
+      node->fill_grad_with_zeros();
+    }
   }
 
   for (const auto &node : std::ranges::reverse_view(ordered)) {
     if (node->backward_fn_) {
       node->backward_fn_();
     }
+  }
+
+  if (retain_graph) {
+    return;
+  }
+  for (const auto &node : ordered) {
+    if (node->backward_fn_) {
+      node->graph_released_ = true;
+    }
+    node->backward_fn_ = nullptr;
+    node->children_.clear();
   }
 }
 

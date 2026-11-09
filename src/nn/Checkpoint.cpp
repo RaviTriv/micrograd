@@ -35,8 +35,8 @@ std::shared_ptr<Tensor> Tensor::checkpoint(
       global_rng() = forward_rng;
       std::shared_ptr<Tensor> recomputed = recompute(input);
       global_rng() = backward_rng;
-      recomputed->grad_ = out->grad_.copy_to(recomputed->backend());
-      recomputed->propagate_gradients();
+      recomputed->propagate_gradients(
+          out->grad_.copy_to(recomputed->backend()), false);
 
       input->children_ = std::move(saved_children);
       input->backward_fn_ = std::move(saved_backward_fn);
