@@ -10,16 +10,35 @@
 
 namespace micrograd {
 
-class SGD {
+class Optimizer {
+ public:
+  explicit Optimizer(std::vector<std::shared_ptr<Tensor>> parameters);
+  virtual ~Optimizer() = default;
+
+  Optimizer(const Optimizer &) = delete;
+  Optimizer &operator=(const Optimizer &) = delete;
+
+  virtual void step() = 0;
+  void zero_grad();
+
+  size_t step_count() const { return step_count_; }
+  const std::vector<std::shared_ptr<Tensor>> &parameters() const {
+    return parameters_;
+  }
+
+ protected:
+  std::vector<std::shared_ptr<Tensor>> parameters_;
+  size_t step_count_ = 0;
+};
+
+class SGD : public Optimizer {
  public:
   SGD(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate,
       scalar_t momentum = 0, scalar_t weight_decay = 0, bool nesterov = false);
 
-  void step();
-  void zero_grad();
+  void step() override;
 
  private:
-  std::vector<std::shared_ptr<Tensor>> parameters_;
   scalar_t learning_rate_;
   scalar_t momentum_;
   scalar_t weight_decay_;
@@ -27,39 +46,34 @@ class SGD {
   std::vector<std::vector<scalar_t>> velocity_;
 };
 
-class AdamW {
+class AdamW : public Optimizer {
  public:
   AdamW(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate,
         std::pair<scalar_t, scalar_t> betas = {0.9f, 0.999f},
         scalar_t eps = 1e-8f, scalar_t weight_decay = 1e-2f);
 
-  void step();
-  void zero_grad();
+  void step() override;
 
  private:
-  std::vector<std::shared_ptr<Tensor>> parameters_;
   scalar_t learning_rate_;
   scalar_t beta1_;
   scalar_t beta2_;
   scalar_t eps_;
   scalar_t weight_decay_;
-  size_t step_count_ = 0;
   std::vector<Storage> m_;
   std::vector<Storage> v_;
   std::vector<std::vector<scalar_t>> master_;
 };
 
-class Muon {
+class Muon : public Optimizer {
  public:
   Muon(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate,
        scalar_t momentum = 0.95f, scalar_t weight_decay = 0.01f,
        bool nesterov = true, size_t ns_steps = 5);
 
-  void step();
-  void zero_grad();
+  void step() override;
 
  private:
-  std::vector<std::shared_ptr<Tensor>> parameters_;
   scalar_t learning_rate_;
   scalar_t momentum_;
   scalar_t weight_decay_;

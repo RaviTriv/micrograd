@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory>
+#include <stdexcept>
 
 #include "micrograd/Tensor.h"
 #include "micrograd/nn/Optim.h"
@@ -67,4 +69,44 @@ TEST(Optim, AdamWKeepsWeightsWrittenAfterConstruction) {
   optimizer.step();
 
   EXPECT_FLOAT_EQ(w->data()[0], 5.0f);
+}
+
+TEST(Optim, RejectsDuplicateParameters) {
+  auto p = Tensor::from_values({1}, {1.0f});
+  EXPECT_THROW(SGD({p, p}, 0.1f), std::invalid_argument);
+  EXPECT_THROW(AdamW({p, p}, 0.1f), std::invalid_argument);
+}
+
+TEST(Optim, RejectsNullParameter) {
+  EXPECT_THROW(SGD({nullptr}, 0.1f), std::invalid_argument);
+}
+
+TEST(Optim, RejectsInvalidHyperparameters) {
+  auto p = Tensor::from_values({1}, {1.0f});
+  auto matrix = Tensor::from_values({2, 2}, {1.0f, 0.0f, 0.0f, 1.0f});
+  const scalar_t nan = std::numeric_limits<scalar_t>::quiet_NaN();
+
+  EXPECT_THROW(SGD({p}, -0.1f), std::invalid_argument);
+  EXPECT_THROW(SGD({p}, nan), std::invalid_argument);
+  EXPECT_THROW(SGD({p}, 0.1f, -0.9f), std::invalid_argument);
+  EXPECT_THROW(SGD({p}, 0.1f, 0.0f, -0.01f), std::invalid_argument);
+  EXPECT_THROW(AdamW({p}, 0.1f, {1.0f, 0.999f}), std::invalid_argument);
+  EXPECT_THROW(AdamW({p}, 0.1f, {0.9f, -0.1f}), std::invalid_argument);
+  EXPECT_THROW(AdamW({p}, 0.1f, {0.9f, 0.999f}, -1e-8f), std::invalid_argument);
+  EXPECT_THROW(Muon({matrix}, -0.02f), std::invalid_argument);
+}
+
+TEST(Optim, StepsThroughBaseClass) {
+  auto p = Tensor::from_values({1}, {1.0f});
+  SGD sgd({p}, 0.1f);
+  Optimizer &optimizer = sgd;
+
+  p->grad()[0] = 1.0f;
+  optimizer.step();
+  EXPECT_FLOAT_EQ(p->data()[0], 0.9f);
+  EXPECT_EQ(optimizer.step_count(), 1u);
+  EXPECT_EQ(optimizer.parameters().size(), 1u);
+
+  optimizer.zero_grad();
+  EXPECT_FLOAT_EQ(p->grad()[0], 0.0f);
 }

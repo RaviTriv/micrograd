@@ -7,6 +7,8 @@
 #include <cstring>
 #include <memory>
 #include <stdexcept>
+#include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -16,23 +18,57 @@
 
 namespace micrograd {
 
+namespace {
+
+void require_nonnegative(const char *name, scalar_t value) {
+  if (!std::isfinite(value) || value < 0) {
+    throw std::invalid_argument(std::string(name) +
+                                " must be finite and nonnegative");
+  }
+}
+
+void require_beta(const char *name, scalar_t value) {
+  if (!std::isfinite(value) || value < 0 || value >= 1) {
+    throw std::invalid_argument(std::string(name) + " must be in [0, 1)");
+  }
+}
+
+}  // namespace
+
+Optimizer::Optimizer(std::vector<std::shared_ptr<Tensor>> parameters)
+    : parameters_(std::move(parameters)) {
+  std::unordered_set<const Tensor *> seen;
+  for (const auto &p : parameters_) {
+    if (!p) {
+      throw std::invalid_argument("Optimizer parameters must not be null");
+    }
+    if (!seen.insert(p.get()).second) {
+      throw std::invalid_argument(
+          "Optimizer parameters must not contain duplicates");
+    }
+  }
+}
+
+void Optimizer::zero_grad() {
+  for (auto &p : parameters_) {
+    p->zero_grad();
+  }
+}
+
 SGD::SGD(std::vector<std::shared_ptr<Tensor>> parameters,
          scalar_t learning_rate, scalar_t momentum, scalar_t weight_decay,
          bool nesterov)
-    : parameters_(std::move(parameters)),
+    : Optimizer(std::move(parameters)),
       learning_rate_(learning_rate),
       momentum_(momentum),
       weight_decay_(weight_decay),
       nesterov_(nesterov) {
+  require_nonnegative("learning_rate", learning_rate_);
+  require_nonnegative("momentum", momentum_);
+  require_nonnegative("weight_decay", weight_decay_);
   velocity_.reserve(parameters_.size());
   for (auto &p : parameters_) {
     velocity_.emplace_back(p->size(), static_cast<scalar_t>(0));
-  }
-}
-
-void SGD::zero_grad() {
-  for (auto &p : parameters_) {
-    p->zero_grad();
   }
 }
 
@@ -48,6 +84,7 @@ void SGD::step() {
       p->data()[j] -= learning_rate_ * update;
     }
   }
+  step_count_++;
 }
 
 namespace {
@@ -89,12 +126,17 @@ Storage zero_moment(size_t n, Device device) {
 AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
              scalar_t learning_rate, std::pair<scalar_t, scalar_t> betas,
              scalar_t eps, scalar_t weight_decay)
-    : parameters_(std::move(parameters)),
+    : Optimizer(std::move(parameters)),
       learning_rate_(learning_rate),
       beta1_(betas.first),
       beta2_(betas.second),
       eps_(eps),
       weight_decay_(weight_decay) {
+  require_nonnegative("learning_rate", learning_rate_);
+  require_beta("beta1", beta1_);
+  require_beta("beta2", beta2_);
+  require_nonnegative("eps", eps_);
+  require_nonnegative("weight_decay", weight_decay_);
   m_.reserve(parameters_.size());
   v_.reserve(parameters_.size());
   master_.resize(parameters_.size());
@@ -111,12 +153,6 @@ AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
       }
       master_[i] = std::move(weights);
     }
-  }
-}
-
-void AdamW::zero_grad() {
-  for (auto &p : parameters_) {
-    p->zero_grad();
   }
 }
 
@@ -261,24 +297,21 @@ std::vector<scalar_t> zeropower_via_newton_schulz5(
 Muon::Muon(std::vector<std::shared_ptr<Tensor>> parameters,
            scalar_t learning_rate, scalar_t momentum, scalar_t weight_decay,
            bool nesterov, size_t ns_steps)
-    : parameters_(std::move(parameters)),
+    : Optimizer(std::move(parameters)),
       learning_rate_(learning_rate),
       momentum_(momentum),
       weight_decay_(weight_decay),
       nesterov_(nesterov),
       ns_steps_(ns_steps) {
+  require_nonnegative("learning_rate", learning_rate_);
+  require_nonnegative("momentum", momentum_);
+  require_nonnegative("weight_decay", weight_decay_);
   momentum_buffer_.reserve(parameters_.size());
   for (auto &p : parameters_) {
     if (p->shape().size() != 2) {
       throw std::invalid_argument("Muon requires 2-D parameters");
     }
     momentum_buffer_.emplace_back(p->size(), static_cast<scalar_t>(0));
-  }
-}
-
-void Muon::zero_grad() {
-  for (auto &p : parameters_) {
-    p->zero_grad();
   }
 }
 
@@ -304,6 +337,7 @@ void Muon::step() {
       p->data()[j] -= learning_rate_ * scale * update[j];
     }
   }
+  step_count_++;
 }
 
 }  // namespace micrograd
