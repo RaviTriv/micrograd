@@ -88,7 +88,7 @@ TEST(LazyGrad, OpResultsHaveNoGradBufferBeforeBackward) {
   EXPECT_FALSE(c->has_grad());
 }
 
-TEST(LazyGrad, BackwardAllocatesEveryTensorInTheGraph) {
+TEST(LazyGrad, BackwardKeepsLeafGradsAndFreesIntermediateGrads) {
   auto a = vec({1, 2});
   auto b = a->mul(3.0f);
   auto c = b->reshape({2, 1});
@@ -97,9 +97,9 @@ TEST(LazyGrad, BackwardAllocatesEveryTensorInTheGraph) {
   loss->backward();
 
   EXPECT_TRUE(a->has_grad());
-  EXPECT_TRUE(b->has_grad());
-  EXPECT_TRUE(c->has_grad());
-  EXPECT_TRUE(loss->has_grad());
+  EXPECT_FALSE(b->has_grad());
+  EXPECT_FALSE(c->has_grad());
+  EXPECT_FALSE(loss->has_grad());
   EXPECT_EQ(a->grad()[0], 3.0f);
   EXPECT_EQ(a->grad()[1], 3.0f);
 }
@@ -410,4 +410,43 @@ TEST(Autograd, BackwardReleasesIntermediatesWhileRootIsAlive) {
 
   EXPECT_TRUE(intermediate.expired());
   EXPECT_FLOAT_EQ(x->grad()[0], 2.0f);
+}
+
+TEST(Autograd, RetainedGraphStillFreesIntermediateGrads) {
+  auto x = scalar(2);
+  auto h = x->mul(2.0f);
+  auto loss = h->mul(3.0f)->sum();
+
+  loss->backward(true);
+
+  EXPECT_FALSE(h->has_grad());
+  EXPECT_FLOAT_EQ(x->grad()[0], 6.0f);
+}
+
+TEST(Autograd, BackwardOnTensorWithoutGradThrows) {
+  auto x = Tensor::from_values({1}, {3});
+  auto loss = x->mul(2.0f)->sum();
+
+  EXPECT_THROW(loss->backward(), std::runtime_error);
+  EXPECT_FALSE(x->has_grad());
+}
+
+TEST(Autograd, BackwardOnLeafAccumulates) {
+  auto x = scalar(3);
+
+  x->backward();
+  x->backward();
+
+  EXPECT_FLOAT_EQ(x->grad()[0], 2.0f);
+}
+
+TEST(Autograd, BackwardWithGradientOnLeafAccumulates) {
+  auto x = vec({1, 2});
+  auto seed = Tensor::from_values({2}, {0.5f, 2.0f});
+
+  x->backward(*seed);
+  x->backward(*seed);
+
+  EXPECT_FLOAT_EQ(x->grad()[0], 1.0f);
+  EXPECT_FLOAT_EQ(x->grad()[1], 4.0f);
 }

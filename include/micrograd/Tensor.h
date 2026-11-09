@@ -127,6 +127,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> strided_copy(const std::vector<size_t> &shape,
                                        const std::vector<size_t> &strides);
   void propagate_gradients(Storage seed, bool retain_graph);
+  void require_grad_for_backward() const;
+  void accumulate_into_grad(const Storage &addend);
 
   Storage data_;
   mutable Storage grad_;

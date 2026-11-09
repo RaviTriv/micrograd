@@ -20,7 +20,27 @@ NoGradGuard::NoGradGuard() : previous_(grad_enabled) { grad_enabled = false; }
 
 NoGradGuard::~NoGradGuard() { grad_enabled = previous_; }
 
+void Tensor::require_grad_for_backward() const {
+  if (!requires_grad_) {
+    throw std::runtime_error(
+        "backward() called on a tensor that does not require grad, set "
+        "requires_grad on an input before the forward pass");
+  }
+}
+
+void Tensor::accumulate_into_grad(const Storage &addend) {
+  Storage total = grad_.copy_to(Device::CPU);
+  const Storage extra = addend.copy_to(Device::CPU);
+  auto *dst = static_cast<scalar_t *>(total.host_pointer());
+  const auto *src = static_cast<const scalar_t *>(extra.host_pointer());
+  for (size_t i = 0; i < size(); i++) {
+    dst[i] += src[i];
+  }
+  grad_ = total.copy_to(backend());
+}
+
 void Tensor::backward(bool retain_graph) {
+  require_grad_for_backward();
   if (size() != 1) {
     throw std::invalid_argument(
         "backward() requires a scalar tensor, pass an explicit gradient "
@@ -33,6 +53,7 @@ void Tensor::backward(bool retain_graph) {
 }
 
 void Tensor::backward(const Tensor &grad_output, bool retain_graph) {
+  require_grad_for_backward();
   if (grad_output.shape() != shape_) {
     throw std::invalid_argument("Gradient and tensor shape mismatch");
   }
@@ -72,18 +93,23 @@ void Tensor::propagate_gradients(Storage seed, bool retain_graph) {
     pending.pop_back();
   }
 
-  grad_ = std::move(seed);
   for (const auto &node : ordered) {
-    if (!node->has_grad()) {
+    if (node->backward_fn_) {
+      node->grad_ = Storage();
+    } else {
       node->ensure_grad();
-    } else if (node.get() != this && node->backward_fn_) {
-      node->fill_grad_with_zeros();
     }
+  }
+  if (backward_fn_ || !has_grad()) {
+    grad_ = std::move(seed);
+  } else {
+    accumulate_into_grad(seed);
   }
 
   for (const auto &node : std::ranges::reverse_view(ordered)) {
     if (node->backward_fn_) {
       node->backward_fn_();
+      node->grad_ = Storage();
     }
   }
 
