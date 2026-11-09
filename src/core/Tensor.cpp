@@ -1,6 +1,7 @@
 #include "micrograd/Tensor.h"
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -29,10 +30,31 @@ size_t ElementCount(const std::vector<size_t> &shape) {
   return total;
 }
 
+void ZeroFill(Storage &storage) {
+  if (storage.bytes() == 0) {
+    return;
+  }
+  if (storage.device() != Device::CUDA) {
+    std::memset(storage.host_pointer(), 0, storage.bytes());
+    return;
+  }
+#ifdef MICROGRAD_CUDA_ENABLED
+  cudaMemsetAsync(storage.device_pointer(), 0, storage.bytes(),
+                  CudaContext::instance().stream());
+#else
+  throw std::runtime_error("CUDA support is not compiled in");
+#endif
+}
+
 }  // namespace
 
 std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape) {
   return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape));
+}
+
+std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape,
+                                      Backend device) {
+  return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape), device);
 }
 
 std::shared_ptr<Tensor> Tensor::from_values(std::vector<size_t> shape,
@@ -41,11 +63,18 @@ std::shared_ptr<Tensor> Tensor::from_values(std::vector<size_t> shape,
                                   std::move(values));
 }
 
-Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape)
+Tensor::Tensor(ConstructorKey key, std::vector<size_t> shape)
+    : Tensor(key, std::move(shape), Device::CPU) {}
+
+Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape,
+               Backend device)
     : shape_(std::move(shape)) {
-  data_ = Storage(ElementCount(shape_) * sizeof(scalar_t), Device::CPU);
-  std::ranges::fill(data(), 0.0f);
+  data_ = Storage(ElementCount(shape_) * sizeof(scalar_t), device);
+  ZeroFill(data_);
 }
+
+Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape, Storage data)
+    : data_(std::move(data)), shape_(std::move(shape)) {}
 
 Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape,
                std::vector<scalar_t> values)
@@ -155,18 +184,7 @@ void Tensor::zero_grad() {
   }
 }
 
-void Tensor::fill_grad_with_zeros() const {
-  if (grad_.device() != Device::CUDA) {
-    std::fill_n(static_cast<scalar_t *>(grad_.host_pointer()), size(), 0.0f);
-    return;
-  }
-#ifdef MICROGRAD_CUDA_ENABLED
-  cudaMemsetAsync(grad_.device_pointer(), 0, grad_.bytes(),
-                  CudaContext::instance().stream());
-#else
-  throw std::runtime_error("CUDA support is not compiled in");
-#endif
-}
+void Tensor::fill_grad_with_zeros() const { ZeroFill(grad_); }
 
 bool Tensor::requires_grad() const { return requires_grad_; }
 

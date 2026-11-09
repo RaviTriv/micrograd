@@ -75,8 +75,8 @@ std::vector<size_t> NormalizeDims(const std::vector<int64_t> &dims,
 std::shared_ptr<Tensor> Tensor::reshape(const std::vector<int64_t> &shape) {
   std::vector<size_t> resolved = ResolveShape(shape, size());
 
-  auto result = Tensor::zeros(resolved);
-  result->data_ = data_.copy_to(backend());
+  auto result = std::make_shared<Tensor>(ConstructorKey{}, std::move(resolved),
+                                         data_.copy_to(backend()));
 
   result->requires_grad_ = GradEnabled() && requires_grad_;
   if (result->requires_grad_) {

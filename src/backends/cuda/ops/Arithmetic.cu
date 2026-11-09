@@ -221,35 +221,30 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 void Add(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   AddKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n);
 }
 
 void Sub(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   SubKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n);
 }
 
 void Mul(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   MulKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n);
 }
 
 void Div(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   DivKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), n);
 }
 
 void AddScalar(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   AddScalarKernel<<<GridSize(n), kBlockSize, 0,
                     CudaContext::instance().stream()>>>(
@@ -257,7 +252,6 @@ void AddScalar(const OpArgs &args) {
 }
 
 void SubScalar(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   SubScalarKernel<<<GridSize(n), kBlockSize, 0,
                     CudaContext::instance().stream()>>>(
@@ -265,7 +259,6 @@ void SubScalar(const OpArgs &args) {
 }
 
 void MulScalar(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   MulScalarKernel<<<GridSize(n), kBlockSize, 0,
                     CudaContext::instance().stream()>>>(
@@ -273,7 +266,6 @@ void MulScalar(const OpArgs &args) {
 }
 
 void DivScalar(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   DivScalarKernel<<<GridSize(n), kBlockSize, 0,
                     CudaContext::instance().stream()>>>(
@@ -281,14 +273,12 @@ void DivScalar(const OpArgs &args) {
 }
 
 void Pow(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   PowKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), args.scalar, n);
 }
 
 void ClampMin(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   ClampMinKernel<<<GridSize(n), kBlockSize, 0,
                    CudaContext::instance().stream()>>>(
@@ -296,7 +286,6 @@ void ClampMin(const OpArgs &args) {
 }
 
 void ClampMax(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   ClampMaxKernel<<<GridSize(n), kBlockSize, 0,
                    CudaContext::instance().stream()>>>(

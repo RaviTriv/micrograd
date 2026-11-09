@@ -148,14 +148,12 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 void Relu(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   ReluKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
 }
 
 void Sigmoid(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   SigmoidKernel<<<GridSize(n), kBlockSize, 0,
                   CudaContext::instance().stream()>>>(DataPtr(args.lhs),
@@ -163,35 +161,30 @@ void Sigmoid(const OpArgs &args) {
 }
 
 void Tanh(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   TanhKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
 }
 
 void Exp(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   ExpKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
 }
 
 void Log(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   LogKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
 }
 
 void Sqrt(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   SqrtKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
 }
 
 void Neg(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   NegKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);

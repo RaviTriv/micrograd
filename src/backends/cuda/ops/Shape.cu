@@ -98,7 +98,6 @@ std::function<void()> ReshapeBackward(const GradArgs &args) {
 }
 
 void StridedCopy(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   StridedLayout layout = MakeLayout(args.out->shape(), args.strides);
   size_t n = args.out->size();
   StridedCopyKernel<<<GridSize(n), kBlockSize, 0,

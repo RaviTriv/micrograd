@@ -379,7 +379,6 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 void Sum(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.lhs->size();
   cudaMemsetAsync(DataPtr(args.out), 0, sizeof(scalar_t),
                   CudaContext::instance().stream());
@@ -389,7 +388,6 @@ void Sum(const OpArgs &args) {
 }
 
 void SumDim(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   auto axis = static_cast<size_t>(args.dim);
   AxisLayout layout = LayoutFor(args.lhs->shape(), axis);
   size_t slices = layout.outer * layout.inner;
@@ -399,7 +397,6 @@ void SumDim(const OpArgs &args) {
 }
 
 void Max(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   auto axis = static_cast<size_t>(args.dim);
   AxisLayout layout = LayoutFor(args.lhs->shape(), axis);
   size_t slices = layout.outer * layout.inner;
@@ -409,7 +406,6 @@ void Max(const OpArgs &args) {
 }
 
 void Argmax(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   auto axis = static_cast<size_t>(args.dim);
   AxisLayout layout = LayoutFor(args.lhs->shape(), axis);
   size_t slices = layout.outer * layout.inner;
@@ -419,7 +415,6 @@ void Argmax(const OpArgs &args) {
 }
 
 void Softmax(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   auto axis = static_cast<size_t>(args.dim);
   AxisLayout layout = LayoutFor(args.lhs->shape(), axis);
   size_t slices = layout.outer * layout.inner;
@@ -429,7 +424,6 @@ void Softmax(const OpArgs &args) {
 }
 
 void LogSoftmax(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   auto axis = static_cast<size_t>(args.dim);
   AxisLayout layout = LayoutFor(args.lhs->shape(), axis);
   size_t slices = layout.outer * layout.inner;

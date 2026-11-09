@@ -51,7 +51,7 @@ std::function<void()> MakeBackward(OpId op, Device device,
 
 std::shared_ptr<Tensor> Tensor::apply(OpId op, std::vector<size_t> out_shape,
                                       const OpInputs &inputs) {
-  auto result = Tensor::zeros(std::move(out_shape));
+  auto result = Tensor::zeros(std::move(out_shape), backend());
   DispatchOp(op, backend(),
              {.lhs = inputs.lhs.get(),
               .rhs = inputs.rhs.get(),

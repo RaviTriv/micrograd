@@ -69,7 +69,6 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 void RotaryEmbedding(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t head_dim = args.lhs->shape().back();
   size_t seq_len = args.lhs->shape()[args.lhs->shape().size() - 2];
   size_t half = head_dim / 2;

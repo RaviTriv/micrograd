@@ -22,10 +22,14 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
  public:
   static std::shared_ptr<Tensor> zeros(std::vector<size_t> shape);
+  static std::shared_ptr<Tensor> zeros(std::vector<size_t> shape,
+                                       Backend device);
   static std::shared_ptr<Tensor> from_values(std::vector<size_t> shape,
                                              std::vector<scalar_t> values);
 
   Tensor(ConstructorKey key, std::vector<size_t> shape);
+  Tensor(ConstructorKey key, std::vector<size_t> shape, Backend device);
+  Tensor(ConstructorKey key, std::vector<size_t> shape, Storage data);
   Tensor(ConstructorKey key, std::vector<size_t> shape,
          std::vector<scalar_t> values);
   ~Tensor();

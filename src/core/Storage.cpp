@@ -100,7 +100,6 @@ Storage copy_cuda_to_cuda(const Storage &src) {
     checkCuda(cudaMemcpyAsync(copy.device_pointer(), src.device_pointer(),
                               src.bytes(), cudaMemcpyDeviceToDevice,
                               CudaContext::instance().stream()));
-    CudaContext::instance().synchronize();
   }
   return copy;
 }

@@ -82,7 +82,6 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 void BroadcastTo(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   const auto &shape = args.out->shape();
   std::vector<size_t> strides = BroadcastStrides(
       args.lhs->shape(), ContiguousStrides(args.lhs->shape()), shape);

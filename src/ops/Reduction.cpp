@@ -48,7 +48,7 @@ std::shared_ptr<Tensor> Tensor::max(int64_t dim, bool keepdim) {
 
 std::shared_ptr<Tensor> Tensor::argmax(int64_t dim) {
   size_t axis = NormalizeDim(dim, shape_.size());
-  auto result = Tensor::zeros(ReducedShape(shape_, axis, false));
+  auto result = Tensor::zeros(ReducedShape(shape_, axis, false), backend());
   DispatchOp(
       OpId::kArgmax, backend(),
       {.lhs = this, .out = result.get(), .dim = static_cast<int64_t>(axis)});

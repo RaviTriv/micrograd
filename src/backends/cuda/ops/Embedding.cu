@@ -78,7 +78,6 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 void EmbeddingLookup(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t dim = args.lhs->shape()[1];
   size_t count = args.rhs->size();
   EmbeddingLookupKernel<<<GridSize(count), kBlockSize, 0,
@@ -97,7 +96,6 @@ std::function<void()> EmbeddingLookupBackward(const GradArgs &args) {
 }
 
 void GatherPerRow(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t rows = args.lhs->shape()[0];
   size_t cols = args.lhs->shape()[1];
   GatherPerRowKernel<<<GridSize(rows), kBlockSize, 0,

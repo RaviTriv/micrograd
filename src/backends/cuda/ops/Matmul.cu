@@ -271,8 +271,6 @@ void MatmulCublasLtBf16(const OpArgs &args, size_t batch, size_t m, size_t k,
 }
 
 void MatmulBf16(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
-
   const auto &lhs_shape = args.lhs->shape();
   const auto &rhs_shape = args.rhs->shape();
   const auto [batch, m, k, n] = ResolveMatmulDims(lhs_shape, rhs_shape);
@@ -282,8 +280,6 @@ void MatmulBf16(const OpArgs &args) {
 #endif
 
 void Matmul(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
-
   const auto &lhs_shape = args.lhs->shape();
   const auto &rhs_shape = args.rhs->shape();
   const auto [batch, m, k, n] = ResolveMatmulDims(lhs_shape, rhs_shape);

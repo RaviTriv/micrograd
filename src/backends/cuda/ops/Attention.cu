@@ -357,8 +357,6 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 void FlashAttention(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
-
   const auto &shape = args.lhs->shape();
   size_t head_dim = shape.back();
   size_t seq_len = shape[shape.size() - 2];

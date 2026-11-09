@@ -157,7 +157,6 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 void LayerNorm(const OpArgs &args) {
-  args.out->to(Backend::CUDA);
   size_t n = args.rhs->size();
   size_t outer = args.lhs->size() / n;
   LayerNormKernel<<<static_cast<int>(outer), kBlockSize, 0,
