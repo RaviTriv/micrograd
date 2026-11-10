@@ -445,6 +445,73 @@ std::vector<Case> AllCases() {
        Wave({64, 96}, 0.7f)->mul(0.2f), Wave({96}, 1.5f),
        Wave({96, 64}, 2.5f)->mul(0.2f)},
       bf16_row_sums);
+  add_device_only(
+      "rms_norm_bf16_head_width",
+      [](const TensorList &in) {
+        return High(Low(in[0])->rms_norm({64}, in[1], 1e-5f));
+      },
+      {Wave({3, 5, 64}, 0.4f), Wave({64}, 1.0f)}, bf16_activations);
+  add_device_only(
+      "rms_norm_bf16_gpt2_width",
+      [](const TensorList &in) {
+        return High(Low(in[0])->rms_norm({768}, in[1], 1e-5f));
+      },
+      {Wave({3, 5, 768}, 0.4f), Wave({768}, 1.0f)}, bf16_row_sums);
+  add_device_only(
+      "rms_norm_bf16_odd_width",
+      [](const TensorList &in) {
+        return High(Low(in[0])->rms_norm({37}, in[1], 1e-5f));
+      },
+      {Wave({4, 37}, 0.4f), Wave({37}, 1.0f)}, bf16_activations);
+  add_device_only(
+      "rotary_bf16_seq_dim",
+      [](const TensorList &in) {
+        return High(Low(in[0])->rotary_embedding(10000.0f, 1));
+      },
+      {Wave({2, 7, 3, 16}, 0.4f)}, bf16_activations);
+  add_device_only(
+      "rotary_bf16_narrow_head",
+      [](const TensorList &in) { return High(Low(in[0])->rotary_embedding()); },
+      {Wave({2, 3, 7, 6}, 0.4f)}, bf16_activations);
+  add_device_only(
+      "relu_squared_bf16",
+      [](const TensorList &in) {
+        return High(Low(in[0]->mul(2.0f))->relu_squared());
+      },
+      {Wave({3, 45}, 0.4f)}, bf16_activations);
+  add_device_only(
+      "head_norm_rotary_bf16",
+      [](const TensorList &in) {
+        return High(Low(in[0])->head_norm_rotary(4, in[1], 1e-5f, true));
+      },
+      {Wave({2, 9, 256}, 0.4f), Wave({64}, 1.0f)}, bf16_activations);
+  add_device_only(
+      "head_norm_rotary_bf16_wide_head",
+      [](const TensorList &in) {
+        return High(Low(in[0])->head_norm_rotary(2, in[1], 1e-5f, true));
+      },
+      {Wave({2, 5, 200}, 0.4f), Wave({100}, 1.0f)}, bf16_activations);
+  add_device_only(
+      "head_norm_rotary_bf16_rotate_only",
+      [](const TensorList &in) {
+        return High(Low(in[0])->head_norm_rotary(4, nullptr, 0.0f, true));
+      },
+      {Wave({2, 9, 256}, 0.4f)}, bf16_activations);
+  add_device_only("head_norm_rotary_fp32_cuda",
+                  [](const TensorList &in) {
+                    return in[0]->head_norm_rotary(4, in[1], 1e-5f, true);
+                  },
+                  {Wave({2, 9, 256}, 0.4f), Wave({64}, 1.0f)},
+                  {.rtol = 1e-4f, .atol = 1e-5f});
+  add_device_only(
+      "qk_norm_rotary_bf16",
+      [](const TensorList &in) {
+        return High(Low(in[0])
+                        ->rms_norm({16}, in[1], 1e-5f)
+                        ->rotary_embedding(10000.0f, 1)
+                        ->reshape({2, 9, 64}));
+      },
+      {Wave({2, 9, 4, 16}, 0.4f), Wave({16}, 1.0f)}, bf16_activations);
   add("layer_norm",
       [](const TensorList &in) {
         return in[0]->layer_norm({3}, in[1], in[2], 1e-5f);
@@ -458,6 +525,24 @@ std::vector<Case> AllCases() {
   add("rotary_embedding",
       [](const TensorList &in) { return in[0]->rotary_embedding(); },
       {Ramp({2, 4}, -1.0f, 0.2f)});
+  add("head_norm_rotary",
+      [](const TensorList &in) {
+        return in[0]->head_norm_rotary(2, in[1], 1e-5f, true);
+      },
+      {Ramp({2, 3, 8}, -1.0f, 0.09f), Ramp({4}, 0.6f, 0.3f)}, {.atol = 5e-5f});
+  add("head_norm_rotary_norm_only",
+      [](const TensorList &in) {
+        return in[0]->head_norm_rotary(2, in[1], 1e-5f, false);
+      },
+      {Ramp({2, 3, 8}, -1.0f, 0.09f), Ramp({4}, 0.6f, 0.3f)}, {.atol = 5e-5f});
+  add("head_norm_rotary_rotate_only",
+      [](const TensorList &in) {
+        return in[0]->head_norm_rotary(2, nullptr, 0.0f, true);
+      },
+      {Ramp({2, 3, 8}, -1.0f, 0.09f)}, {.atol = 5e-5f});
+  add("rotary_embedding_seq_dim",
+      [](const TensorList &in) { return in[0]->rotary_embedding(10000.0f, 1); },
+      {Ramp({2, 3, 2, 4}, -1.0f, 0.1f)}, {.atol = 5e-5f});
 
   add("flash_attention",
       [](const TensorList &in) {

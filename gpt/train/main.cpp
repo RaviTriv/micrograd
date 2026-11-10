@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <numbers>
 #include <random>
@@ -105,6 +106,7 @@ struct TrainConfig {
   bool recompute = true;
   micrograd::gpt::ArchOptions arch;
   scalar_t muon_lr = 0.0f;
+  bool muon_fp32 = false;
   uint64_t seed = 1337;
   bool sample = false;
   std::string prompt = "\n";
@@ -216,6 +218,8 @@ TrainConfig parse_args(int argc, char **argv) {
       config.arch.relu_squared = true;
     } else if (arg == "--muon-lr") {
       config.muon_lr = std::stof(next_value());
+    } else if (arg == "--muon-fp32") {
+      config.muon_fp32 = true;
     } else if (arg == "--seed") {
       config.seed = std::stoull(next_value());
     } else if (arg == "--sample") {
@@ -324,13 +328,15 @@ class TrainOptimizer {
  public:
   TrainOptimizer(const NamedParameters &named_parameters, scalar_t weight_decay,
                  scalar_t beta1, scalar_t beta2, scalar_t eps,
-                 scalar_t base_lr = 0.0f, scalar_t muon_lr = 0.0f)
+                 scalar_t base_lr = 0.0f, scalar_t muon_lr = 0.0f,
+                 bool muon_bf16 = false)
       : weight_decay_(weight_decay),
         beta1_(beta1),
         beta2_(beta2),
         eps_(eps),
         base_lr_(base_lr),
-        muon_lr_(muon_lr) {
+        muon_lr_(muon_lr),
+        muon_bf16_(muon_bf16) {
     for (const auto &[name, p] : named_parameters) {
       const bool muon = muon_lr > 0.0f && is_muon_matrix(name, *p);
       parameters_.push_back(p);
@@ -377,7 +383,7 @@ class TrainOptimizer {
 
   bool fuses_grad_clip() const {
 #ifdef MICROGRAD_CUDA_ENABLED
-    return muon_lr_ <= 0.0f && !parameters_.empty() &&
+    return (muon_lr_ <= 0.0f || muon_bf16_) && !parameters_.empty() &&
            parameters_.front()->backend() == Device::CUDA;
 #else
     return false;
@@ -393,9 +399,18 @@ class TrainOptimizer {
     scalar_t bias_correction2 =
         1.0f - std::pow(beta2_, static_cast<scalar_t>(step_count_));
 #ifdef MICROGRAD_CUDA_ENABLED
-    step_muon(learning_rate);
     if (!parameters_.empty() &&
         parameters_.front()->backend() == Device::CUDA) {
+      const scalar_t *clip_total = nullptr;
+      if (grad_clip > 0.0f && !clip_params.empty()) {
+        std::vector<Tensor *> raw;
+        raw.reserve(clip_params.size());
+        for (const auto &p : clip_params) {
+          raw.push_back(p.get());
+        }
+        clip_total = micrograd::cuda::ops::GradNormSquaredTotal(raw);
+      }
+      step_muon(learning_rate, clip_total, grad_clip);
       std::vector<micrograd::cuda::ops::AdamWTensor> tensors;
       tensors.reserve(parameters_.size());
       for (size_t i = 0; i < parameters_.size(); i++) {
@@ -410,15 +425,6 @@ class TrainOptimizer {
             static_cast<scalar_t *>(m_[i]->data_storage().device_pointer()),
             static_cast<scalar_t *>(v_[i]->data_storage().device_pointer()),
             parameters_[i]->size(), decay_[i]});
-      }
-      const scalar_t *clip_total = nullptr;
-      if (grad_clip > 0.0f && !clip_params.empty()) {
-        std::vector<Tensor *> raw;
-        raw.reserve(clip_params.size());
-        for (const auto &p : clip_params) {
-          raw.push_back(p.get());
-        }
-        clip_total = micrograd::cuda::ops::GradNormSquaredTotal(raw);
       }
       micrograd::cuda::ops::FusedAdamWStep(
           tensors, learning_rate, beta1_, beta2_, eps_, weight_decay_,
@@ -439,21 +445,50 @@ class TrainOptimizer {
   }
 
  private:
-  void step_muon(scalar_t learning_rate) {
+  void step_muon(scalar_t learning_rate,
+                 [[maybe_unused]] const scalar_t *clip_total = nullptr,
+                 [[maybe_unused]] scalar_t max_norm = 0.0f) {
     if (muon_lr_ <= 0.0f) {
       return;
     }
     const scalar_t lr = muon_lr_ * learning_rate / base_lr_;
+    const auto update_scale = [](const std::vector<size_t> &shape) {
+      const scalar_t fan_in = static_cast<scalar_t>(shape[0]);
+      const scalar_t fan_out = static_cast<scalar_t>(shape[1]);
+      return std::sqrt(std::max(1.0f, fan_out / fan_in));
+    };
+#ifdef MICROGRAD_CUDA_ENABLED
+    if (muon_bf16_ && !parameters_.empty() &&
+        parameters_.front()->backend() == Device::CUDA) {
+      std::map<std::vector<size_t>,
+               std::vector<micrograd::cuda::ops::MuonTensor>>
+          groups;
+      for (size_t i = 0; i < parameters_.size(); i++) {
+        if (!muon_[i]) {
+          continue;
+        }
+        groups[parameters_[i]->shape()].push_back(
+            {static_cast<scalar_t *>(
+                 parameters_[i]->data_storage().device_pointer()),
+             static_cast<const scalar_t *>(
+                 parameters_[i]->grad_storage().device_pointer()),
+             static_cast<scalar_t *>(m_[i]->data_storage().device_pointer())});
+      }
+      for (const auto &[shape, tensors] : groups) {
+        micrograd::cuda::ops::MuonStepBatchedBf16(
+            tensors, shape[0], shape[1], lr, kMuonMomentum, 0.0f, true,
+            kMuonNsSteps, update_scale(shape), clip_total, max_norm);
+      }
+      return;
+    }
+#endif
     for (size_t i = 0; i < parameters_.size(); i++) {
       if (!muon_[i]) {
         continue;
       }
-      const auto &shape = parameters_[i]->shape();
-      const scalar_t fan_in = static_cast<scalar_t>(shape[0]);
-      const scalar_t fan_out = static_cast<scalar_t>(shape[1]);
-      const scalar_t scale = std::sqrt(std::max(1.0f, fan_out / fan_in));
-      micrograd::ops::MuonStep(*parameters_[i], *m_[i], lr, kMuonMomentum,
-                               0.0f, true, kMuonNsSteps, scale);
+      micrograd::ops::MuonStep(*parameters_[i], *m_[i], lr, kMuonMomentum, 0.0f,
+                               true, kMuonNsSteps,
+                               update_scale(parameters_[i]->shape()));
     }
   }
 
@@ -493,6 +528,7 @@ class TrainOptimizer {
   scalar_t eps_;
   scalar_t base_lr_;
   scalar_t muon_lr_;
+  [[maybe_unused]] bool muon_bf16_;
   size_t step_count_ = 0;
   std::vector<std::shared_ptr<Tensor>> m_;
   std::vector<std::shared_ptr<Tensor>> v_;
@@ -872,10 +908,14 @@ int main(int argc, char **argv) {
 
     TrainOptimizer optimizer(model.named_parameters(), config.weight_decay,
                              config.beta1, config.beta2, 1e-8f,
-                             config.learning_rate, config.muon_lr);
+                             config.learning_rate, config.muon_lr,
+                             config.bf16 && !config.muon_fp32);
     if (optimizer.muon_count() > 0) {
       std::cout << "muon: " << optimizer.muon_count()
-                << " block matrices at lr " << config.muon_lr << "\n";
+                << " block matrices at lr " << config.muon_lr
+                << (config.bf16 && !config.muon_fp32 ? ", bf16 Newton-Schulz"
+                                                     : "")
+                << "\n";
     }
     const size_t decayed = optimizer.decayed_count();
     const size_t undecayed = optimizer.parameter_count() - decayed;

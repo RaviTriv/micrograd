@@ -69,35 +69,20 @@ std::shared_ptr<Tensor> CausalSelfAttention::forward(
         "CausalSelfAttention expects a (batch, seq, embed) input");
   }
 
-  size_t batch = shape[0];
-  size_t seq_len = shape[1];
   size_t head_dim = n_embd_ / n_head_;
   scalar_t scale = 1.0f / std::sqrt(static_cast<scalar_t>(head_dim));
-
-  const std::vector<int64_t> per_head = {
-      static_cast<int64_t>(batch), static_cast<int64_t>(seq_len),
-      static_cast<int64_t>(n_head_), static_cast<int64_t>(head_dim)};
-  const std::vector<int64_t> merged = {static_cast<int64_t>(batch),
-                                       static_cast<int64_t>(seq_len),
-                                       static_cast<int64_t>(n_embd_)};
 
   std::shared_ptr<Tensor> q = query_->forward(input);
   std::shared_ptr<Tensor> k = key_->forward(input);
   std::shared_ptr<Tensor> v = value_->forward(input);
-  if (arch_.qk_norm) {
-    q = q_norm_->forward(q->reshape(per_head))->reshape(merged);
-    k = k_norm_->forward(k->reshape(per_head))->reshape(merged);
-  }
-  if (arch_.rotary) {
-    const auto rotate = [&](const std::shared_ptr<Tensor> &x) {
-      return x->reshape(per_head)
-          ->permute({0, 2, 1, 3})
-          ->rotary_embedding()
-          ->permute({0, 2, 1, 3})
-          ->reshape(merged);
+  if (arch_.qk_norm || arch_.rotary) {
+    const auto prepare = [&](const std::shared_ptr<Tensor> &x,
+                             const std::shared_ptr<RMSNorm> &norm) {
+      return x->head_norm_rotary(n_head_, norm ? norm->gain() : nullptr,
+                                 norm ? norm->eps() : 0.0f, arch_.rotary);
     };
-    q = rotate(q);
-    k = rotate(k);
+    q = prepare(q, q_norm_);
+    k = prepare(k, k_norm_);
   }
   std::shared_ptr<Tensor> attended =
       q->causal_self_attention(k, v, n_head_, scale);

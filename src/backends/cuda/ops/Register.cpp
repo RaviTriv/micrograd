@@ -23,6 +23,7 @@ bool ForwardOverwritesOutput(OpId op) {
     case OpId::kSigmoid:
     case OpId::kTanh:
     case OpId::kGelu:
+    case OpId::kReluSquared:
     case OpId::kExp:
     case OpId::kLog:
     case OpId::kSqrt:
@@ -40,6 +41,7 @@ bool ForwardOverwritesOutput(OpId op) {
     case OpId::kLayerNorm:
     case OpId::kRmsNorm:
     case OpId::kRotaryEmbedding:
+    case OpId::kHeadNormRotary:
     case OpId::kFlashAttention:
     case OpId::kCausalAttentionProbs:
     case OpId::kAttentionCombine:

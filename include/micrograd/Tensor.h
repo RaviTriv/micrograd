@@ -87,7 +87,12 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> rms_norm(const std::vector<size_t> &normalized_shape,
                                    const std::shared_ptr<Tensor> &gain,
                                    scalar_t eps);
-  std::shared_ptr<Tensor> rotary_embedding(scalar_t base = 10000.0f);
+  std::shared_ptr<Tensor> rotary_embedding(scalar_t base = 10000.0f,
+                                           int64_t seq_dim = -2);
+  std::shared_ptr<Tensor> head_norm_rotary(size_t n_head,
+                                           const std::shared_ptr<Tensor> &gain,
+                                           scalar_t eps, bool rotate,
+                                           scalar_t base = 10000.0f);
   std::shared_ptr<Tensor> flash_attention(const std::shared_ptr<Tensor> &key,
                                           const std::shared_ptr<Tensor> &value,
                                           scalar_t scale);
@@ -100,6 +105,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
       size_t n_head, scalar_t scale);
 
   std::shared_ptr<Tensor> relu();
+  std::shared_ptr<Tensor> relu_squared();
   std::shared_ptr<Tensor> sigmoid();
   std::shared_ptr<Tensor> tanh();
   std::shared_ptr<Tensor> gelu();

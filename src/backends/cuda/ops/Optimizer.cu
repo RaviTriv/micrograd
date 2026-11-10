@@ -5,12 +5,17 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <deque>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 
+#include "micrograd/Profiler.h"
 #include "micrograd/Storage.h"
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Bf16.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 
 namespace micrograd::cuda::ops {
@@ -448,6 +453,321 @@ void MuonStep(Tensor &param, Tensor &momentum, scalar_t lr, scalar_t beta,
   (void)nesterov;
   (void)ns_steps;
   (void)update_scale;
+  throw std::runtime_error("CUDA Muon needs a build with -DENABLE_CUBLAS=ON");
+#endif
+}
+
+namespace {
+
+#ifdef MICROGRAD_CUBLAS_ENABLED
+constexpr size_t kMuonMaxBlocksPerTensor = 512;
+
+__global__ void MuonMomentumBatchedKernel(const MuonTensor *tensors,
+                                          scalar_t *update, scalar_t *norms,
+                                          size_t n, scalar_t beta,
+                                          bool nesterov,
+                                          const scalar_t *clip_total,
+                                          scalar_t max_norm) {
+  __shared__ scalar_t shared[kBlockSize];
+  const MuonTensor t = tensors[blockIdx.y];
+  const scalar_t scale =
+      clip_total != nullptr
+          ? fminf(1.0f, max_norm / (sqrtf(*clip_total) + 1e-6f))
+          : 1.0f;
+  scalar_t *u = update + (static_cast<size_t>(blockIdx.y) * n);
+  scalar_t local = 0.0f;
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    const scalar_t g = t.grad[i] * scale;
+    const scalar_t m = (beta * t.momentum[i]) + ((1.0f - beta) * g);
+    t.momentum[i] = m;
+    const scalar_t v = nesterov ? (beta * m) + ((1.0f - beta) * g) : m;
+    u[i] = v;
+    local += v * v;
+  }
+  shared[threadIdx.x] = local;
+  __syncthreads();
+  for (unsigned int stride = kBlockSize / 2; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      shared[threadIdx.x] += shared[threadIdx.x + stride];
+    }
+    __syncthreads();
+  }
+  if (threadIdx.x == 0) {
+    atomicAdd(&norms[blockIdx.y], shared[0]);
+  }
+}
+
+__global__ void MuonNormalizeBf16Kernel(const scalar_t *update,
+                                        const scalar_t *norms, bf16 *x,
+                                        size_t n) {
+  const size_t offset = static_cast<size_t>(blockIdx.y) * n;
+  const scalar_t inv = 1.0f / (sqrtf(norms[blockIdx.y]) + 1e-7f);
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    x[offset + i] = __float2bfloat16(update[offset + i] * inv);
+  }
+}
+
+__global__ void MuonApplyBatchedKernel(const MuonTensor *tensors,
+                                       const bf16 *update, size_t n,
+                                       scalar_t decay_factor, scalar_t step) {
+  const MuonTensor t = tensors[blockIdx.y];
+  const bf16 *u = update + (static_cast<size_t>(blockIdx.y) * n);
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    t.data[i] = (t.data[i] * decay_factor) - (step * __bfloat162float(u[i]));
+  }
+}
+
+struct LtGemmKey {
+  bool trans_a;
+  bool trans_b;
+  int m;
+  int n;
+  int k;
+  int lda;
+  int ldb;
+  int ldc;
+  long long stride_a;
+  long long stride_b;
+  long long stride_c;
+  int batch;
+  bool operator==(const LtGemmKey &) const = default;
+};
+
+struct LtGemmPlan {
+  LtGemmKey key;
+  cublasLtMatmulDesc_t desc = nullptr;
+  cublasLtMatrixLayout_t a = nullptr;
+  cublasLtMatrixLayout_t b = nullptr;
+  cublasLtMatrixLayout_t c = nullptr;
+  cublasLtMatmulAlgo_t algo{};
+  bool usable = false;
+};
+
+constexpr size_t kLtWorkspaceBytes = 32 << 20;
+
+cublasLtMatrixLayout_t LtLayout(bool trans, int rows, int cols, int ld,
+                                long long stride, int batch) {
+  cublasLtMatrixLayout_t layout = nullptr;
+  MICROGRAD_CUBLAS_CHECK(cublasLtMatrixLayoutCreate(
+      &layout, CUDA_R_16BF, static_cast<uint64_t>(trans ? cols : rows),
+      static_cast<uint64_t>(trans ? rows : cols), ld));
+  MICROGRAD_CUBLAS_CHECK(cublasLtMatrixLayoutSetAttribute(
+      layout, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch, sizeof(batch)));
+  MICROGRAD_CUBLAS_CHECK(cublasLtMatrixLayoutSetAttribute(
+      layout, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &stride,
+      sizeof(stride)));
+  return layout;
+}
+
+const LtGemmPlan &LtPlanFor(const LtGemmKey &key) {
+  static std::deque<LtGemmPlan> plans;
+  for (const auto &plan : plans) {
+    if (plan.key == key) {
+      return plan;
+    }
+  }
+  LtGemmPlan plan;
+  plan.key = key;
+  MICROGRAD_CUBLAS_CHECK(
+      cublasLtMatmulDescCreate(&plan.desc, CUBLAS_COMPUTE_32F, CUDA_R_32F));
+  const cublasOperation_t op_a = key.trans_a ? CUBLAS_OP_T : CUBLAS_OP_N;
+  const cublasOperation_t op_b = key.trans_b ? CUBLAS_OP_T : CUBLAS_OP_N;
+  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(
+      plan.desc, CUBLASLT_MATMUL_DESC_TRANSA, &op_a, sizeof(op_a)));
+  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(
+      plan.desc, CUBLASLT_MATMUL_DESC_TRANSB, &op_b, sizeof(op_b)));
+  plan.a =
+      LtLayout(key.trans_a, key.m, key.k, key.lda, key.stride_a, key.batch);
+  plan.b =
+      LtLayout(key.trans_b, key.k, key.n, key.ldb, key.stride_b, key.batch);
+  plan.c = LtLayout(false, key.m, key.n, key.ldc, key.stride_c, key.batch);
+
+  cublasLtMatmulPreference_t preference = nullptr;
+  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulPreferenceCreate(&preference));
+  const size_t workspace = kLtWorkspaceBytes;
+  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulPreferenceSetAttribute(
+      preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspace,
+      sizeof(workspace)));
+  cublasLtMatmulHeuristicResult_t result{};
+  int returned = 0;
+  const cublasStatus_t status = cublasLtMatmulAlgoGetHeuristic(
+      CudaContext::instance().cublasLtHandle(), plan.desc, plan.a, plan.b,
+      plan.c, plan.c, preference, 1, &result, &returned);
+  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulPreferenceDestroy(preference));
+  plan.usable = status == CUBLAS_STATUS_SUCCESS && returned > 0;
+  plan.algo = result.algo;
+  plans.push_back(plan);
+  return plans.back();
+}
+
+void BatchedGemmBf16(cublasHandle_t handle, cublasOperation_t trans_a,
+                     cublasOperation_t trans_b, int m, int n, int k,
+                     float alpha, const bf16 *a, int lda, long long stride_a,
+                     const bf16 *b, int ldb, long long stride_b, float beta,
+                     bf16 *c, int ldc, long long stride_c, int batch) {
+  MICROGRAD_CUBLAS_CHECK(cublasGemmStridedBatchedEx(
+      handle, trans_a, trans_b, m, n, k, &alpha, a, CUDA_R_16BF, lda, stride_a,
+      b, CUDA_R_16BF, ldb, stride_b, &beta, c, CUDA_R_16BF, ldc, stride_c,
+      batch, CUBLAS_COMPUTE_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+}
+
+void LtBatchedGemmBf16(cublasHandle_t handle, cublasOperation_t trans_a,
+                       cublasOperation_t trans_b, int m, int n, int k,
+                       float alpha, const bf16 *a, int lda, long long stride_a,
+                       const bf16 *b, int ldb, long long stride_b, float beta,
+                       const bf16 *c, bf16 *d, int ldc, long long stride_c,
+                       int batch) {
+  const LtGemmPlan &plan = LtPlanFor({.trans_a = trans_a == CUBLAS_OP_T,
+                                      .trans_b = trans_b == CUBLAS_OP_T,
+                                      .m = m,
+                                      .n = n,
+                                      .k = k,
+                                      .lda = lda,
+                                      .ldb = ldb,
+                                      .ldc = ldc,
+                                      .stride_a = stride_a,
+                                      .stride_b = stride_b,
+                                      .stride_c = stride_c,
+                                      .batch = batch});
+  auto &ctx = CudaContext::instance();
+  cudaStream_t stream = ctx.stream();
+  if (!plan.usable) {
+    if (c != d) {
+      MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(
+          d, c, static_cast<size_t>(stride_c) * batch * sizeof(bf16),
+          cudaMemcpyDeviceToDevice, stream));
+    }
+    BatchedGemmBf16(handle, trans_a, trans_b, m, n, k, alpha, a, lda, stride_a,
+                    b, ldb, stride_b, beta, d, ldc, stride_c, batch);
+    return;
+  }
+  static void *workspace = ctx.allocate(kLtWorkspaceBytes);
+  MICROGRAD_CUBLAS_CHECK(cublasLtMatmul(
+      ctx.cublasLtHandle(), plan.desc, &alpha, a, plan.a, b, plan.b, &beta, c,
+      plan.c, d, plan.c, &plan.algo, workspace, kLtWorkspaceBytes, stream));
+}
+
+bool SameMuonEntry(const MuonTensor &a, const MuonTensor &b) {
+  return a.data == b.data && a.grad == b.grad && a.momentum == b.momentum;
+}
+
+const MuonTensor *UploadMuonTable(const std::vector<MuonTensor> &tensors) {
+  static std::vector<DeviceTable<MuonTensor>> tables;
+  for (auto &table : tables) {
+    if (!table.cached.empty() &&
+        table.cached.front().data == tensors.front().data) {
+      return UploadTable(table, tensors, SameMuonEntry);
+    }
+  }
+  tables.emplace_back();
+  return UploadTable(tables.back(), tensors, SameMuonEntry);
+}
+#endif
+
+}  // namespace
+
+void MuonStepBatchedBf16(const std::vector<MuonTensor> &tensors, size_t rows,
+                         size_t cols, scalar_t lr, scalar_t beta,
+                         scalar_t weight_decay, bool nesterov, size_t ns_steps,
+                         scalar_t update_scale, const scalar_t *clip_total,
+                         scalar_t max_norm) {
+#ifdef MICROGRAD_CUBLAS_ENABLED
+  if (tensors.empty()) {
+    return;
+  }
+  constexpr float kA = 3.4445f;
+  constexpr float kB = -4.7750f;
+  constexpr float kC = 2.0315f;
+
+  auto &ctx = CudaContext::instance();
+  cudaStream_t stream = ctx.stream();
+  cublasHandle_t handle = ctx.cublasHandle();
+  const size_t batch = tensors.size();
+  const size_t n = rows * cols;
+  const size_t small = std::min(rows, cols);
+  const bool wide = rows <= cols;
+  const MuonTensor *device_tensors = UploadMuonTable(tensors);
+
+  Storage update_storage(batch * n * sizeof(scalar_t), Device::CUDA);
+  Storage norm_storage(batch * sizeof(scalar_t), Device::CUDA);
+  Storage x_storage(batch * n * sizeof(bf16), Device::CUDA);
+  Storage y_storage(batch * n * sizeof(bf16), Device::CUDA);
+  Storage gram_storage(batch * small * small * sizeof(bf16), Device::CUDA);
+  Storage poly_storage(batch * small * small * sizeof(bf16), Device::CUDA);
+  auto *update = static_cast<scalar_t *>(update_storage.device_pointer());
+  auto *norms = static_cast<scalar_t *>(norm_storage.device_pointer());
+  auto *x = static_cast<bf16 *>(x_storage.device_pointer());
+  auto *y = static_cast<bf16 *>(y_storage.device_pointer());
+  auto *gram = static_cast<bf16 *>(gram_storage.device_pointer());
+  auto *poly = static_cast<bf16 *>(poly_storage.device_pointer());
+
+  const dim3 grid(
+      static_cast<unsigned int>(std::clamp<size_t>(
+          (n + kBlockSize - 1) / kBlockSize, 1, kMuonMaxBlocksPerTensor)),
+      static_cast<unsigned int>(batch));
+  std::optional<profiler::Scope> scope;
+  scope.emplace("muon_prep", "step", Device::CUDA);
+  MICROGRAD_CUDA_CHECK(
+      cudaMemsetAsync(norms, 0, batch * sizeof(scalar_t), stream));
+  MuonMomentumBatchedKernel<<<grid, kBlockSize, 0, stream>>>(
+      device_tensors, update, norms, n, beta, nesterov, clip_total, max_norm);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  MuonNormalizeBf16Kernel<<<grid, kBlockSize, 0, stream>>>(update, norms, x, n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+
+  const int ld = static_cast<int>(cols);
+  const int s = static_cast<int>(small);
+  const int big = static_cast<int>(wide ? cols : rows);
+  const auto stride_x = static_cast<long long>(n);
+  const auto stride_g = static_cast<long long>(small * small);
+  const int count = static_cast<int>(batch);
+  scope.reset();
+  scope.emplace("muon_newton_schulz", "step", Device::CUDA);
+  for (size_t step = 0; step < ns_steps; step++) {
+    if (wide) {
+      BatchedGemmBf16(handle, CUBLAS_OP_T, CUBLAS_OP_N, s, s, big, 1.0f, x, ld,
+                      stride_x, x, ld, stride_x, 0.0f, gram, s, stride_g,
+                      count);
+    } else {
+      BatchedGemmBf16(handle, CUBLAS_OP_N, CUBLAS_OP_T, s, s, big, 1.0f, x, ld,
+                      stride_x, x, ld, stride_x, 0.0f, gram, s, stride_g,
+                      count);
+    }
+    LtBatchedGemmBf16(handle, CUBLAS_OP_N, CUBLAS_OP_N, s, s, s, kC, gram, s,
+                      stride_g, gram, s, stride_g, kB, gram, poly, s, stride_g,
+                      count);
+    if (wide) {
+      LtBatchedGemmBf16(handle, CUBLAS_OP_N, CUBLAS_OP_N, ld, s, s, 1.0f, x, ld,
+                        stride_x, poly, s, stride_g, kA, x, y, ld, stride_x,
+                        count);
+    } else {
+      LtBatchedGemmBf16(handle, CUBLAS_OP_N, CUBLAS_OP_N, s, big, s, 1.0f, poly,
+                        s, stride_g, x, ld, stride_x, kA, x, y, ld, stride_x,
+                        count);
+    }
+    std::swap(x, y);
+  }
+
+  scope.reset();
+  scope.emplace("muon_apply", "step", Device::CUDA);
+  MuonApplyBatchedKernel<<<grid, kBlockSize, 0, stream>>>(
+      device_tensors, x, n, 1.0f - (lr * weight_decay), lr * update_scale);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+#else
+  (void)tensors;
+  (void)rows;
+  (void)cols;
+  (void)lr;
+  (void)beta;
+  (void)weight_decay;
+  (void)nesterov;
+  (void)ns_steps;
+  (void)update_scale;
+  (void)clip_total;
+  (void)max_norm;
   throw std::runtime_error("CUDA Muon needs a build with -DENABLE_CUBLAS=ON");
 #endif
 }

@@ -68,6 +68,7 @@ class RMSNorm : public nn::Module {
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;
   std::shared_ptr<Tensor> gain();
+  scalar_t eps() const { return eps_; }
 
  private:
   std::vector<size_t> normalized_shape_;

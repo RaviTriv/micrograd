@@ -31,6 +31,26 @@ __global__ void ReluKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
   }
 }
 
+__global__ void ReluSquaredKernel(const scalar_t *lhs, scalar_t *out,
+                                  size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    const scalar_t r = fmaxf(lhs[i], 0.0f);
+    out[i] = r * r;
+  }
+}
+
+__global__ void ReluSquaredBackwardKernel(const scalar_t *out_grad,
+                                          const scalar_t *a_data,
+                                          scalar_t *a_grad, bool accumulate,
+                                          size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    const scalar_t g = out_grad[i] * 2.0f * fmaxf(a_data[i], 0.0f);
+    a_grad[i] = accumulate ? a_grad[i] + g : g;
+  }
+}
+
 __global__ void SigmoidKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
@@ -191,6 +211,25 @@ void Relu(const OpArgs &args) {
   ReluKernel<<<GridSize(n), kBlockSize, 0, CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.out), n);
   MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+void ReluSquared(const OpArgs &args) {
+  size_t n = args.lhs->size();
+  ReluSquaredKernel<<<GridSize(n), kBlockSize, 0,
+                      CudaContext::instance().stream()>>>(DataPtr(args.lhs),
+                                                          DataPtr(args.out), n);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+std::function<void()> ReluSquaredBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    size_t n = lhs->size();
+    const GradTarget target = GradForWrite(lhs.get());
+    ReluSquaredBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                                CudaContext::instance().stream()>>>(
+        GradPtr(out), DataPtr(lhs.get()), target.ptr, target.accumulate, n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  };
 }
 
 void Sigmoid(const OpArgs &args) {
@@ -380,6 +419,58 @@ struct GeluBackwardBf16Op {
   }
 };
 
+struct ReluSquaredBf16Op {
+  const bf16 *in;
+  bf16 *out;
+  __device__ void vector(size_t i) const {
+    Bf16x8 x = LoadBf16x8(in + i);
+    for (int j = 0; j < kBf16Vector; j++) {
+      const float r = fmaxf(x.v[j], 0.0f);
+      x.v[j] = r * r;
+    }
+    StoreBf16x8(out + i, x);
+  }
+  __device__ void scalar(size_t i) const {
+    const float r = fmaxf(__bfloat162float(in[i]), 0.0f);
+    out[i] = __float2bfloat16(r * r);
+  }
+};
+
+struct ReluSquaredBackwardBf16Op {
+  const bf16 *out_grad;
+  const bf16 *in;
+  bf16 *grad;
+  bool accumulate;
+  __device__ void vector(size_t i) const {
+    const Bf16x8 x = LoadBf16x8(in + i);
+    const Bf16x8 g = LoadBf16x8(out_grad + i);
+    Bf16x8 result = accumulate ? LoadBf16x8(grad + i) : Bf16x8{};
+    for (int j = 0; j < kBf16Vector; j++) {
+      result.v[j] += g.v[j] * 2.0f * fmaxf(x.v[j], 0.0f);
+    }
+    StoreBf16x8(grad + i, result);
+  }
+  __device__ void scalar(size_t i) const {
+    const float old = accumulate ? __bfloat162float(grad[i]) : 0.0f;
+    grad[i] = __float2bfloat16(old + (__bfloat162float(out_grad[i]) * 2.0f *
+                                      fmaxf(__bfloat162float(in[i]), 0.0f)));
+  }
+};
+
+void ReluSquaredBf16(const OpArgs &args) {
+  LaunchBf16Map(args.lhs->size(),
+                ReluSquaredBf16Op{Bf16Data(args.lhs), Bf16Data(args.out)});
+}
+
+std::function<void()> ReluSquaredBackwardBf16(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    const Bf16GradTarget target = Bf16GradForWrite(lhs.get());
+    LaunchBf16Map(lhs->size(),
+                  ReluSquaredBackwardBf16Op{Bf16Grad(out), Bf16Data(lhs.get()),
+                                            target.ptr, target.accumulate});
+  };
+}
+
 void GeluBf16(const OpArgs &args) {
   LaunchBf16Map(args.lhs->size(),
                 GeluBf16Op{Bf16Data(args.lhs), Bf16Data(args.out)});
@@ -401,7 +492,12 @@ void RegisterActivationOps() {
   registry.Register(OpId::kGelu, Device::CUDA, GeluBf16, DType::kBFloat16);
   registry.RegisterBackward(OpId::kGelu, Device::CUDA, GeluBackwardBf16,
                             DType::kBFloat16);
+  registry.Register(OpId::kReluSquared, Device::CUDA, ReluSquaredBf16,
+                    DType::kBFloat16);
+  registry.RegisterBackward(OpId::kReluSquared, Device::CUDA,
+                            ReluSquaredBackwardBf16, DType::kBFloat16);
   registry.Register(OpId::kRelu, Device::CUDA, Relu);
+  registry.Register(OpId::kReluSquared, Device::CUDA, ReluSquared);
   registry.Register(OpId::kSigmoid, Device::CUDA, Sigmoid);
   registry.Register(OpId::kTanh, Device::CUDA, Tanh);
   registry.Register(OpId::kGelu, Device::CUDA, Gelu);
@@ -410,6 +506,8 @@ void RegisterActivationOps() {
   registry.Register(OpId::kSqrt, Device::CUDA, Sqrt);
   registry.Register(OpId::kNeg, Device::CUDA, Neg);
   registry.RegisterBackward(OpId::kRelu, Device::CUDA, ReluBackward);
+  registry.RegisterBackward(OpId::kReluSquared, Device::CUDA,
+                            ReluSquaredBackward);
   registry.RegisterBackward(OpId::kSigmoid, Device::CUDA, SigmoidBackward);
   registry.RegisterBackward(OpId::kTanh, Device::CUDA, TanhBackward);
   registry.RegisterBackward(OpId::kGelu, Device::CUDA, GeluBackward);

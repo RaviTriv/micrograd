@@ -59,7 +59,7 @@ std::shared_ptr<Tensor> gelu(const std::shared_ptr<Tensor> &input) {
 }
 
 std::shared_ptr<Tensor> relu_squared(const std::shared_ptr<Tensor> &input) {
-  return input->relu()->pow(2.0f);
+  return input->relu_squared();
 }
 
 std::shared_ptr<Tensor> qk_norm(const std::shared_ptr<Tensor> &input,

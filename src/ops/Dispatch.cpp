@@ -73,6 +73,8 @@ const char *OpName(OpId op) {
       return "tanh";
     case OpId::kGelu:
       return "gelu";
+    case OpId::kReluSquared:
+      return "relu_squared";
     case OpId::kExp:
       return "exp";
     case OpId::kLog:
@@ -111,6 +113,8 @@ const char *OpName(OpId op) {
       return "rms_norm";
     case OpId::kRotaryEmbedding:
       return "rotary_embedding";
+    case OpId::kHeadNormRotary:
+      return "head_norm_rotary";
     case OpId::kFlashAttention:
       return "flash_attention";
     case OpId::kCausalAttentionProbs:

@@ -53,6 +53,15 @@ void Relu(const OpArgs &args) {
   }
 }
 
+void ReluSquared(const OpArgs &args) {
+  auto lhs = args.lhs->data();
+  auto out = args.out->data();
+  for (size_t i = 0; i < lhs.size(); i++) {
+    const scalar_t r = lhs[i] <= 0 ? 0.0f : lhs[i];
+    out[i] = r * r;
+  }
+}
+
 void Sigmoid(const OpArgs &args) {
   auto lhs = args.lhs->data();
   auto out = args.out->data();
@@ -123,6 +132,17 @@ std::function<void()> ReluBackward(const GradArgs &args) {
     auto out_grad = out->grad();
     for (size_t i = 0; i < a_grad.size(); i++) {
       a_grad[i] += out_grad[i] * (a_data[i] > 0 ? 1.0f : 0.0f);
+    }
+  };
+}
+
+std::function<void()> ReluSquaredBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    auto a_data = lhs->data();
+    auto a_grad = lhs->grad();
+    auto out_grad = out->grad();
+    for (size_t i = 0; i < a_grad.size(); i++) {
+      a_grad[i] += out_grad[i] * (a_data[i] > 0 ? 2.0f * a_data[i] : 0.0f);
     }
   };
 }
@@ -311,6 +331,7 @@ std::function<void()> LogSoftmaxBackward(const GradArgs &args) {
 void RegisterActivationOps() {
   OpRegistry &registry = OpRegistry::Instance();
   registry.Register(OpId::kRelu, Device::CPU, Relu);
+  registry.Register(OpId::kReluSquared, Device::CPU, ReluSquared);
   registry.Register(OpId::kSigmoid, Device::CPU, Sigmoid);
   registry.Register(OpId::kTanh, Device::CPU, Tanh);
   registry.Register(OpId::kGelu, Device::CPU, Gelu);
@@ -321,6 +342,8 @@ void RegisterActivationOps() {
   registry.Register(OpId::kSoftmax, Device::CPU, Softmax);
   registry.Register(OpId::kLogSoftmax, Device::CPU, LogSoftmax);
   registry.RegisterBackward(OpId::kRelu, Device::CPU, ReluBackward);
+  registry.RegisterBackward(OpId::kReluSquared, Device::CPU,
+                            ReluSquaredBackward);
   registry.RegisterBackward(OpId::kSigmoid, Device::CPU, SigmoidBackward);
   registry.RegisterBackward(OpId::kTanh, Device::CPU, TanhBackward);
   registry.RegisterBackward(OpId::kGelu, Device::CPU, GeluBackward);

@@ -11,6 +11,7 @@
 
 #ifdef MICROGRAD_CUDA_ENABLED
 #include "micrograd/backends/cuda/CudaContext.h"
+#include "micrograd/backends/cuda/ops/Ops.h"
 #endif
 
 using namespace micrograd;
@@ -54,6 +55,36 @@ std::vector<scalar_t> RunSteps(const Case &c, Device device, int steps) {
   return {data.begin(), data.end()};
 }
 
+#ifdef MICROGRAD_CUDA_ENABLED
+std::vector<scalar_t> RunBatchedBf16Steps(const Case &c, int steps) {
+  constexpr size_t kBatch = 3;
+  std::vector<std::shared_ptr<Tensor>> params;
+  std::vector<std::shared_ptr<Tensor>> momenta;
+  std::vector<cuda::ops::MuonTensor> tensors;
+  for (size_t b = 0; b < kBatch; b++) {
+    params.push_back(MakeParam(c, Device::CUDA));
+    momenta.push_back(Tensor::zeros({c.rows, c.cols}, Device::CUDA));
+    tensors.push_back(
+        {static_cast<scalar_t *>(params[b]->data_storage().device_pointer()),
+         static_cast<const scalar_t *>(
+             params[b]->grad_storage().device_pointer()),
+         static_cast<scalar_t *>(momenta[b]->data_storage().device_pointer())});
+  }
+  for (int i = 0; i < steps; i++) {
+    cuda::ops::MuonStepBatchedBf16(tensors, c.rows, c.cols, 0.02f, 0.95f, 0.01f,
+                                   true, 5, 1.0f);
+  }
+  synchronize(Device::CUDA);
+  std::vector<scalar_t> out;
+  for (auto &p : params) {
+    p->to(Device::CPU);
+    auto data = p->data();
+    out.insert(out.end(), data.begin(), data.end());
+  }
+  return out;
+}
+#endif
+
 scalar_t UpdateRms(const Case &c, const std::vector<scalar_t> &after) {
   auto before = RandomValues(c.rows * c.cols, 1, 0.02f);
   double sum = 0.0;
@@ -93,6 +124,23 @@ int main() {
         std::printf("muon %zux%zu cuda vs cpu, 3 steps: max abs diff %.3g %s\n",
                     c.rows, c.cols, worst, ok ? "ok" : "WRONG");
         failures += ok ? 0 : 1;
+
+        const auto bf16 = RunBatchedBf16Steps(c, 3);
+        const auto before = RandomValues(c.rows * c.cols, 1, 0.02f);
+        double diff_sq = 0.0;
+        double step_sq = 0.0;
+        for (size_t i = 0; i < bf16.size(); i++) {
+          const size_t j = i % cpu3.size();
+          diff_sq += std::pow(bf16[i] - cpu3[j], 2);
+          step_sq += std::pow(cpu3[j] - before[j], 2);
+        }
+        const double relative = std::sqrt(diff_sq / step_sq);
+        const bool bf16_ok = relative < 0.05;
+        std::printf(
+            "muon %zux%zu batched bf16 vs cpu, 3 steps: relative update "
+            "error %.3g %s\n",
+            c.rows, c.cols, relative, bf16_ok ? "ok" : "WRONG");
+        failures += bf16_ok ? 0 : 1;
       }
 #endif
     }

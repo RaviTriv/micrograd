@@ -11,6 +11,10 @@ std::shared_ptr<Tensor> Tensor::relu() {
   return apply(OpId::kRelu, shape_, {.lhs = shared_from_this()});
 }
 
+std::shared_ptr<Tensor> Tensor::relu_squared() {
+  return apply(OpId::kReluSquared, shape_, {.lhs = shared_from_this()});
+}
+
 std::shared_ptr<Tensor> Tensor::sigmoid() {
   return apply(OpId::kSigmoid, shape_, {.lhs = shared_from_this()});
 }

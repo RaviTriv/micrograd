@@ -56,4 +56,17 @@ void MuonStep(Tensor &param, Tensor &momentum, scalar_t lr, scalar_t beta,
               scalar_t weight_decay, bool nesterov, size_t ns_steps,
               scalar_t update_scale);
 
+struct MuonTensor {
+  scalar_t *data;
+  const scalar_t *grad;
+  scalar_t *momentum;
+};
+
+void MuonStepBatchedBf16(const std::vector<MuonTensor> &tensors, size_t rows,
+                         size_t cols, scalar_t lr, scalar_t beta,
+                         scalar_t weight_decay, bool nesterov, size_t ns_steps,
+                         scalar_t update_scale,
+                         const scalar_t *clip_total = nullptr,
+                         scalar_t max_norm = 0.0f);
+
 }  // namespace micrograd::cuda::ops
