@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -91,6 +92,9 @@ scalar_t *GradPtr(Tensor *t) {
 
 std::function<void()> ReshapeBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
+    if (MoveGrad(out, lhs.get())) {
+      return;
+    }
     size_t n = out->size();
     ReshapeBackwardKernel<<<GridSize(n), kBlockSize, 0,
                             CudaContext::instance().stream()>>>(

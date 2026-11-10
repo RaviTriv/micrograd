@@ -7,6 +7,7 @@
 #include <functional>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -65,8 +66,8 @@ __global__ void LayerNormBackwardKernel(const scalar_t *in,
                                         const scalar_t *gain,
                                         const scalar_t *out_grad,
                                         scalar_t *in_grad, scalar_t *gain_grad,
-                                        scalar_t *bias_grad, size_t n,
-                                        scalar_t eps) {
+                                        scalar_t *bias_grad, bool accumulate,
+                                        size_t n, scalar_t eps) {
   __shared__ scalar_t shared[kBlockSize];
   size_t row = blockIdx.x;
   size_t tid = threadIdx.x;
@@ -140,8 +141,9 @@ __global__ void LayerNormBackwardKernel(const scalar_t *in,
   for (size_t i = tid; i < n; i += blockDim.x) {
     scalar_t xhat_i = (row_in[i] - mean) * rstd;
     scalar_t dxhat_i = row_out_grad[i] * gain[i];
-    row_in_grad[i] +=
+    const scalar_t g =
         rstd * (dxhat_i - mean_dxhat - (xhat_i * mean_dxhat_xhat));
+    row_in_grad[i] = accumulate ? row_in_grad[i] + g : g;
   }
 }
 
@@ -172,10 +174,11 @@ std::function<void()> LayerNormBackward(const GradArgs &args) {
           eps = args.scalar]() {
     size_t n = gain->size();
     size_t outer = lhs->size() / n;
+    const GradTarget in_grad = GradForWrite(lhs.get());
     LayerNormBackwardKernel<<<static_cast<int>(outer), kBlockSize, 0,
                               CudaContext::instance().stream()>>>(
-        DataPtr(lhs.get()), DataPtr(gain.get()), GradPtr(out),
-        GradPtr(lhs.get()), GradPtr(gain.get()), GradPtr(bias.get()), n, eps);
+        DataPtr(lhs.get()), DataPtr(gain.get()), GradPtr(out), in_grad.ptr,
+        GradPtr(gain.get()), GradPtr(bias.get()), in_grad.accumulate, n, eps);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }

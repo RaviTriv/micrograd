@@ -164,6 +164,291 @@ std::function<void()> FlashAttentionBackward(const GradArgs &args) {
   };
 }
 
+struct HeadLayout {
+  size_t batch;
+  size_t heads;
+  size_t seq;
+  size_t keys;
+  size_t embed;
+  size_t head_dim;
+};
+
+void CausalAttentionProbs(const OpArgs &args) {
+  const std::vector<size_t> &shape = args.lhs->shape();
+  const size_t batch = shape[0];
+  const size_t seq = shape[1];
+  const size_t embed = shape[2];
+  const auto heads = static_cast<size_t>(args.dim);
+  const size_t head_dim = embed / heads;
+  const scalar_t scale = args.scalar;
+
+  std::span<const scalar_t> q = args.lhs->data();
+  std::span<const scalar_t> k = args.rhs->data();
+  std::span<scalar_t> out = args.out->data();
+
+  for (size_t b = 0; b < batch; b++) {
+    for (size_t h = 0; h < heads; h++) {
+      for (size_t t = 0; t < seq; t++) {
+        scalar_t *row = out.data() + ((((b * heads) + h) * seq) + t) * seq;
+        const scalar_t *q_row = q.data() + (((b * seq) + t) * embed) + (h * head_dim);
+        scalar_t row_max = kNegInf;
+        for (size_t s = 0; s <= t; s++) {
+          const scalar_t *k_row =
+              k.data() + (((b * seq) + s) * embed) + (h * head_dim);
+          scalar_t dot = 0.0f;
+          for (size_t d = 0; d < head_dim; d++) {
+            dot += q_row[d] * k_row[d];
+          }
+          row[s] = dot * scale;
+          row_max = std::max(row_max, row[s]);
+        }
+        scalar_t total = 0.0f;
+        for (size_t s = 0; s <= t; s++) {
+          row[s] = std::exp(row[s] - row_max);
+          total += row[s];
+        }
+        for (size_t s = 0; s <= t; s++) {
+          row[s] /= total;
+        }
+        for (size_t s = t + 1; s < seq; s++) {
+          row[s] = 0.0f;
+        }
+      }
+    }
+  }
+}
+
+std::function<void()> CausalAttentionProbsBackward(const GradArgs &args) {
+  return [q = args.lhs, k = args.rhs, out = args.out, scale = args.scalar]() {
+    const std::vector<size_t> &shape = q->shape();
+    const size_t batch = shape[0];
+    const size_t seq = shape[1];
+    const size_t embed = shape[2];
+    const size_t heads = out->shape()[1];
+    const size_t head_dim = embed / heads;
+
+    std::span<const scalar_t> q_data = q->data();
+    std::span<const scalar_t> k_data = k->data();
+    std::span<const scalar_t> probs = out->data();
+    std::span<const scalar_t> probs_grad = out->grad();
+    std::span<scalar_t> q_grad = q->grad();
+    std::span<scalar_t> k_grad = k->grad();
+
+    for (size_t b = 0; b < batch; b++) {
+      for (size_t h = 0; h < heads; h++) {
+        for (size_t t = 0; t < seq; t++) {
+          const size_t row_offset = ((((b * heads) + h) * seq) + t) * seq;
+          const scalar_t *p_row = probs.data() + row_offset;
+          const scalar_t *dp_row = probs_grad.data() + row_offset;
+          scalar_t dot = 0.0f;
+          for (size_t s = 0; s <= t; s++) {
+            dot += p_row[s] * dp_row[s];
+          }
+          const size_t q_offset = (((b * seq) + t) * embed) + (h * head_dim);
+          for (size_t s = 0; s <= t; s++) {
+            const scalar_t ds = scale * p_row[s] * (dp_row[s] - dot);
+            const size_t k_offset = (((b * seq) + s) * embed) + (h * head_dim);
+            for (size_t d = 0; d < head_dim; d++) {
+              q_grad[q_offset + d] += ds * k_data[k_offset + d];
+              k_grad[k_offset + d] += ds * q_data[q_offset + d];
+            }
+          }
+        }
+      }
+    }
+  };
+}
+
+HeadLayout CombineLayout(const Tensor &probs, const Tensor &value) {
+  const std::vector<size_t> &shape = probs.shape();
+  const size_t embed = value.shape()[2];
+  return {.batch = shape[0],
+          .heads = shape[1],
+          .seq = shape[2],
+          .keys = shape[3],
+          .embed = embed,
+          .head_dim = embed / shape[1]};
+}
+
+void AttentionCombine(const OpArgs &args) {
+  const HeadLayout l = CombineLayout(*args.lhs, *args.rhs);
+  std::span<const scalar_t> probs = args.lhs->data();
+  std::span<const scalar_t> value = args.rhs->data();
+  std::span<scalar_t> out = args.out->data();
+
+  for (size_t b = 0; b < l.batch; b++) {
+    for (size_t h = 0; h < l.heads; h++) {
+      for (size_t t = 0; t < l.seq; t++) {
+        const scalar_t *p_row =
+            probs.data() + ((((b * l.heads) + h) * l.seq) + t) * l.keys;
+        scalar_t *out_row =
+            out.data() + (((b * l.seq) + t) * l.embed) + (h * l.head_dim);
+        for (size_t d = 0; d < l.head_dim; d++) {
+          out_row[d] = 0.0f;
+        }
+        for (size_t s = 0; s < l.keys; s++) {
+          const scalar_t *v_row =
+              value.data() + (((b * l.keys) + s) * l.embed) + (h * l.head_dim);
+          for (size_t d = 0; d < l.head_dim; d++) {
+            out_row[d] += p_row[s] * v_row[d];
+          }
+        }
+      }
+    }
+  }
+}
+
+std::function<void()> AttentionCombineBackward(const GradArgs &args) {
+  return [probs = args.lhs, value = args.rhs, out = args.out]() {
+    const HeadLayout l = CombineLayout(*probs, *value);
+    std::span<const scalar_t> p_data = probs->data();
+    std::span<const scalar_t> v_data = value->data();
+    std::span<const scalar_t> out_grad = out->grad();
+    std::span<scalar_t> p_grad = probs->grad();
+    std::span<scalar_t> v_grad = value->grad();
+
+    for (size_t b = 0; b < l.batch; b++) {
+      for (size_t h = 0; h < l.heads; h++) {
+        for (size_t t = 0; t < l.seq; t++) {
+          const size_t p_offset = ((((b * l.heads) + h) * l.seq) + t) * l.keys;
+          const scalar_t *do_row = out_grad.data() +
+                                   (((b * l.seq) + t) * l.embed) +
+                                   (h * l.head_dim);
+          for (size_t s = 0; s < l.keys; s++) {
+            const size_t v_offset =
+                (((b * l.keys) + s) * l.embed) + (h * l.head_dim);
+            scalar_t dot = 0.0f;
+            for (size_t d = 0; d < l.head_dim; d++) {
+              dot += do_row[d] * v_data[v_offset + d];
+              v_grad[v_offset + d] += p_data[p_offset + s] * do_row[d];
+            }
+            p_grad[p_offset + s] += dot;
+          }
+        }
+      }
+    }
+  };
+}
+
+struct SelfAttentionDims {
+  size_t batch;
+  size_t heads;
+  size_t seq;
+  size_t embed;
+  size_t head_dim;
+};
+
+SelfAttentionDims MakeSelfAttentionDims(const Tensor &q, size_t heads) {
+  const std::vector<size_t> &shape = q.shape();
+  return {.batch = shape[0],
+          .heads = heads,
+          .seq = shape[1],
+          .embed = shape[2],
+          .head_dim = shape[2] / heads};
+}
+
+void CausalScores(const SelfAttentionDims &d, const scalar_t *q,
+                  const scalar_t *k, size_t b, size_t h, size_t t,
+                  scalar_t scale, std::vector<scalar_t> &scores) {
+  const scalar_t *q_row = q + (((b * d.seq) + t) * d.embed) + (h * d.head_dim);
+  for (size_t s = 0; s <= t; s++) {
+    const scalar_t *k_row =
+        k + (((b * d.seq) + s) * d.embed) + (h * d.head_dim);
+    scalar_t dot = 0.0f;
+    for (size_t i = 0; i < d.head_dim; i++) {
+      dot += q_row[i] * k_row[i];
+    }
+    scores[s] = dot * scale;
+  }
+}
+
+void CausalSelfAttention(const OpArgs &args) {
+  const SelfAttentionDims d =
+      MakeSelfAttentionDims(*args.lhs, static_cast<size_t>(args.dim));
+  const scalar_t *q = args.lhs->data().data();
+  const scalar_t *k = args.rhs->data().data();
+  const scalar_t *v = args.extra->data().data();
+  scalar_t *out = args.out->data().data();
+  scalar_t *lse = args.aux->data().data();
+
+  std::vector<scalar_t> scores(d.seq);
+  for (size_t b = 0; b < d.batch; b++) {
+    for (size_t h = 0; h < d.heads; h++) {
+      for (size_t t = 0; t < d.seq; t++) {
+        CausalScores(d, q, k, b, h, t, args.scalar, scores);
+        scalar_t row_max = kNegInf;
+        for (size_t s = 0; s <= t; s++) {
+          row_max = std::max(row_max, scores[s]);
+        }
+        scalar_t total = 0.0f;
+        for (size_t s = 0; s <= t; s++) {
+          scores[s] = std::exp(scores[s] - row_max);
+          total += scores[s];
+        }
+        scalar_t *out_row =
+            out + (((b * d.seq) + t) * d.embed) + (h * d.head_dim);
+        for (size_t i = 0; i < d.head_dim; i++) {
+          out_row[i] = 0.0f;
+        }
+        for (size_t s = 0; s <= t; s++) {
+          const scalar_t p = scores[s] / total;
+          const scalar_t *v_row =
+              v + (((b * d.seq) + s) * d.embed) + (h * d.head_dim);
+          for (size_t i = 0; i < d.head_dim; i++) {
+            out_row[i] += p * v_row[i];
+          }
+        }
+        lse[(((b * d.heads) + h) * d.seq) + t] = row_max + std::log(total);
+      }
+    }
+  }
+}
+
+std::function<void()> CausalSelfAttentionBackward(const GradArgs &args) {
+  return [q = args.lhs, k = args.rhs, v = args.extra, out = args.out,
+          aux = args.aux, scale = args.scalar]() {
+    const SelfAttentionDims d = MakeSelfAttentionDims(*q, aux->shape()[1]);
+    const scalar_t *q_data = q->data().data();
+    const scalar_t *k_data = k->data().data();
+    const scalar_t *v_data = v->data().data();
+    const scalar_t *o_data = out->data().data();
+    const scalar_t *do_data = out->grad().data();
+    const scalar_t *lse = aux->data().data();
+    scalar_t *dq = q->grad().data();
+    scalar_t *dk = k->grad().data();
+    scalar_t *dv = v->grad().data();
+
+    std::vector<scalar_t> scores(d.seq);
+    for (size_t b = 0; b < d.batch; b++) {
+      for (size_t h = 0; h < d.heads; h++) {
+        for (size_t t = 0; t < d.seq; t++) {
+          CausalScores(d, q_data, k_data, b, h, t, scale, scores);
+          const size_t row = (((b * d.seq) + t) * d.embed) + (h * d.head_dim);
+          const scalar_t row_lse = lse[(((b * d.heads) + h) * d.seq) + t];
+          scalar_t delta = 0.0f;
+          for (size_t i = 0; i < d.head_dim; i++) {
+            delta += do_data[row + i] * o_data[row + i];
+          }
+          for (size_t s = 0; s <= t; s++) {
+            const size_t key = (((b * d.seq) + s) * d.embed) + (h * d.head_dim);
+            const scalar_t p = std::exp(scores[s] - row_lse);
+            scalar_t dp = 0.0f;
+            for (size_t i = 0; i < d.head_dim; i++) {
+              dp += do_data[row + i] * v_data[key + i];
+            }
+            const scalar_t ds = p * (dp - delta) * scale;
+            for (size_t i = 0; i < d.head_dim; i++) {
+              dq[row + i] += ds * k_data[key + i];
+              dk[key + i] += ds * q_data[row + i];
+              dv[key + i] += p * do_data[row + i];
+            }
+          }
+        }
+      }
+    }
+  };
+}
+
 }  // namespace
 
 void RegisterAttentionOps() {
@@ -171,6 +456,17 @@ void RegisterAttentionOps() {
   registry.Register(OpId::kFlashAttention, Device::CPU, FlashAttentionForward);
   registry.RegisterBackward(OpId::kFlashAttention, Device::CPU,
                             FlashAttentionBackward);
+  registry.Register(OpId::kCausalAttentionProbs, Device::CPU,
+                    CausalAttentionProbs);
+  registry.RegisterBackward(OpId::kCausalAttentionProbs, Device::CPU,
+                            CausalAttentionProbsBackward);
+  registry.Register(OpId::kAttentionCombine, Device::CPU, AttentionCombine);
+  registry.RegisterBackward(OpId::kAttentionCombine, Device::CPU,
+                            AttentionCombineBackward);
+  registry.Register(OpId::kCausalSelfAttention, Device::CPU,
+                    CausalSelfAttention);
+  registry.RegisterBackward(OpId::kCausalSelfAttention, Device::CPU,
+                            CausalSelfAttentionBackward);
 }
 
 }  // namespace micrograd::ops::cpu

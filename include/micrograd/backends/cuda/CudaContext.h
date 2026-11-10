@@ -45,6 +45,8 @@ class CudaContext {
 
   void setAllowTf32(bool allow);
   bool allowTf32() const;
+  void setAllowBf16Matmul(bool allow);
+  bool allowBf16Matmul() const;
 
  private:
   CudaContext();
@@ -59,6 +61,7 @@ class CudaContext {
   CachingAllocator allocator_;
   bool initialized_ = false;
   bool allow_tf32_ = false;
+  bool allow_bf16_matmul_ = false;
 };
 
 }  // namespace micrograd

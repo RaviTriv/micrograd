@@ -21,6 +21,10 @@
 #include "micrograd/Scalar.h"
 #include "micrograd/Tensor.h"
 
+#ifdef MICROGRAD_CUDA_ENABLED
+#include "micrograd/backends/cuda/CudaContext.h"
+#endif
+
 namespace {
 
 using micrograd::Device;
@@ -40,6 +44,9 @@ struct Case {
   GradCheckFunction function;
   TensorList inputs;
   GradCheckOptions options;
+  bool device_only = false;
+  bool tf32 = false;
+  bool bf16 = false;
 };
 
 TensorPtr Ramp(std::vector<size_t> shape, scalar_t start, scalar_t step) {
@@ -76,6 +83,18 @@ std::vector<Case> AllCases() {
                      .function = std::move(function),
                      .inputs = std::move(inputs),
                      .options = options});
+  };
+  auto add_device_only = [&cases](std::string name, GradCheckFunction function,
+                                  TensorList inputs,
+                                  GradCheckOptions options = {},
+                                  bool tf32 = false, bool bf16 = false) {
+    cases.push_back({.name = std::move(name),
+                     .function = std::move(function),
+                     .inputs = std::move(inputs),
+                     .options = options,
+                     .device_only = true,
+                     .tf32 = tf32,
+                     .bf16 = bf16});
   };
 
   const auto signed_matrix = [] { return Ramp({2, 3}, -1.25f, 0.5f); };
@@ -239,6 +258,40 @@ std::vector<Case> AllCases() {
       [](const TensorList &in) { return in[0]->matmul(in[1]); },
       {Wave({2, 5, 33}, 0.3f), Wave({2, 33, 6}, 1.1f)}, {.eps = 0.5f});
 
+  add("matmul_nt",
+      [](const TensorList &in) { return in[0]->matmul_nt(in[1]); },
+      {Wave({2, 3, 5}, 0.3f), Wave({4, 5}, 1.1f)});
+  add("matmul_nt_chain",
+      [](const TensorList &in) {
+        return in[0]->mul(2.0f)->matmul_nt(in[1])->mul(0.5f);
+      },
+      {Wave({37, 20}, 0.3f), Wave({33, 20}, 1.1f)},
+      {.eps = 0.5f, .atol = 2e-4f});
+  const GradCheckOptions bf16_tolerance = {.rtol = 3e-2f, .atol = 3e-2f};
+  add_device_only("matmul_bf16",
+                  [](const TensorList &in) { return in[0]->matmul(in[1]); },
+                  {Wave({2, 37, 20}, 0.3f), Wave({20, 33}, 1.1f)},
+                  bf16_tolerance, false, true);
+  add_device_only("matmul_batched_bf16",
+                  [](const TensorList &in) {
+                    return in[0]->mul(1.0f)->matmul(in[1]->mul(1.0f));
+                  },
+                  {Wave({3, 17, 20}, 0.3f), Wave({3, 20, 9}, 1.1f)},
+                  bf16_tolerance, false, true);
+  add_device_only("matmul_nt_bf16",
+                  [](const TensorList &in) {
+                    return in[0]->mul(1.0f)->matmul_nt(in[1]);
+                  },
+                  {Wave({2, 37, 20}, 0.3f), Wave({33, 20}, 1.1f)},
+                  bf16_tolerance, false, true);
+  add_device_only("causal_self_attention_bf16",
+                  [](const TensorList &in) {
+                    return in[0]->causal_self_attention(in[1], in[2], 2,
+                                                        0.125f);
+                  },
+                  {Wave({2, 70, 128}, 0.4f), Wave({2, 70, 128}, 1.3f),
+                   Wave({2, 70, 128}, 2.2f)},
+                  bf16_tolerance, false, true);
   add("layer_norm",
       [](const TensorList &in) {
         return in[0]->layer_norm({3}, in[1], in[2], 1e-5f);
@@ -275,6 +328,79 @@ std::vector<Case> AllCases() {
       },
       {Wave({1, 33, 4}, 0.1f), Wave({1, 33, 4}, 0.8f), Wave({1, 33, 4}, 1.7f)},
       {.atol = 1e-4f});
+
+  add("causal_attention_probs",
+      [](const TensorList &in) {
+        return in[0]->causal_attention_probs(in[1], 2, 0.5f);
+      },
+      {Wave({2, 3, 4}, 0.3f), Wave({2, 3, 4}, 1.2f)});
+  add("attention_combine",
+      [](const TensorList &in) { return in[0]->attention_combine(in[1]); },
+      {Wave({2, 2, 3, 5}, 0.4f), Wave({2, 5, 4}, 0.9f)});
+  add("fused_causal_attention",
+      [](const TensorList &in) {
+        auto q = in[0]->mul(1.5f);
+        auto k = in[1]->add(0.25f);
+        auto v = in[2]->mul(0.75f);
+        return q->causal_attention_probs(k, 2, 0.4f)->attention_combine(v);
+      },
+      {Wave({2, 4, 6}, 0.2f), Wave({2, 4, 6}, 1.0f), Wave({2, 4, 6}, 2.1f)});
+  add("fused_causal_attention_past_one_tile",
+      [](const TensorList &in) {
+        auto q = in[0]->add(0.0f);
+        return q->causal_attention_probs(q, 3, 0.35f)->attention_combine(in[1]);
+      },
+      {Wave({2, 37, 12}, 0.1f), Wave({2, 37, 12}, 1.7f)}, {.atol = 1e-4f});
+  add("causal_self_attention",
+      [](const TensorList &in) {
+        return in[0]->mul(1.2f)->causal_self_attention(in[1], in[2], 2, 0.4f);
+      },
+      {Wave({2, 5, 8}, 0.2f), Wave({2, 5, 8}, 1.0f), Wave({2, 5, 8}, 2.1f)},
+      {.eps = 2e-3f, .atol = 5e-4f});
+  add("causal_self_attention_head_dim_64",
+      [](const TensorList &in) {
+        return in[0]->mul(0.5f)->causal_self_attention(in[1], in[2], 1, 0.125f);
+      },
+      {Wave({1, 20, 64}, 0.2f), Wave({1, 20, 64}, 1.0f),
+       Wave({1, 20, 64}, 2.1f)},
+      {.atol = 1e-3f});
+  add_device_only("causal_self_attention_shared_qk",
+      [](const TensorList &in) {
+        auto q = in[0]->add(0.0f);
+        return q->causal_self_attention(q, in[1], 2, 0.125f);
+      },
+      {Wave({2, 70, 128}, 0.4f), Wave({2, 70, 128}, 1.3f)},
+      {.atol = 1e-4f});
+  const auto flash_case = [](const TensorList &in) {
+    return in[0]->mul(0.8f)->causal_self_attention(in[1]->add(0.1f), in[2], 2,
+                                                   0.125f);
+  };
+  const TensorList flash_inputs = {Wave({2, 70, 128}, 0.4f),
+                                   Wave({2, 70, 128}, 1.3f),
+                                   Wave({2, 70, 128}, 2.2f)};
+  add_device_only("causal_self_attention_past_one_tile", flash_case,
+                  flash_inputs, {.atol = 1e-4f});
+  add_device_only("causal_self_attention_tf32_kernels", flash_case,
+                  flash_inputs, {.rtol = 1e-2f, .atol = 2e-3f}, true);
+  add_device_only("causal_self_attention_tf32_long",
+                  [](const TensorList &in) {
+                    return in[0]->causal_self_attention(in[1], in[2], 3,
+                                                        0.125f);
+                  },
+                  {Wave({1, 200, 192}, 0.4f), Wave({1, 200, 192}, 1.3f),
+                   Wave({1, 200, 192}, 2.2f)},
+                  {.rtol = 1e-2f, .atol = 2e-3f}, true);
+  add("residual_block_chain",
+      [](const TensorList &in) {
+        auto x = in[0]->add(0.0f);
+        auto h = x->layer_norm({4}, in[1], in[2], 1e-5f);
+        auto y = h->matmul(in[3])->add_bias(in[4])->gelu();
+        auto r = x->add(y->reshape({2, 3, 4}));
+        return r->add(r->mul(0.5f));
+      },
+      {Wave({2, 3, 4}, 0.3f), Wave({4}, 1.1f), Wave({4}, 0.6f),
+       Wave({4, 4}, 1.9f), Wave({4}, 0.8f)},
+      {.rtol = 5e-3f});
 
   add("relu", [](const TensorList &in) { return in[0]->relu(); },
       {signed_matrix()});
@@ -483,7 +609,12 @@ size_t RunAllCases(Device device) {
   }
 
   size_t failed = 0;
+  size_t skipped = 0;
   for (const auto &test : cases) {
+    if (device == Device::CPU && test.device_only) {
+      skipped++;
+      continue;
+    }
     if (device == Device::CPU) {
       const auto mismatches =
           GradCheck(test.function, test.inputs, test.options);
@@ -505,8 +636,16 @@ size_t RunAllCases(Device device) {
 
     std::vector<DeviceMismatch> mismatches;
     try {
+#ifdef MICROGRAD_CUDA_ENABLED
+      micrograd::CudaContext::instance().setAllowTf32(test.tf32);
+      micrograd::CudaContext::instance().setAllowBf16Matmul(test.bf16);
+#endif
       mismatches =
           CheckOnDevice(test.function, test.inputs, test.options, device);
+#ifdef MICROGRAD_CUDA_ENABLED
+      micrograd::CudaContext::instance().setAllowTf32(false);
+      micrograd::CudaContext::instance().setAllowBf16Matmul(false);
+#endif
     } catch (const std::exception &error) {
       failed++;
       std::printf("FAIL  %s: %s\n", test.name.c_str(), error.what());
@@ -531,7 +670,8 @@ size_t RunAllCases(Device device) {
   }
 
   std::printf("%zu of %zu gradient checks passed on %s\n",
-              cases.size() - failed, cases.size(), DeviceName(device));
+              cases.size() - skipped - failed, cases.size() - skipped,
+              DeviceName(device));
   return failed;
 }
 

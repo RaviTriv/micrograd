@@ -8,6 +8,7 @@
 #include <functional>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -94,43 +95,44 @@ __global__ void PowKernel(const scalar_t *lhs, scalar_t *out, scalar_t scalar,
   }
 }
 
-__global__ void AddBackwardKernel(const scalar_t *out_grad, scalar_t *a_grad,
-                                  scalar_t *b_grad, size_t n) {
-  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
-       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i];
-    b_grad[i] += out_grad[i];
-  }
+__device__ void Store(scalar_t *grad, size_t i, scalar_t value,
+                      bool accumulate) {
+  grad[i] = accumulate ? grad[i] + value : value;
 }
 
-__global__ void SubBackwardKernel(const scalar_t *out_grad, scalar_t *a_grad,
-                                  scalar_t *b_grad, size_t n) {
+__global__ void SubBackwardKernel(const scalar_t *out_grad, scalar_t *b_grad,
+                                  bool b_acc, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i];
-    b_grad[i] -= out_grad[i];
+    Store(b_grad, i, -out_grad[i], b_acc);
   }
 }
 
 __global__ void MulBackwardKernel(const scalar_t *out_grad,
-                                  const scalar_t *a_data,
                                   const scalar_t *b_data, scalar_t *a_grad,
-                                  scalar_t *b_grad, size_t n) {
+                                  bool a_acc, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i] * b_data[i];
-    b_grad[i] += out_grad[i] * a_data[i];
+    Store(a_grad, i, out_grad[i] * b_data[i], a_acc);
   }
 }
 
-__global__ void DivBackwardKernel(const scalar_t *out_grad,
-                                  const scalar_t *a_data,
-                                  const scalar_t *b_data, scalar_t *a_grad,
-                                  scalar_t *b_grad, size_t n) {
+__global__ void DivBackwardLhsKernel(const scalar_t *out_grad,
+                                     const scalar_t *b_data, scalar_t *a_grad,
+                                     bool a_acc, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i] / b_data[i];
-    b_grad[i] -= out_grad[i] * a_data[i] / b_data[i] / b_data[i];
+    Store(a_grad, i, out_grad[i] / b_data[i], a_acc);
+  }
+}
+
+__global__ void DivBackwardRhsKernel(const scalar_t *out_grad,
+                                     const scalar_t *a_data,
+                                     const scalar_t *b_data, scalar_t *b_grad,
+                                     bool b_acc, size_t n) {
+  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
+       i += static_cast<size_t>(blockDim.x) * gridDim.x) {
+    Store(b_grad, i, -out_grad[i] * a_data[i] / b_data[i] / b_data[i], b_acc);
   }
 }
 
@@ -183,20 +185,20 @@ __global__ void BiasGradKernel(const scalar_t *out_grad, scalar_t *bias_grad,
 }
 
 __global__ void MulScalarBackwardKernel(const scalar_t *out_grad,
-                                        scalar_t *a_grad, scalar_t scalar,
-                                        size_t n) {
+                                        scalar_t *a_grad, bool a_acc,
+                                        scalar_t scalar, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i] * scalar;
+    Store(a_grad, i, out_grad[i] * scalar, a_acc);
   }
 }
 
 __global__ void DivScalarBackwardKernel(const scalar_t *out_grad,
-                                        scalar_t *a_grad, scalar_t scalar,
-                                        size_t n) {
+                                        scalar_t *a_grad, bool a_acc,
+                                        scalar_t scalar, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i] / scalar;
+    Store(a_grad, i, out_grad[i] / scalar, a_acc);
   }
 }
 
@@ -259,6 +261,28 @@ scalar_t *DataPtr(Tensor *t) {
 
 scalar_t *GradPtr(Tensor *t) {
   return static_cast<scalar_t *>(t->grad_storage().device_pointer());
+}
+
+void CopyGrad(Tensor *out, Tensor *target) {
+  const size_t n = target->size();
+  const scalar_t *source = GradPtr(out);
+  const GradTarget dst = GradForWrite(target);
+  cudaStream_t stream = CudaContext::instance().stream();
+  if (dst.accumulate) {
+    AccumulateKernel<<<GridSize(n), kBlockSize, 0, stream>>>(source, dst.ptr,
+                                                             n);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    return;
+  }
+  MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(dst.ptr, source, n * sizeof(scalar_t),
+                                       cudaMemcpyDeviceToDevice, stream));
+}
+
+void PassGrad(Tensor *out, Tensor *target) {
+  if (!target->requires_grad() || MoveGrad(out, target)) {
+    return;
+  }
+  CopyGrad(out, target);
 }
 
 void Add(const OpArgs &args) {
@@ -346,11 +370,10 @@ void ClampMax(const OpArgs &args) {
 
 std::function<void()> AddBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
-    size_t n = lhs->size();
-    AddBackwardKernel<<<GridSize(n), kBlockSize, 0,
-                        CudaContext::instance().stream()>>>(
-        GradPtr(out), GradPtr(lhs.get()), GradPtr(rhs.get()), n);
-    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    if (rhs->requires_grad()) {
+      CopyGrad(out, rhs.get());
+    }
+    PassGrad(out, lhs.get());
   };
 }
 
@@ -370,79 +393,88 @@ std::function<void()> AddBiasBackward(const GradArgs &args) {
     size_t cols = rhs->size();
     size_t rows = n / cols;
 
-    AccumulateKernel<<<GridSize(n), kBlockSize, 0, stream>>>(
-        GradPtr(out), GradPtr(lhs.get()), n);
-    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
-
-    const dim3 block(kBiasCols, kBiasRowThreads);
-    const dim3 grid(
-        static_cast<unsigned int>((cols + kBiasCols - 1) / kBiasCols),
-        static_cast<unsigned int>((rows + kBiasRowsPerBlock - 1) /
-                                  kBiasRowsPerBlock));
-    BiasGradKernel<<<grid, block, 0, stream>>>(GradPtr(out), GradPtr(rhs.get()),
-                                               rows, cols);
-    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    if (rhs->requires_grad()) {
+      const dim3 block(kBiasCols, kBiasRowThreads);
+      const dim3 grid(
+          static_cast<unsigned int>((cols + kBiasCols - 1) / kBiasCols),
+          static_cast<unsigned int>((rows + kBiasRowsPerBlock - 1) /
+                                    kBiasRowsPerBlock));
+      BiasGradKernel<<<grid, block, 0, stream>>>(
+          GradPtr(out), GradPtr(rhs.get()), rows, cols);
+      MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    PassGrad(out, lhs.get());
   };
 }
 
 std::function<void()> SubBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
     size_t n = lhs->size();
-    SubBackwardKernel<<<GridSize(n), kBlockSize, 0,
-                        CudaContext::instance().stream()>>>(
-        GradPtr(out), GradPtr(lhs.get()), GradPtr(rhs.get()), n);
-    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    if (rhs->requires_grad()) {
+      const GradTarget b = GradForWrite(rhs.get());
+      SubBackwardKernel<<<GridSize(n), kBlockSize, 0,
+                          CudaContext::instance().stream()>>>(
+          GradPtr(out), b.ptr, b.accumulate, n);
+      MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    PassGrad(out, lhs.get());
   };
 }
 
 std::function<void()> MulBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
     size_t n = lhs->size();
-    MulBackwardKernel<<<GridSize(n), kBlockSize, 0,
-                        CudaContext::instance().stream()>>>(
-        GradPtr(out), DataPtr(lhs.get()), DataPtr(rhs.get()), GradPtr(lhs.get()),
-        GradPtr(rhs.get()), n);
-    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    cudaStream_t stream = CudaContext::instance().stream();
+    if (lhs->requires_grad()) {
+      const GradTarget a = GradForWrite(lhs.get());
+      MulBackwardKernel<<<GridSize(n), kBlockSize, 0, stream>>>(
+          GradPtr(out), DataPtr(rhs.get()), a.ptr, a.accumulate, n);
+      MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    if (rhs->requires_grad()) {
+      const GradTarget b = GradForWrite(rhs.get());
+      MulBackwardKernel<<<GridSize(n), kBlockSize, 0, stream>>>(
+          GradPtr(out), DataPtr(lhs.get()), b.ptr, b.accumulate, n);
+      MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    }
   };
 }
 
 std::function<void()> DivBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
     size_t n = lhs->size();
-    DivBackwardKernel<<<GridSize(n), kBlockSize, 0,
-                        CudaContext::instance().stream()>>>(
-        GradPtr(out), DataPtr(lhs.get()), DataPtr(rhs.get()), GradPtr(lhs.get()),
-        GradPtr(rhs.get()), n);
-    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    cudaStream_t stream = CudaContext::instance().stream();
+    if (lhs->requires_grad()) {
+      const GradTarget a = GradForWrite(lhs.get());
+      DivBackwardLhsKernel<<<GridSize(n), kBlockSize, 0, stream>>>(
+          GradPtr(out), DataPtr(rhs.get()), a.ptr, a.accumulate, n);
+      MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    }
+    if (rhs->requires_grad()) {
+      const GradTarget b = GradForWrite(rhs.get());
+      DivBackwardRhsKernel<<<GridSize(n), kBlockSize, 0, stream>>>(
+          GradPtr(out), DataPtr(lhs.get()), DataPtr(rhs.get()), b.ptr,
+          b.accumulate, n);
+      MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    }
   };
 }
 
 std::function<void()> AddScalarBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs]() {
-    size_t n = lhs->size();
-    AccumulateKernel<<<GridSize(n), kBlockSize, 0,
-                       CudaContext::instance().stream()>>>(
-        GradPtr(out), GradPtr(lhs.get()), n);
-    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
-  };
+  return [out = args.out, lhs = args.lhs]() { PassGrad(out, lhs.get()); };
 }
 
 std::function<void()> SubScalarBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs]() {
-    size_t n = lhs->size();
-    AccumulateKernel<<<GridSize(n), kBlockSize, 0,
-                       CudaContext::instance().stream()>>>(
-        GradPtr(out), GradPtr(lhs.get()), n);
-    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
-  };
+  return [out = args.out, lhs = args.lhs]() { PassGrad(out, lhs.get()); };
 }
 
 std::function<void()> MulScalarBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, scalar = args.scalar]() {
     size_t n = lhs->size();
+    const GradTarget a = GradForWrite(lhs.get());
     MulScalarBackwardKernel<<<GridSize(n), kBlockSize, 0,
                               CudaContext::instance().stream()>>>(
-        GradPtr(out), GradPtr(lhs.get()), scalar, n);
+        GradPtr(out), a.ptr, a.accumulate, scalar, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
@@ -450,9 +482,10 @@ std::function<void()> MulScalarBackward(const GradArgs &args) {
 std::function<void()> DivScalarBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, scalar = args.scalar]() {
     size_t n = lhs->size();
+    const GradTarget a = GradForWrite(lhs.get());
     DivScalarBackwardKernel<<<GridSize(n), kBlockSize, 0,
                               CudaContext::instance().stream()>>>(
-        GradPtr(out), GradPtr(lhs.get()), scalar, n);
+        GradPtr(out), a.ptr, a.accumulate, scalar, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }

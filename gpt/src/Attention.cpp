@@ -114,6 +114,26 @@ std::shared_ptr<Tensor> CausalSelfAttention::forward(
   size_t batch = shape[0];
   size_t seq_len = shape[1];
   size_t head_dim = n_embd_ / n_head_;
+  scalar_t scale = 1.0f / std::sqrt(static_cast<scalar_t>(head_dim));
+
+  if (!arch_.rotary) {
+    std::shared_ptr<Tensor> q = query_->forward(input);
+    std::shared_ptr<Tensor> k = key_->forward(input);
+    std::shared_ptr<Tensor> v = value_->forward(input);
+    if (arch_.qk_norm) {
+      const std::vector<int64_t> per_head = {
+          static_cast<int64_t>(batch), static_cast<int64_t>(seq_len),
+          static_cast<int64_t>(n_head_), static_cast<int64_t>(head_dim)};
+      const std::vector<int64_t> merged = {static_cast<int64_t>(batch),
+                                           static_cast<int64_t>(seq_len),
+                                           static_cast<int64_t>(n_embd_)};
+      q = q_norm_->forward(q->reshape(per_head))->reshape(merged);
+      k = k_norm_->forward(k->reshape(per_head))->reshape(merged);
+    }
+    std::shared_ptr<Tensor> attended =
+        q->causal_self_attention(k, v, n_head_, scale);
+    return resid_dropout_->forward(out_proj_->forward(attended));
+  }
 
   std::shared_ptr<Tensor> q =
       split_heads(query_->forward(input), batch, seq_len, n_head_, head_dim);
@@ -131,7 +151,6 @@ std::shared_ptr<Tensor> CausalSelfAttention::forward(
     k = k->rotary_embedding();
   }
 
-  scalar_t scale = 1.0f / std::sqrt(static_cast<scalar_t>(head_dim));
   const auto mask = BroadcastCausalMask(batch * n_head_, seq_len, q->backend());
   std::shared_ptr<Tensor> attended = causal_attention(q, k, v, scale, mask);
   std::shared_ptr<Tensor> merged =

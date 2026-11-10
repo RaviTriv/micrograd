@@ -46,4 +46,22 @@ std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
                {.lhs = std::move(lhs), .rhs = std::move(rhs)});
 }
 
+std::shared_ptr<Tensor> Tensor::matmul_nt(const std::shared_ptr<Tensor> &b) {
+  if (backend() != b->backend()) {
+    throw std::invalid_argument("Tensor devices do not match");
+  }
+  if (shape_.size() < 2 || shape_.size() > 3 || b->shape_.size() != 2) {
+    throw std::invalid_argument(
+        "matmul_nt expects a 2D or 3D lhs and a 2D rhs");
+  }
+  if (shape_.back() != b->shape_[1]) {
+    throw std::invalid_argument("Inner dimensions must match for matmul_nt");
+  }
+
+  std::vector<size_t> out_shape = shape_;
+  out_shape.back() = b->shape_[0];
+  return apply(OpId::kMatmulNT, std::move(out_shape),
+               {.lhs = shared_from_this(), .rhs = b});
+}
+
 }  // namespace micrograd

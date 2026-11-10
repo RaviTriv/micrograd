@@ -56,7 +56,6 @@ std::shared_ptr<Tensor> cross_entropy(
   for (size_t i = 0; i + 1 < shape.size(); i++) {
     rows *= shape[i];
   }
-  size_t classes = shape.back();
   if (rows == 0) {
     throw std::invalid_argument("cross_entropy requires a nonempty batch");
   }
@@ -65,11 +64,7 @@ std::shared_ptr<Tensor> cross_entropy(
         "cross_entropy target count does not match the batch size");
   }
 
-  auto flat = shape.size() == 2
-                  ? logits
-                  : logits->reshape({static_cast<int64_t>(rows),
-                                     static_cast<int64_t>(classes)});
-  return flat->cross_entropy_rows(target_indices)
+  return logits->cross_entropy_rows(target_indices)
       ->sum()
       ->div(static_cast<scalar_t>(rows));
 }

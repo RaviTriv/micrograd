@@ -74,7 +74,7 @@ LMHead::LMHead(std::shared_ptr<Tensor> embedding_weight, bool tied)
 
 std::shared_ptr<Tensor> LMHead::forward(const std::shared_ptr<Tensor> &input) {
   const auto &weight = tied_ ? embedding_weight_ : weight_;
-  return input->matmul(weight->transpose(0, 1));
+  return input->matmul_nt(weight);
 }
 
 std::shared_ptr<Tensor> LMHead::weight() {

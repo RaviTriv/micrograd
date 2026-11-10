@@ -210,6 +210,8 @@ void Tensor::zero_grad() {
   }
 }
 
+void Tensor::release_grad() { grad_ = Storage(); }
+
 void Tensor::fill_grad_with_zeros() const { ZeroFill(grad_); }
 
 bool Tensor::requires_grad() const { return requires_grad_; }
@@ -246,6 +248,31 @@ Storage &Tensor::grad_storage() {
 const Storage &Tensor::grad_storage() const {
   ensure_grad();
   return grad_;
+}
+
+Storage &Tensor::grad_storage_for_overwrite() {
+  if (has_grad()) {
+    return grad_;
+  }
+  const size_t total = ElementCount(shape_);
+  if (total == 0) {
+    return grad_;
+  }
+  grad_ = Storage(total * sizeof(scalar_t), backend());
+  if (PoisonEmptyTensors()) {
+    FillBytes(grad_, 0xFF, "poison_fill");
+  }
+  return grad_;
+}
+
+Storage Tensor::take_grad_storage() { return std::move(grad_); }
+
+void Tensor::set_grad_storage(Storage grad) {
+  if (grad.bytes() != size() * sizeof(scalar_t) ||
+      grad.device() != backend()) {
+    throw std::invalid_argument("Gradient storage does not match the tensor");
+  }
+  grad_ = std::move(grad);
 }
 
 }  // namespace micrograd

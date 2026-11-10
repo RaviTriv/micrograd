@@ -8,6 +8,7 @@
 #include <functional>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -59,7 +60,7 @@ __global__ void GeluKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
 
 __global__ void GeluBackwardKernel(const scalar_t *out_grad,
                                    const scalar_t *in_data, scalar_t *a_grad,
-                                   size_t n) {
+                                   bool accumulate, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
     const scalar_t x = in_data[i];
@@ -69,7 +70,8 @@ __global__ void GeluBackwardKernel(const scalar_t *out_grad,
         kGeluSqrt2OverPi * (1.0f + (3.0f * kGeluCubicCoeff * x * x));
     const scalar_t dy_dx =
         (0.5f * (1.0f + t)) + (0.5f * x * (1.0f - (t * t)) * du_dx);
-    a_grad[i] += out_grad[i] * dy_dx;
+    const scalar_t g = out_grad[i] * dy_dx;
+    a_grad[i] = accumulate ? a_grad[i] + g : g;
   }
 }
 
@@ -103,65 +105,71 @@ __global__ void NegKernel(const scalar_t *lhs, scalar_t *out, size_t n) {
 
 __global__ void ReluBackwardKernel(const scalar_t *out_grad,
                                    const scalar_t *a_data, scalar_t *a_grad,
-                                   size_t n) {
+                                   bool accumulate, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i] * (a_data[i] > 0 ? 1.0f : 0.0f);
+    const scalar_t g = out_grad[i] * (a_data[i] > 0 ? 1.0f : 0.0f);
+    a_grad[i] = accumulate ? a_grad[i] + g : g;
   }
 }
 
 __global__ void SigmoidBackwardKernel(const scalar_t *out_grad,
                                       const scalar_t *out_data,
-                                      scalar_t *a_grad, size_t n) {
+                                      scalar_t *a_grad, bool accumulate, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
     scalar_t sigmoid_val = out_data[i];
-    a_grad[i] += out_grad[i] * sigmoid_val * (1.0f - sigmoid_val);
+    const scalar_t g = out_grad[i] * sigmoid_val * (1.0f - sigmoid_val);
+    a_grad[i] = accumulate ? a_grad[i] + g : g;
   }
 }
 
 __global__ void TanhBackwardKernel(const scalar_t *out_grad,
                                    const scalar_t *out_data, scalar_t *a_grad,
-                                   size_t n) {
+                                   bool accumulate, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
     scalar_t tanh_val = out_data[i];
-    a_grad[i] += out_grad[i] * (1.0f - tanh_val * tanh_val);
+    const scalar_t g = out_grad[i] * (1.0f - tanh_val * tanh_val);
+    a_grad[i] = accumulate ? a_grad[i] + g : g;
   }
 }
 
 __global__ void ExpBackwardKernel(const scalar_t *out_grad,
                                   const scalar_t *out_data, scalar_t *a_grad,
-                                  size_t n) {
+                                  bool accumulate, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i] * out_data[i];
+    const scalar_t g = out_grad[i] * out_data[i];
+    a_grad[i] = accumulate ? a_grad[i] + g : g;
   }
 }
 
 __global__ void LogBackwardKernel(const scalar_t *out_grad,
                                   const scalar_t *a_data, scalar_t *a_grad,
-                                  size_t n) {
+                                  bool accumulate, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i] / a_data[i];
+    const scalar_t g = out_grad[i] / a_data[i];
+    a_grad[i] = accumulate ? a_grad[i] + g : g;
   }
 }
 
 __global__ void SqrtBackwardKernel(const scalar_t *out_grad,
                                    const scalar_t *out_data, scalar_t *a_grad,
-                                   size_t n) {
+                                   bool accumulate, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] += out_grad[i] * 0.5f / out_data[i];
+    const scalar_t g = out_grad[i] * 0.5f / out_data[i];
+    a_grad[i] = accumulate ? a_grad[i] + g : g;
   }
 }
 
 __global__ void NegBackwardKernel(const scalar_t *out_grad, scalar_t *a_grad,
-                                  size_t n) {
+                                  bool accumulate, size_t n) {
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
-    a_grad[i] -= out_grad[i];
+    a_grad[i] = accumulate ? a_grad[i] - out_grad[i] : -out_grad[i];
   }
 }
 
@@ -237,9 +245,10 @@ void Neg(const OpArgs &args) {
 std::function<void()> ReluBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
+    const GradTarget target = GradForWrite(lhs.get());
     ReluBackwardKernel<<<GridSize(n), kBlockSize, 0,
                          CudaContext::instance().stream()>>>(
-        GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), n);
+        GradPtr(out), DataPtr(lhs.get()), target.ptr, target.accumulate, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
@@ -247,9 +256,10 @@ std::function<void()> ReluBackward(const GradArgs &args) {
 std::function<void()> SigmoidBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
+    const GradTarget target = GradForWrite(lhs.get());
     SigmoidBackwardKernel<<<GridSize(n), kBlockSize, 0,
                             CudaContext::instance().stream()>>>(
-        GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+        GradPtr(out), DataPtr(out), target.ptr, target.accumulate, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
@@ -257,9 +267,10 @@ std::function<void()> SigmoidBackward(const GradArgs &args) {
 std::function<void()> TanhBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
+    const GradTarget target = GradForWrite(lhs.get());
     TanhBackwardKernel<<<GridSize(n), kBlockSize, 0,
                          CudaContext::instance().stream()>>>(
-        GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+        GradPtr(out), DataPtr(out), target.ptr, target.accumulate, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
@@ -267,9 +278,10 @@ std::function<void()> TanhBackward(const GradArgs &args) {
 std::function<void()> GeluBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
+    const GradTarget target = GradForWrite(lhs.get());
     GeluBackwardKernel<<<GridSize(n), kBlockSize, 0,
                          CudaContext::instance().stream()>>>(
-        GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), n);
+        GradPtr(out), DataPtr(lhs.get()), target.ptr, target.accumulate, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
@@ -277,9 +289,10 @@ std::function<void()> GeluBackward(const GradArgs &args) {
 std::function<void()> ExpBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
+    const GradTarget target = GradForWrite(lhs.get());
     ExpBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
-        GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+        GradPtr(out), DataPtr(out), target.ptr, target.accumulate, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
@@ -287,9 +300,10 @@ std::function<void()> ExpBackward(const GradArgs &args) {
 std::function<void()> LogBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
+    const GradTarget target = GradForWrite(lhs.get());
     LogBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
-        GradPtr(out), DataPtr(lhs.get()), GradPtr(lhs.get()), n);
+        GradPtr(out), DataPtr(lhs.get()), target.ptr, target.accumulate, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
@@ -297,9 +311,10 @@ std::function<void()> LogBackward(const GradArgs &args) {
 std::function<void()> SqrtBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
+    const GradTarget target = GradForWrite(lhs.get());
     SqrtBackwardKernel<<<GridSize(n), kBlockSize, 0,
                          CudaContext::instance().stream()>>>(
-        GradPtr(out), DataPtr(out), GradPtr(lhs.get()), n);
+        GradPtr(out), DataPtr(out), target.ptr, target.accumulate, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }
@@ -307,9 +322,10 @@ std::function<void()> SqrtBackward(const GradArgs &args) {
 std::function<void()> NegBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs]() {
     size_t n = lhs->size();
+    const GradTarget target = GradForWrite(lhs.get());
     NegBackwardKernel<<<GridSize(n), kBlockSize, 0,
                         CudaContext::instance().stream()>>>(
-        GradPtr(out), GradPtr(lhs.get()), n);
+        GradPtr(out), target.ptr, target.accumulate, n);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }

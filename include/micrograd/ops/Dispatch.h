@@ -56,10 +56,14 @@ enum class OpId {
   kRotaryEmbedding,
   kCrossEntropy,
   kFlashAttention,
+  kCausalAttentionProbs,
+  kAttentionCombine,
+  kCausalSelfAttention,
+  kMatmulNT,
 };
 
 inline constexpr size_t kOpCount =
-    static_cast<size_t>(OpId::kFlashAttention) + 1;
+    static_cast<size_t>(OpId::kMatmulNT) + 1;
 inline constexpr size_t kDeviceCount = static_cast<size_t>(Device::CUDA) + 1;
 
 struct OpArgs {
@@ -67,6 +71,7 @@ struct OpArgs {
   const Tensor *rhs = nullptr;
   const Tensor *extra = nullptr;
   Tensor *out = nullptr;
+  Tensor *aux = nullptr;
   scalar_t scalar = 0;
   int64_t dim = 0;
   bool keepdim = false;
@@ -80,6 +85,7 @@ struct GradArgs {
   std::shared_ptr<Tensor> rhs = nullptr;
   std::shared_ptr<Tensor> extra = nullptr;
   Tensor *out = nullptr;
+  std::shared_ptr<Tensor> aux = nullptr;
   scalar_t scalar = 0;
   int64_t dim = 0;
   std::span<const size_t> strides = {};
@@ -91,6 +97,7 @@ struct OpInputs {
   std::shared_ptr<Tensor> lhs = nullptr;
   std::shared_ptr<Tensor> rhs = nullptr;
   std::shared_ptr<Tensor> extra = nullptr;
+  std::shared_ptr<Tensor> aux = nullptr;
   scalar_t scalar = 0;
   int64_t dim = 0;
   bool keepdim = false;

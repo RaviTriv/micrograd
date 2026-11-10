@@ -96,6 +96,7 @@ struct TrainConfig {
   size_t throughput_interval = 10;
   Device device = Device::CPU;
   bool tf32 = false;
+  bool bf16_matmul = false;
   bool profile = false;
   bool recompute = true;
   micrograd::gpt::ArchOptions arch;
@@ -189,6 +190,8 @@ TrainConfig parse_args(int argc, char **argv) {
       config.device = parse_device(next_value());
     } else if (arg == "--tf32") {
       config.tf32 = true;
+    } else if (arg == "--bf16-matmul") {
+      config.bf16_matmul = true;
     } else if (arg == "--profile") {
       config.profile = true;
     } else if (arg == "--no-recompute") {
@@ -329,7 +332,7 @@ class TrainOptimizer {
 
   void zero_grad() {
     for (auto &p : parameters_) {
-      p->zero_grad();
+      p->release_grad();
     }
   }
 
@@ -659,10 +662,7 @@ double estimate_loss(Model &model, const TrainingData &dataset,
     auto input = token_tensor(batch.inputs, config.batch_size,
                               config.block_size, config.device);
     auto logits = model.forward(input);
-    auto flat_logits = logits->reshape(
-        {static_cast<int64_t>(config.batch_size * config.block_size),
-         static_cast<int64_t>(dataset.vocab_size())});
-    auto loss = cross_entropy(flat_logits, batch.targets);
+    auto loss = cross_entropy(logits, batch.targets);
     loss->to(Device::CPU);
     total += static_cast<double>(loss->at({}));
   }
@@ -790,6 +790,15 @@ int main(int argc, char **argv) {
 #endif
     }
 
+    if (config.bf16_matmul) {
+      if (config.device != Device::CUDA) {
+        throw std::invalid_argument("--bf16-matmul requires --device cuda");
+      }
+#ifdef MICROGRAD_CUDA_ENABLED
+      micrograd::CudaContext::instance().setAllowBf16Matmul(true);
+#endif
+    }
+
     TrainingData dataset(config);
     SampleOrder train_order(dataset.train_span_tokens(), config.block_size,
                             config.seed);
@@ -908,10 +917,7 @@ int main(int argc, char **argv) {
         }
         step_data_seconds += seconds_since(data_start);
         auto logits = model.forward(input);
-        auto flat_logits = logits->reshape(
-            {static_cast<int64_t>(config.batch_size * config.block_size),
-             static_cast<int64_t>(dataset.vocab_size())});
-        auto loss = cross_entropy(flat_logits, batch.targets);
+        auto loss = cross_entropy(logits, batch.targets);
         auto scaled_loss =
             loss->div(static_cast<scalar_t>(config.grad_accum_steps * world));
         scaled_loss->backward();

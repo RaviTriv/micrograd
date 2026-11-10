@@ -96,8 +96,6 @@ void Tensor::propagate_gradients(Storage seed, bool retain_graph) {
   for (const auto &node : ordered) {
     if (node->backward_fn_) {
       node->grad_ = Storage();
-    } else {
-      node->ensure_grad();
     }
   }
   if (backward_fn_ || !has_grad()) {

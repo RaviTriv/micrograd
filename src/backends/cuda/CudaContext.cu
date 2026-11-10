@@ -87,6 +87,10 @@ void CudaContext::setAllowTf32(bool allow) {
 
 bool CudaContext::allowTf32() const { return allow_tf32_; }
 
+void CudaContext::setAllowBf16Matmul(bool allow) { allow_bf16_matmul_ = allow; }
+
+bool CudaContext::allowBf16Matmul() const { return allow_bf16_matmul_; }
+
 void *CudaContext::allocate(size_t bytes) { return allocator_.allocate(bytes); }
 
 void CudaContext::deallocate(void *ptr, size_t /*bytes*/) {

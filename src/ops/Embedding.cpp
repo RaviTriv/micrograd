@@ -100,10 +100,15 @@ std::shared_ptr<Tensor> Tensor::gather_per_row(
 
 std::shared_ptr<Tensor> Tensor::cross_entropy_rows(
     const std::vector<size_t> &targets) {
-  RequireRowGather(shape_, targets.size());
-
-  size_t rows = shape_[0];
-  size_t cols = shape_[1];
+  if (shape_.size() < 2) {
+    throw std::invalid_argument("cross_entropy expects logits of rank 2 or more");
+  }
+  size_t cols = shape_.back();
+  size_t rows = cols == 0 ? 0 : size() / cols;
+  if (targets.size() != rows) {
+    throw std::invalid_argument(
+        "gather_per_row index count does not match the row count");
+  }
   std::vector<scalar_t> target_values(rows);
   for (size_t i = 0; i < rows; i++) {
     if (targets[i] >= cols) {

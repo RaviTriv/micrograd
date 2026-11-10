@@ -113,6 +113,14 @@ const char *OpName(OpId op) {
       return "rotary_embedding";
     case OpId::kFlashAttention:
       return "flash_attention";
+    case OpId::kCausalAttentionProbs:
+      return "causal_attention_probs";
+    case OpId::kAttentionCombine:
+      return "attention_combine";
+    case OpId::kCausalSelfAttention:
+      return "causal_self_attention";
+    case OpId::kMatmulNT:
+      return "matmul_nt";
   }
   return "unknown";
 }
@@ -153,6 +161,7 @@ std::shared_ptr<Tensor> Tensor::apply(OpId op, std::vector<size_t> out_shape,
               .rhs = inputs.rhs.get(),
               .extra = inputs.extra.get(),
               .out = result.get(),
+              .aux = inputs.aux.get(),
               .scalar = inputs.scalar,
               .dim = inputs.dim,
               .keepdim = inputs.keepdim,
@@ -183,6 +192,7 @@ std::shared_ptr<Tensor> Tensor::apply(OpId op, std::vector<size_t> out_shape,
                                        .rhs = inputs.rhs,
                                        .extra = inputs.extra,
                                        .out = result.get(),
+                                       .aux = inputs.aux,
                                        .scalar = inputs.scalar,
                                        .dim = inputs.dim,
                                        .strides = inputs.strides});

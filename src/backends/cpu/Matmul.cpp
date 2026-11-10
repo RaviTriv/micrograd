@@ -116,12 +116,59 @@ std::function<void()> MatmulBackward(const GradArgs &args) {
   };
 }
 
+struct NTDims {
+  size_t m;
+  size_t k;
+  size_t n;
+};
+
+NTDims MakeNTDims(const Tensor &lhs, const Tensor &rhs) {
+  const size_t k = lhs.shape().back();
+  return {.m = lhs.size() / k, .k = k, .n = rhs.shape()[0]};
+}
+
+void MatmulNT(const OpArgs &args) {
+  const NTDims d = MakeNTDims(*args.lhs, *args.rhs);
+  auto rhs = args.rhs->data();
+  std::vector<scalar_t> transposed(d.k * d.n);
+  for (size_t j = 0; j < d.n; j++) {
+    for (size_t p = 0; p < d.k; p++) {
+      transposed[(p * d.n) + j] = rhs[(j * d.k) + p];
+    }
+  }
+  MatmulBatch(args.lhs->data().data(), transposed.data(),
+              args.out->data().data(), d.m, d.k, d.n);
+}
+
+std::function<void()> MatmulNTBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    const NTDims d = MakeNTDims(*lhs, *rhs);
+    auto a_data = lhs->data();
+    auto b_data = rhs->data();
+    auto a_grad = lhs->grad();
+    auto b_grad = rhs->grad();
+    auto out_grad = out->grad();
+
+    for (size_t i = 0; i < d.m; i++) {
+      for (size_t j = 0; j < d.n; j++) {
+        const scalar_t g = out_grad[(i * d.n) + j];
+        for (size_t p = 0; p < d.k; p++) {
+          a_grad[(i * d.k) + p] += g * b_data[(j * d.k) + p];
+          b_grad[(j * d.k) + p] += g * a_data[(i * d.k) + p];
+        }
+      }
+    }
+  };
+}
+
 }  // namespace
 
 void RegisterMatmulOps() {
   OpRegistry &registry = OpRegistry::Instance();
   registry.Register(OpId::kMatmul, Device::CPU, Matmul);
   registry.RegisterBackward(OpId::kMatmul, Device::CPU, MatmulBackward);
+  registry.Register(OpId::kMatmulNT, Device::CPU, MatmulNT);
+  registry.RegisterBackward(OpId::kMatmulNT, Device::CPU, MatmulNTBackward);
 }
 
 }  // namespace micrograd::ops::cpu

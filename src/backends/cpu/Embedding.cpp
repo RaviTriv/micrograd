@@ -82,8 +82,8 @@ double RowLogSumExp(std::span<const scalar_t> row) {
 }
 
 void CrossEntropy(const OpArgs &args) {
-  size_t rows = args.lhs->shape()[0];
-  size_t cols = args.lhs->shape()[1];
+  size_t cols = args.lhs->shape().back();
+  size_t rows = args.lhs->size() / cols;
   auto values = args.lhs->data();
   auto targets = args.rhs->data();
   auto out_values = args.out->data();
@@ -98,8 +98,8 @@ void CrossEntropy(const OpArgs &args) {
 
 std::function<void()> CrossEntropyBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, targets = args.rhs]() {
-    size_t rows = lhs->shape()[0];
-    size_t cols = lhs->shape()[1];
+    size_t cols = lhs->shape().back();
+    size_t rows = lhs->size() / cols;
     auto values = lhs->data();
     auto gradient = lhs->grad();
     auto incoming = out->grad();

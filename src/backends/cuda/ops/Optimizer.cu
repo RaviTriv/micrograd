@@ -153,6 +153,7 @@ struct ClipTensor {
 };
 
 constexpr size_t kClipMaxBlocksPerTensor = 128;
+constexpr size_t kAdamWMaxBlocksPerTensor = 1024;
 
 __global__ void MultiGradNormSquaredKernel(const ClipTensor *tensors,
                                            scalar_t *total) {
@@ -280,7 +281,9 @@ void FusedAdamWStep(const std::vector<AdamWTensor> &tensors, scalar_t lr,
   auto &ctx = CudaContext::instance();
   const AdamWTensor *device_tensors = UploadAdamWTable(tensors);
 
-  dim3 grid(static_cast<unsigned>(GridSize(max_n)),
+  const size_t blocks = std::clamp<size_t>(
+      (max_n + kBlockSize - 1) / kBlockSize, 1, kAdamWMaxBlocksPerTensor);
+  dim3 grid(static_cast<unsigned>(blocks),
             static_cast<unsigned>(tensors.size()));
   FusedAdamWStepKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(
       device_tensors, lr, beta1, beta2, eps, weight_decay, bias_correction1,

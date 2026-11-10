@@ -66,6 +66,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> max(int64_t dim, bool keepdim = false);
   std::shared_ptr<Tensor> argmax(int64_t dim);
   std::shared_ptr<Tensor> matmul(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> matmul_nt(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> embedding_lookup(
       const std::shared_ptr<Tensor> &indices);
   std::shared_ptr<Tensor> gather_per_row(
@@ -84,6 +85,13 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> flash_attention(const std::shared_ptr<Tensor> &key,
                                           const std::shared_ptr<Tensor> &value,
                                           scalar_t scale);
+  std::shared_ptr<Tensor> causal_attention_probs(
+      const std::shared_ptr<Tensor> &key, size_t n_head, scalar_t scale);
+  std::shared_ptr<Tensor> attention_combine(
+      const std::shared_ptr<Tensor> &value);
+  std::shared_ptr<Tensor> causal_self_attention(
+      const std::shared_ptr<Tensor> &key, const std::shared_ptr<Tensor> &value,
+      size_t n_head, scalar_t scale);
 
   std::shared_ptr<Tensor> relu();
   std::shared_ptr<Tensor> sigmoid();
@@ -99,6 +107,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   void backward(bool retain_graph = false);
   void backward(const Tensor &grad_output, bool retain_graph = false);
   void zero_grad();
+  void release_grad();
   bool has_grad() const;
   bool requires_grad() const;
   void set_requires_grad(bool requires_grad);
@@ -125,6 +134,9 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   const Storage &data_storage() const;
   Storage &grad_storage();
   const Storage &grad_storage() const;
+  Storage &grad_storage_for_overwrite();
+  Storage take_grad_storage();
+  void set_grad_storage(Storage grad);
 
  private:
   void ensure_grad() const;

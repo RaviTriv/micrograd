@@ -8,6 +8,7 @@
 #include <functional>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -117,21 +118,22 @@ __global__ void CrossEntropyKernel(const scalar_t *logits,
 
 __global__ void CrossEntropyBackwardKernel(const scalar_t *logits,
                                            const scalar_t *targets,
+                                           const scalar_t *losses,
                                            const scalar_t *out_grad,
-                                           scalar_t *grad, size_t rows,
-                                           size_t cols) {
+                                           scalar_t *grad, bool accumulate,
+                                           size_t rows, size_t cols) {
   for (size_t i = blockIdx.x; i < rows; i += gridDim.x) {
     const scalar_t *row = logits + (i * cols);
     scalar_t *grad_row = grad + (i * cols);
-    const MaxSum ms = RowMaxSum(row, cols);
-    const scalar_t scale = out_grad[i] / ms.sum;
     const auto target = static_cast<size_t>(llroundf(targets[i]));
+    const scalar_t log_sum_exp = losses[i] + row[target];
+    const scalar_t scale = out_grad[i];
     for (size_t j = threadIdx.x; j < cols; j += blockDim.x) {
-      scalar_t g = expf(row[j] - ms.max) * scale;
+      scalar_t g = expf(row[j] - log_sum_exp) * scale;
       if (j == target) {
         g -= out_grad[i];
       }
-      grad_row[j] += g;
+      grad_row[j] = accumulate ? grad_row[j] + g : g;
     }
   }
 }
@@ -193,8 +195,8 @@ int RowGrid(size_t rows) {
 }
 
 void CrossEntropy(const OpArgs &args) {
-  size_t rows = args.lhs->shape()[0];
-  size_t cols = args.lhs->shape()[1];
+  size_t cols = args.lhs->shape().back();
+  size_t rows = args.lhs->size() / cols;
   CrossEntropyKernel<<<RowGrid(rows), kBlockSize, 0,
                        CudaContext::instance().stream()>>>(
       DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), rows, cols);
@@ -203,13 +205,16 @@ void CrossEntropy(const OpArgs &args) {
 
 std::function<void()> CrossEntropyBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, targets = args.rhs]() {
-    size_t rows = lhs->shape()[0];
-    size_t cols = lhs->shape()[1];
+    size_t cols = lhs->shape().back();
+    size_t rows = lhs->size() / cols;
+    const scalar_t *out_grad = GradPtr(out);
+    const GradTarget grad = GradForWrite(lhs.get());
     CrossEntropyBackwardKernel<<<RowGrid(rows), kBlockSize, 0,
                                  CudaContext::instance().stream()>>>(
         DataPtr(static_cast<const Tensor *>(lhs.get())),
-        DataPtr(static_cast<const Tensor *>(targets.get())), GradPtr(out),
-        GradPtr(lhs.get()), rows, cols);
+        DataPtr(static_cast<const Tensor *>(targets.get())),
+        DataPtr(static_cast<const Tensor *>(out)), out_grad, grad.ptr,
+        grad.accumulate, rows, cols);
     MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
   };
 }

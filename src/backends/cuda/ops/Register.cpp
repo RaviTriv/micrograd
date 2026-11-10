@@ -41,6 +41,10 @@ bool ForwardOverwritesOutput(OpId op) {
     case OpId::kRmsNorm:
     case OpId::kRotaryEmbedding:
     case OpId::kFlashAttention:
+    case OpId::kCausalAttentionProbs:
+    case OpId::kAttentionCombine:
+    case OpId::kCausalSelfAttention:
+    case OpId::kMatmulNT:
       return true;
     case OpId::kMean:
     case OpId::kReshape:
