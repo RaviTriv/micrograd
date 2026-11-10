@@ -30,11 +30,14 @@ constexpr size_t kFeatures = 196;
 constexpr size_t kClasses = 10;
 constexpr size_t kHidden = 100;
 constexpr size_t kActivationRow = 1024;
-constexpr int kActivationRepeats = 5;
+constexpr int kRepeats = 5;
 constexpr double kBytesPerElementForward = 2.0 * sizeof(scalar_t);
 
 struct MatmulCase {
-  size_t n;
+  std::string name;
+  std::vector<size_t> lhs_shape;
+  std::vector<size_t> rhs_shape;
+  bool transpose_rhs;
   int iterations;
 };
 
@@ -117,28 +120,74 @@ std::shared_ptr<Sequential> BuildClassifier(Device device) {
   return net;
 }
 
-Row BenchMatmul(Device device, const MatmulCase &matmul_case) {
-  auto lhs = Ramp({matmul_case.n, matmul_case.n}, -1.0f, 0.0003f);
-  auto rhs = Ramp({matmul_case.n, matmul_case.n}, 0.5f, -0.0002f);
+double MedianSecondsPerIter(Device device, int iterations,
+                            const std::function<void()> &run) {
+  run();
+  micrograd::synchronize(device);
+
+  std::vector<double> samples;
+  samples.reserve(kRepeats);
+  for (int repeat = 0; repeat < kRepeats; repeat++) {
+    const auto start = std::chrono::steady_clock::now();
+    for (int i = 0; i < iterations; i++) {
+      run();
+    }
+    micrograd::synchronize(device);
+    samples.push_back(SecondsSince(start) / iterations);
+  }
+  std::ranges::sort(samples);
+  return samples[samples.size() / 2];
+}
+
+double MatmulFlops(const MatmulCase &matmul_case) {
+  const auto &lhs = matmul_case.lhs_shape;
+  const auto &rhs = matmul_case.rhs_shape;
+  double flops = 2.0;
+  for (auto dim : lhs) {
+    flops *= static_cast<double>(dim);
+  }
+  return flops * static_cast<double>(matmul_case.transpose_rhs ? rhs[0]
+                                                               : rhs.back());
+}
+
+std::shared_ptr<Tensor> RunMatmul(const MatmulCase &matmul_case,
+                                  const std::shared_ptr<Tensor> &lhs,
+                                  const std::shared_ptr<Tensor> &rhs) {
+  return matmul_case.transpose_rhs ? lhs->matmul_nt(rhs) : lhs->matmul(rhs);
+}
+
+Row BenchMatmul(Device device, const MatmulCase &matmul_case, bool backward) {
+  auto lhs = Ramp(matmul_case.lhs_shape, -1.0f, 0.0003f);
+  auto rhs = Ramp(matmul_case.rhs_shape, 0.5f, -0.0002f);
   lhs->to(device);
   rhs->to(device);
+  lhs->set_requires_grad(backward);
+  rhs->set_requires_grad(backward);
 
-  lhs->matmul(rhs);
+  const auto probe = RunMatmul(matmul_case, lhs, rhs);
+  const auto seed = Tensor::from_values(
+      probe->shape(), std::vector<scalar_t>(probe->size(), 1.0f));
+  seed->to(device);
 
-  const auto start = std::chrono::steady_clock::now();
-  for (int i = 0; i < matmul_case.iterations; i++) {
-    lhs->matmul(rhs);
-  }
-  micrograd::synchronize(device);
-  const double seconds_per_iter = SecondsSince(start) / matmul_case.iterations;
+  const double seconds_per_iter =
+      MedianSecondsPerIter(device, matmul_case.iterations, [&]() {
+        auto out = RunMatmul(matmul_case, lhs, rhs);
+        if (backward) {
+          out->backward(*seed);
+          lhs->zero_grad();
+          rhs->zero_grad();
+        }
+      });
 
-  const double flops = 2.0 * static_cast<double>(matmul_case.n) *
-                       static_cast<double>(matmul_case.n) *
-                       static_cast<double>(matmul_case.n);
+  const double flops = MatmulFlops(matmul_case) * (backward ? 3.0 : 1.0);
   const double gflops = flops / seconds_per_iter / 1e9;
 
-  return {DeviceName(device), "matmul", "n=" + std::to_string(matmul_case.n),
-          seconds_per_iter,   gflops,   "gflops"};
+  return {DeviceName(device),
+          "matmul",
+          matmul_case.name + (backward ? " fwd+bwd" : " fwd"),
+          seconds_per_iter,
+          gflops,
+          "gflops"};
 }
 
 Row BenchTrainingStep(Device device, size_t batch_size, int iterations) {
@@ -157,14 +206,8 @@ Row BenchTrainingStep(Device device, size_t batch_size, int iterations) {
     optimizer.step();
   };
 
-  step_once();
-
-  const auto start = std::chrono::steady_clock::now();
-  for (int i = 0; i < iterations; i++) {
-    step_once();
-  }
-  micrograd::synchronize(device);
-  const double seconds_per_iter = SecondsSince(start) / iterations;
+  const double seconds_per_iter =
+      MedianSecondsPerIter(device, iterations, step_once);
   const double samples_per_second =
       static_cast<double>(batch_size) / seconds_per_iter;
 
@@ -192,15 +235,10 @@ Row BenchEpoch(Device device, size_t batch_size, size_t total_samples) {
     optimizer.step();
   };
 
-  step_once();
-
   const size_t batches = total_samples / batch_size;
-  const auto start = std::chrono::steady_clock::now();
-  for (size_t i = 0; i < batches; i++) {
-    step_once();
-  }
-  micrograd::synchronize(device);
-  const double seconds = SecondsSince(start);
+  const double seconds =
+      MedianSecondsPerIter(device, static_cast<int>(batches), step_once) *
+      static_cast<double>(batches);
   const double samples_per_second =
       static_cast<double>(batches * batch_size) / seconds;
 
@@ -231,25 +269,6 @@ std::shared_ptr<Tensor> StandardNormal(size_t elements) {
   }
   return Tensor::from_values({elements / kActivationRow, kActivationRow},
                              std::move(values));
-}
-
-double MedianSecondsPerIter(Device device, int iterations,
-                            const std::function<void()> &run) {
-  run();
-  micrograd::synchronize(device);
-
-  std::vector<double> samples;
-  samples.reserve(kActivationRepeats);
-  for (int repeat = 0; repeat < kActivationRepeats; repeat++) {
-    const auto start = std::chrono::steady_clock::now();
-    for (int i = 0; i < iterations; i++) {
-      run();
-    }
-    micrograd::synchronize(device);
-    samples.push_back(SecondsSince(start) / iterations);
-  }
-  std::ranges::sort(samples);
-  return samples[samples.size() / 2];
 }
 
 std::string ActivationDetail(const ActivationCase &activation,
@@ -316,12 +335,20 @@ void PrintMarkdownTable(const std::vector<Row> &rows) {
 
 int main() {
   const std::vector<MatmulCase> matmul_cases{
-      {128, 20}, {256, 10}, {512, 5}, {1024, 3}};
+      {"8x8", {8, 8}, {8, 8}, false, 20000},
+      {"n=128", {128, 128}, {128, 128}, false, 20},
+      {"n=256", {256, 256}, {256, 256}, false, 10},
+      {"n=512", {512, 512}, {512, 512}, false, 5},
+      {"n=1024", {1024, 1024}, {1024, 1024}, false, 2},
+      {"batch=64 64x64x64", {64, 64, 64}, {64, 64, 64}, false, 50},
+      {"nt 256x768x2048", {256, 768}, {2048, 768}, true, 3},
+  };
 
   std::vector<Row> rows;
   for (auto device : CompiledDevices()) {
     for (const auto &matmul_case : matmul_cases) {
-      rows.push_back(BenchMatmul(device, matmul_case));
+      rows.push_back(BenchMatmul(device, matmul_case, false));
+      rows.push_back(BenchMatmul(device, matmul_case, true));
     }
     rows.push_back(BenchTrainingStep(device, 64, 20));
     rows.push_back(BenchEpoch(device, 64, 6400));

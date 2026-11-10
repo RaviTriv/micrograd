@@ -1,6 +1,7 @@
 #include "micrograd/ops/Matmul.h"
 
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <thread>
 #include <vector>
@@ -13,25 +14,54 @@ namespace micrograd::ops::cpu {
 namespace {
 
 constexpr size_t kBlock = 64;
+constexpr size_t kDotBlock = 256;
+constexpr size_t kLanes = 8;
+constexpr size_t kMinWorkPerThread = size_t{1} << 18;
 
-void MatmulRows(const scalar_t *lhs_b, const scalar_t *rhs_b, scalar_t *out_b,
-                size_t k, size_t n, size_t row_begin, size_t row_end) {
-  for (size_t i = row_begin; i < row_end; i++) {
-    for (size_t j = 0; j < n; j++) {
-      out_b[i * n + j] = 0.0f;
+template <typename RowsFn>
+void ParallelRows(size_t batch, size_t rows, size_t work_per_row,
+                  const RowsFn &fn) {
+  const size_t total_rows = batch * rows;
+  const size_t hardware =
+      std::max<size_t>(1, std::thread::hardware_concurrency());
+  const size_t threads = std::min(
+      {hardware, total_rows, total_rows * work_per_row / kMinWorkPerThread});
+
+  const auto run = [&](size_t begin, size_t end) {
+    while (begin < end) {
+      const size_t bidx = begin / rows;
+      const size_t batch_end = std::min(end, (bidx + 1) * rows);
+      fn(bidx, begin - (bidx * rows), batch_end - (bidx * rows));
+      begin = batch_end;
     }
+  };
+
+  if (threads <= 1) {
+    run(0, total_rows);
+    return;
   }
+  const size_t chunk = (total_rows + threads - 1) / threads;
+  std::vector<std::jthread> workers;
+  workers.reserve(threads - 1);
+  for (size_t begin = chunk; begin < total_rows; begin += chunk) {
+    workers.emplace_back(run, begin, std::min(begin + chunk, total_rows));
+  }
+  run(0, chunk);
+}
+
+void RowsNN(const scalar_t *a, const scalar_t *b, scalar_t *out, size_t inner,
+            size_t cols, size_t row_begin, size_t row_end) {
   for (size_t ii = row_begin; ii < row_end; ii += kBlock) {
     const size_t i_max = std::min(ii + kBlock, row_end);
-    for (size_t kk = 0; kk < k; kk += kBlock) {
-      const size_t k_max = std::min(kk + kBlock, k);
-      for (size_t jj = 0; jj < n; jj += kBlock) {
-        const size_t j_max = std::min(jj + kBlock, n);
+    for (size_t pp = 0; pp < inner; pp += kBlock) {
+      const size_t p_max = std::min(pp + kBlock, inner);
+      for (size_t jj = 0; jj < cols; jj += kBlock) {
+        const size_t j_max = std::min(jj + kBlock, cols);
         for (size_t i = ii; i < i_max; i++) {
-          for (size_t p = kk; p < k_max; p++) {
-            const scalar_t a = lhs_b[i * k + p];
+          for (size_t p = pp; p < p_max; p++) {
+            const scalar_t a_ip = a[(i * inner) + p];
             for (size_t j = jj; j < j_max; j++) {
-              out_b[i * n + j] += a * rhs_b[p * n + j];
+              out[(i * cols) + j] += a_ip * b[(p * cols) + j];
             }
           }
         }
@@ -40,78 +70,102 @@ void MatmulRows(const scalar_t *lhs_b, const scalar_t *rhs_b, scalar_t *out_b,
   }
 }
 
-void MatmulBatch(const scalar_t *lhs_b, const scalar_t *rhs_b, scalar_t *out_b,
-                 size_t m, size_t k, size_t n) {
-  const size_t threads =
-      std::max<size_t>(1, std::thread::hardware_concurrency());
-  const size_t rows_per_thread = (m + threads - 1) / threads;
-  if (threads == 1 || rows_per_thread == 0) {
-    MatmulRows(lhs_b, rhs_b, out_b, k, n, 0, m);
-    return;
-  }
-
-  std::vector<std::jthread> pool;
-  for (size_t t = 0; t < threads; t++) {
-    const size_t row_begin = t * rows_per_thread;
-    if (row_begin >= m) {
-      break;
+scalar_t Dot(const scalar_t *x, const scalar_t *y, size_t count) {
+  std::array<scalar_t, kLanes> partial{};
+  size_t p = 0;
+  for (; p + kLanes <= count; p += kLanes) {
+    for (size_t lane = 0; lane < kLanes; lane++) {
+      partial[lane] += x[p + lane] * y[p + lane];
     }
-    const size_t row_end = std::min(row_begin + rows_per_thread, m);
-    pool.emplace_back(MatmulRows, lhs_b, rhs_b, out_b, k, n, row_begin,
-                      row_end);
+  }
+  scalar_t sum = 0.0f;
+  for (; p < count; p++) {
+    sum += x[p] * y[p];
+  }
+  for (const scalar_t value : partial) {
+    sum += value;
+  }
+  return sum;
+}
+
+void RowsNT(const scalar_t *a, const scalar_t *b, scalar_t *out, size_t inner,
+            size_t cols, size_t row_begin, size_t row_end) {
+  for (size_t jj = 0; jj < cols; jj += kBlock) {
+    const size_t j_max = std::min(jj + kBlock, cols);
+    for (size_t pp = 0; pp < inner; pp += kDotBlock) {
+      const size_t p_len = std::min(kDotBlock, inner - pp);
+      for (size_t i = row_begin; i < row_end; i++) {
+        for (size_t j = jj; j < j_max; j++) {
+          out[(i * cols) + j] +=
+              Dot(a + (i * inner) + pp, b + (j * inner) + pp, p_len);
+        }
+      }
+    }
+  }
+}
+
+void RowsTN(const scalar_t *a, const scalar_t *d, scalar_t *out, size_t depth,
+            size_t a_cols, size_t cols, size_t row_begin, size_t row_end) {
+  for (size_t ii = 0; ii < depth; ii += kBlock) {
+    const size_t i_max = std::min(ii + kBlock, depth);
+    for (size_t jj = 0; jj < cols; jj += kBlock) {
+      const size_t j_max = std::min(jj + kBlock, cols);
+      for (size_t p = row_begin; p < row_end; p++) {
+        for (size_t i = ii; i < i_max; i++) {
+          const scalar_t a_ip = a[(i * a_cols) + p];
+          for (size_t j = jj; j < j_max; j++) {
+            out[(p * cols) + j] += a_ip * d[(i * cols) + j];
+          }
+        }
+      }
+    }
   }
 }
 
 void Matmul(const OpArgs &args) {
-  const auto &lhs_shape = args.lhs->shape();
-  const auto &rhs_shape = args.rhs->shape();
-  const auto [batch, m, k, n] = ResolveMatmulDims(lhs_shape, rhs_shape);
+  const MatmulDims d =
+      ResolveMatmulDims(args.lhs->shape(), args.rhs->shape());
+  const scalar_t *lhs = args.lhs->data().data();
+  const scalar_t *rhs = args.rhs->data().data();
+  scalar_t *out = args.out->data().data();
 
-  auto lhs = args.lhs->data();
-  auto rhs = args.rhs->data();
-  auto out = args.out->data();
-  for (size_t bidx = 0; bidx < batch; bidx++) {
-    const scalar_t *lhs_b = lhs.data() + bidx * m * k;
-    const scalar_t *rhs_b = rhs.data() + bidx * k * n;
-    scalar_t *out_b = out.data() + bidx * m * n;
-    MatmulBatch(lhs_b, rhs_b, out_b, m, k, n);
-  }
+  ParallelRows(d.batch, d.m, d.k * d.n,
+               [&](size_t bidx, size_t row_begin, size_t row_end) {
+                 scalar_t *out_b = out + (bidx * d.m * d.n);
+                 std::fill(out_b + (row_begin * d.n), out_b + (row_end * d.n),
+                           0.0f);
+                 RowsNN(lhs + (bidx * d.m * d.k), rhs + (bidx * d.k * d.n),
+                        out_b, d.k, d.n, row_begin, row_end);
+               });
 }
 
 std::function<void()> MatmulBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
-    const auto &lhs_shape = lhs->shape();
-    const auto &rhs_shape = rhs->shape();
-    const auto [batch, m, k, n] = ResolveMatmulDims(lhs_shape, rhs_shape);
+    const MatmulDims d = ResolveMatmulDims(lhs->shape(), rhs->shape());
+    const scalar_t *out_grad = out->grad().data();
 
-    auto a_data = lhs->data();
-    auto b_data = rhs->data();
-    auto a_grad = lhs->grad();
-    auto b_grad = rhs->grad();
-    auto out_grad = out->grad();
+    if (lhs->requires_grad()) {
+      const scalar_t *rhs_data = rhs->data().data();
+      scalar_t *lhs_grad = lhs->grad().data();
+      ParallelRows(d.batch, d.m, d.n * d.k,
+                   [&](size_t bidx, size_t row_begin, size_t row_end) {
+                     RowsNT(out_grad + (bidx * d.m * d.n),
+                            rhs_data + (bidx * d.k * d.n),
+                            lhs_grad + (bidx * d.m * d.k), d.n, d.k, row_begin,
+                            row_end);
+                   });
+    }
 
-    for (size_t bidx = 0; bidx < batch; bidx++) {
-      const scalar_t *a_data_b = a_data.data() + bidx * m * k;
-      const scalar_t *b_data_b = b_data.data() + bidx * k * n;
-      scalar_t *a_grad_b = a_grad.data() + bidx * m * k;
-      scalar_t *b_grad_b = b_grad.data() + bidx * k * n;
-      const scalar_t *out_grad_b = out_grad.data() + bidx * m * n;
-
-      for (size_t i = 0; i < m; i++) {
-        for (size_t j = 0; j < k; j++) {
-          for (size_t p = 0; p < n; p++) {
-            a_grad_b[i * k + j] += out_grad_b[i * n + p] * b_data_b[j * n + p];
-          }
-        }
-      }
-
-      for (size_t i = 0; i < k; i++) {
-        for (size_t j = 0; j < n; j++) {
-          for (size_t p = 0; p < m; p++) {
-            b_grad_b[i * n + j] += a_data_b[p * k + i] * out_grad_b[p * n + j];
-          }
-        }
-      }
+    if (rhs->requires_grad()) {
+      const scalar_t *lhs_data = lhs->data().data();
+      scalar_t *rhs_grad = rhs->grad().data();
+      ParallelRows(d.batch, d.k, d.m * d.n,
+                   [&](size_t bidx, size_t row_begin, size_t row_end) {
+                     RowsTN(lhs_data + (bidx * d.m * d.k),
+                            out_grad + (bidx * d.m * d.n),
+                            rhs_grad + (bidx * d.k * d.n), d.m, d.k, d.n,
+                            row_begin, row_end);
+                   });
     }
   };
 }
@@ -129,34 +183,41 @@ NTDims MakeNTDims(const Tensor &lhs, const Tensor &rhs) {
 
 void MatmulNT(const OpArgs &args) {
   const NTDims d = MakeNTDims(*args.lhs, *args.rhs);
-  auto rhs = args.rhs->data();
-  std::vector<scalar_t> transposed(d.k * d.n);
-  for (size_t j = 0; j < d.n; j++) {
-    for (size_t p = 0; p < d.k; p++) {
-      transposed[(p * d.n) + j] = rhs[(j * d.k) + p];
-    }
-  }
-  MatmulBatch(args.lhs->data().data(), transposed.data(),
-              args.out->data().data(), d.m, d.k, d.n);
+  const scalar_t *lhs = args.lhs->data().data();
+  const scalar_t *rhs = args.rhs->data().data();
+  scalar_t *out = args.out->data().data();
+
+  ParallelRows(1, d.m, d.k * d.n,
+               [&](size_t, size_t row_begin, size_t row_end) {
+                 std::fill(out + (row_begin * d.n), out + (row_end * d.n),
+                           0.0f);
+                 RowsNT(lhs, rhs, out, d.k, d.n, row_begin, row_end);
+               });
 }
 
 std::function<void()> MatmulNTBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
     const NTDims d = MakeNTDims(*lhs, *rhs);
-    auto a_data = lhs->data();
-    auto b_data = rhs->data();
-    auto a_grad = lhs->grad();
-    auto b_grad = rhs->grad();
-    auto out_grad = out->grad();
+    const scalar_t *out_grad = out->grad().data();
 
-    for (size_t i = 0; i < d.m; i++) {
-      for (size_t j = 0; j < d.n; j++) {
-        const scalar_t g = out_grad[(i * d.n) + j];
-        for (size_t p = 0; p < d.k; p++) {
-          a_grad[(i * d.k) + p] += g * b_data[(j * d.k) + p];
-          b_grad[(j * d.k) + p] += g * a_data[(i * d.k) + p];
-        }
-      }
+    if (lhs->requires_grad()) {
+      const scalar_t *rhs_data = rhs->data().data();
+      scalar_t *lhs_grad = lhs->grad().data();
+      ParallelRows(1, d.m, d.n * d.k,
+                   [&](size_t, size_t row_begin, size_t row_end) {
+                     RowsNN(out_grad, rhs_data, lhs_grad, d.n, d.k, row_begin,
+                            row_end);
+                   });
+    }
+
+    if (rhs->requires_grad()) {
+      const scalar_t *lhs_data = lhs->data().data();
+      scalar_t *rhs_grad = rhs->grad().data();
+      ParallelRows(1, d.n, d.m * d.k,
+                   [&](size_t, size_t row_begin, size_t row_end) {
+                     RowsTN(out_grad, lhs_data, rhs_grad, d.m, d.n, d.k,
+                            row_begin, row_end);
+                   });
     }
   };
 }
