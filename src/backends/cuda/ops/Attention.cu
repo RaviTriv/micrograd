@@ -11,6 +11,7 @@
 #include <stdexcept>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Bf16.h"
 #include "micrograd/backends/cuda/ops/Gemm.h"
 #include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
@@ -1379,6 +1380,533 @@ std::function<void()> CausalSelfAttentionBackward(const GradArgs &args) {
   };
 }
 
+constexpr int kBfHeadDim = 64;
+constexpr int kBfLd = kBfHeadDim + 8;
+constexpr int kBfTile = 64;
+constexpr int kBfQueryTile = 32;
+constexpr int kBfThreads = 128;
+constexpr int kBfRowVectors = kBfHeadDim / 8;
+constexpr float kLog2e = 1.4426950408889634f;
+
+__device__ inline void MmaBf16(float (&d)[4], const uint32_t (&a)[4],
+                               uint32_t b0, uint32_t b1) {
+  asm volatile(
+      "mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 "
+      "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};\n"
+      : "+f"(d[0]), "+f"(d[1]), "+f"(d[2]), "+f"(d[3])
+      : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]), "r"(b0), "r"(b1));
+}
+
+__device__ inline void LdMatrixX4(uint32_t (&r)[4], const bf16 *ptr) {
+  const auto addr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x4.shared.b16 {%0, %1, %2, %3}, [%4];\n"
+      : "=r"(r[0]), "=r"(r[1]), "=r"(r[2]), "=r"(r[3])
+      : "r"(addr));
+}
+
+__device__ inline void LdMatrixX4Trans(uint32_t (&r)[4], const bf16 *ptr) {
+  const auto addr = static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+  asm volatile(
+      "ldmatrix.sync.aligned.m8n8.x4.trans.shared.b16 {%0, %1, %2, %3}, "
+      "[%4];\n"
+      : "=r"(r[0]), "=r"(r[1]), "=r"(r[2]), "=r"(r[3])
+      : "r"(addr));
+}
+
+__device__ inline uint32_t PackBf16(float lo, float hi) {
+  const __nv_bfloat162 value = __floats2bfloat162_rn(lo, hi);
+  return *reinterpret_cast<const uint32_t *>(&value);
+}
+
+__device__ inline const bf16 *AFragAddress(const bf16 *tile, int row0, int col0,
+                                           int lane) {
+  return tile + ((row0 + (lane % 16)) * kBfLd) + col0 + ((lane / 16) * 8);
+}
+
+__device__ inline const bf16 *BFragAddress(const bf16 *tile, int row0, int col0,
+                                           int lane) {
+  return tile + ((row0 + (lane % 8)) * kBfLd) + col0 + ((lane / 8) * 8);
+}
+
+__device__ inline const bf16 *BTransFragAddress(const bf16 *tile, int row0,
+                                                int col0, int lane) {
+  return tile + ((row0 + (lane % 8) + (((lane / 8) % 2) * 8)) * kBfLd) + col0 +
+         ((lane / 16) * 8);
+}
+
+__device__ void LoadTileBf16(bf16 *dst, const bf16 *src, int row0, int rows,
+                             int seq, int embed, int tid, int threads) {
+  for (int idx = tid; idx < rows * kBfRowVectors; idx += threads) {
+    const int r = idx / kBfRowVectors;
+    const int c = (idx % kBfRowVectors) * 8;
+    uint4 value = make_uint4(0, 0, 0, 0);
+    if (row0 + r < seq) {
+      value = *reinterpret_cast<const uint4 *>(
+          src + (static_cast<size_t>(row0 + r) * embed) + c);
+    }
+    *reinterpret_cast<uint4 *>(dst + (r * kBfLd) + c) = value;
+  }
+}
+
+__device__ inline void StorePairBf16(bf16 *dst, float x, float y,
+                                     bool accumulate) {
+  auto *target = reinterpret_cast<__nv_bfloat162 *>(dst);
+  if (accumulate) {
+    const float2 old = __bfloat1622float2(*target);
+    x += old.x;
+    y += old.y;
+  }
+  *target = __floats2bfloat162_rn(x, y);
+}
+
+__device__ inline float QuadMax(float value) {
+  value = fmaxf(value, __shfl_xor_sync(0xffffffffU, value, 1));
+  return fmaxf(value, __shfl_xor_sync(0xffffffffU, value, 2));
+}
+
+__device__ inline float QuadSum(float value) {
+  value += __shfl_xor_sync(0xffffffffU, value, 1);
+  return value + __shfl_xor_sync(0xffffffffU, value, 2);
+}
+
+__global__ void __launch_bounds__(kBfThreads)
+    FlashForwardBf16Kernel(const bf16 *q, const bf16 *k, const bf16 *v,
+                           bf16 *out, float *lse, FlashDims d) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  __shared__ __align__(16) bf16 qs[kBfTile * kBfLd];
+  __shared__ __align__(16) bf16 ks[kBfTile * kBfLd];
+  __shared__ __align__(16) bf16 vs[kBfTile * kBfLd];
+  const int tid = static_cast<int>(threadIdx.x);
+  const int warp = tid / 32;
+  const int lane = tid % 32;
+  const int g = lane >> 2;
+  const int t4 = lane & 3;
+  const int q_tile = static_cast<int>(gridDim.x - 1 - blockIdx.x);
+  const int bh = static_cast<int>(blockIdx.y);
+  const int b = bh / d.heads;
+  const int h = bh % d.heads;
+  const size_t base = (static_cast<size_t>(b) * d.seq * d.embed) +
+                      (static_cast<size_t>(h) * kBfHeadDim);
+  const int q0 = q_tile * kBfTile;
+
+  LoadTileBf16(qs, q + base, q0, kBfTile, d.seq, d.embed, tid, kBfThreads);
+  __syncthreads();
+  uint32_t qf[4][4];
+  for (int kk = 0; kk < 4; kk++) {
+    LdMatrixX4(qf[kk], AFragAddress(qs, warp * 16, kk * 16, lane));
+  }
+
+  const float sl2 = d.scale * kLog2e;
+  float o[8][4] = {};
+  float m[2] = {-1e30f, -1e30f};
+  float l[2] = {0.0f, 0.0f};
+  const int row_a = q0 + (warp * 16) + g;
+  const int rows[2] = {row_a, row_a + 8};
+
+  for (int kv_tile = 0; kv_tile <= q_tile; kv_tile++) {
+    const int k0 = kv_tile * kBfTile;
+    __syncthreads();
+    LoadTileBf16(ks, k + base, k0, kBfTile, d.seq, d.embed, tid, kBfThreads);
+    LoadTileBf16(vs, v + base, k0, kBfTile, d.seq, d.embed, tid, kBfThreads);
+    __syncthreads();
+
+    float s[8][4] = {};
+    for (int j = 0; j < 8; j++) {
+      for (int kk2 = 0; kk2 < 2; kk2++) {
+        uint32_t bk[4];
+        LdMatrixX4(bk, BFragAddress(ks, j * 8, kk2 * 32, lane));
+        MmaBf16(s[j], qf[2 * kk2], bk[0], bk[1]);
+        MmaBf16(s[j], qf[(2 * kk2) + 1], bk[2], bk[3]);
+      }
+    }
+
+    const bool diagonal = kv_tile == q_tile;
+    float mx[2] = {m[0], m[1]};
+    for (int j = 0; j < 8; j++) {
+      for (int e = 0; e < 4; e++) {
+        const int col = k0 + (j * 8) + (2 * t4) + (e & 1);
+        float value = s[j][e] * sl2;
+        if (diagonal && col > rows[e / 2]) {
+          value = -INFINITY;
+        }
+        s[j][e] = value;
+        mx[e / 2] = fmaxf(mx[e / 2], value);
+      }
+    }
+    float alpha[2];
+    for (int r = 0; r < 2; r++) {
+      mx[r] = QuadMax(mx[r]);
+      alpha[r] = exp2f(m[r] - mx[r]);
+      m[r] = mx[r];
+      l[r] *= alpha[r];
+    }
+    for (int j = 0; j < 8; j++) {
+      for (int e = 0; e < 4; e++) {
+        const float p = exp2f(s[j][e] - m[e / 2]);
+        s[j][e] = p;
+        l[e / 2] += p;
+        o[j][e] *= alpha[e / 2];
+      }
+    }
+
+    for (int kk = 0; kk < 4; kk++) {
+      const uint32_t pa[4] = {PackBf16(s[2 * kk][0], s[2 * kk][1]),
+                              PackBf16(s[2 * kk][2], s[2 * kk][3]),
+                              PackBf16(s[(2 * kk) + 1][0], s[(2 * kk) + 1][1]),
+                              PackBf16(s[(2 * kk) + 1][2], s[(2 * kk) + 1][3])};
+      for (int n2 = 0; n2 < 4; n2++) {
+        uint32_t bv[4];
+        LdMatrixX4Trans(bv, BTransFragAddress(vs, kk * 16, n2 * 16, lane));
+        MmaBf16(o[2 * n2], pa, bv[0], bv[1]);
+        MmaBf16(o[(2 * n2) + 1], pa, bv[2], bv[3]);
+      }
+    }
+  }
+
+  for (int r = 0; r < 2; r++) {
+    l[r] = QuadSum(l[r]);
+    if (rows[r] >= d.seq) {
+      continue;
+    }
+    const float inv = 1.0f / l[r];
+    bf16 *dst = out + base + (static_cast<size_t>(rows[r]) * d.embed);
+    for (int j = 0; j < 8; j++) {
+      StorePairBf16(dst + (j * 8) + (2 * t4), o[j][2 * r] * inv,
+                    o[j][(2 * r) + 1] * inv, false);
+    }
+    if (t4 == 0) {
+      lse[(static_cast<size_t>(bh) * d.seq) + rows[r]] =
+          (m[r] + log2f(l[r])) / kLog2e;
+    }
+  }
+#endif
+}
+
+__global__ void FlashDeltaBf16Kernel(const bf16 *out, const bf16 *grad_out,
+                                     float *delta, FlashDims d) {
+  const size_t row = (static_cast<size_t>(blockIdx.x) * kSoftmaxRowsPerBlock) +
+                     threadIdx.y;
+  const size_t rows = static_cast<size_t>(d.batch) * d.heads * d.seq;
+  if (row >= rows) {
+    return;
+  }
+  const size_t t = row % d.seq;
+  const size_t bh = row / d.seq;
+  const size_t b = bh / d.heads;
+  const size_t h = bh % d.heads;
+  const size_t offset = (((b * d.seq) + t) * d.embed) + (h * kBfHeadDim) +
+                        (2 * threadIdx.x);
+  const float2 o = __bfloat1622float2(
+      *reinterpret_cast<const __nv_bfloat162 *>(out + offset));
+  const float2 go = __bfloat1622float2(
+      *reinterpret_cast<const __nv_bfloat162 *>(grad_out + offset));
+  const float dot = WarpSum((o.x * go.x) + (o.y * go.y));
+  if (threadIdx.x == 0) {
+    delta[row] = dot;
+  }
+}
+
+__global__ void __launch_bounds__(kBfThreads)
+    FlashBackwardKVBf16Kernel(const bf16 *q, const bf16 *k, const bf16 *v,
+                              const bf16 *grad_out, const float *lse,
+                              const float *delta, bf16 *grad_k, bf16 *grad_v,
+                              bool accumulate_k, bool accumulate_v,
+                              FlashDims d) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  __shared__ __align__(16) bf16 ks[kBfTile * kBfLd];
+  __shared__ __align__(16) bf16 vs[kBfTile * kBfLd];
+  __shared__ __align__(16) bf16 qs[kBfQueryTile * kBfLd];
+  __shared__ __align__(16) bf16 dos[kBfQueryTile * kBfLd];
+  __shared__ float lse_s[kBfQueryTile];
+  __shared__ float delta_s[kBfQueryTile];
+  const int tid = static_cast<int>(threadIdx.x);
+  const int warp = tid / 32;
+  const int lane = tid % 32;
+  const int g = lane >> 2;
+  const int t4 = lane & 3;
+  const int bh = static_cast<int>(blockIdx.y);
+  const int b = bh / d.heads;
+  const int h = bh % d.heads;
+  const size_t base = (static_cast<size_t>(b) * d.seq * d.embed) +
+                      (static_cast<size_t>(h) * kBfHeadDim);
+  const size_t row_base = static_cast<size_t>(bh) * d.seq;
+  const int k0 = static_cast<int>(blockIdx.x) * kBfTile;
+
+  LoadTileBf16(ks, k + base, k0, kBfTile, d.seq, d.embed, tid, kBfThreads);
+  LoadTileBf16(vs, v + base, k0, kBfTile, d.seq, d.embed, tid, kBfThreads);
+  __syncthreads();
+  uint32_t kf[4][4];
+  uint32_t vf[4][4];
+  for (int kk = 0; kk < 4; kk++) {
+    LdMatrixX4(kf[kk], AFragAddress(ks, warp * 16, kk * 16, lane));
+    LdMatrixX4(vf[kk], AFragAddress(vs, warp * 16, kk * 16, lane));
+  }
+
+  const float sl2 = d.scale * kLog2e;
+  float dk[8][4] = {};
+  float dv[8][4] = {};
+  const int key_a = k0 + (warp * 16) + g;
+  const int keys[2] = {key_a, key_a + 8};
+  const int q_tiles = (d.seq + kBfQueryTile - 1) / kBfQueryTile;
+
+  for (int q_tile = k0 / kBfQueryTile; q_tile < q_tiles; q_tile++) {
+    const int q0 = q_tile * kBfQueryTile;
+    __syncthreads();
+    LoadTileBf16(qs, q + base, q0, kBfQueryTile, d.seq, d.embed, tid,
+                 kBfThreads);
+    LoadTileBf16(dos, grad_out + base, q0, kBfQueryTile, d.seq, d.embed, tid,
+                 kBfThreads);
+    if (tid < kBfQueryTile) {
+      const bool in_range = q0 + tid < d.seq;
+      lse_s[tid] = in_range ? lse[row_base + q0 + tid] * kLog2e : 0.0f;
+      delta_s[tid] = in_range ? delta[row_base + q0 + tid] : 0.0f;
+    }
+    __syncthreads();
+
+    float st[4][4] = {};
+    float dpt[4][4] = {};
+    for (int j = 0; j < 4; j++) {
+      for (int kk2 = 0; kk2 < 2; kk2++) {
+        uint32_t bq[4];
+        uint32_t bo[4];
+        LdMatrixX4(bq, BFragAddress(qs, j * 8, kk2 * 32, lane));
+        MmaBf16(st[j], kf[2 * kk2], bq[0], bq[1]);
+        MmaBf16(st[j], kf[(2 * kk2) + 1], bq[2], bq[3]);
+        LdMatrixX4(bo, BFragAddress(dos, j * 8, kk2 * 32, lane));
+        MmaBf16(dpt[j], vf[2 * kk2], bo[0], bo[1]);
+        MmaBf16(dpt[j], vf[(2 * kk2) + 1], bo[2], bo[3]);
+      }
+    }
+
+    for (int j = 0; j < 4; j++) {
+      for (int e = 0; e < 4; e++) {
+        const int qi = (j * 8) + (2 * t4) + (e & 1);
+        const int tq = q0 + qi;
+        const bool valid = tq >= keys[e / 2] && tq < d.seq;
+        const float p = valid ? exp2f((st[j][e] * sl2) - lse_s[qi]) : 0.0f;
+        dpt[j][e] = p * (dpt[j][e] - delta_s[qi]);
+        st[j][e] = p;
+      }
+    }
+
+    for (int kk = 0; kk < 2; kk++) {
+      const uint32_t pa[4] = {
+          PackBf16(st[2 * kk][0], st[2 * kk][1]),
+          PackBf16(st[2 * kk][2], st[2 * kk][3]),
+          PackBf16(st[(2 * kk) + 1][0], st[(2 * kk) + 1][1]),
+          PackBf16(st[(2 * kk) + 1][2], st[(2 * kk) + 1][3])};
+      const uint32_t da[4] = {
+          PackBf16(dpt[2 * kk][0], dpt[2 * kk][1]),
+          PackBf16(dpt[2 * kk][2], dpt[2 * kk][3]),
+          PackBf16(dpt[(2 * kk) + 1][0], dpt[(2 * kk) + 1][1]),
+          PackBf16(dpt[(2 * kk) + 1][2], dpt[(2 * kk) + 1][3])};
+      for (int n2 = 0; n2 < 4; n2++) {
+        uint32_t bo[4];
+        uint32_t bq[4];
+        LdMatrixX4Trans(bo, BTransFragAddress(dos, kk * 16, n2 * 16, lane));
+        MmaBf16(dv[2 * n2], pa, bo[0], bo[1]);
+        MmaBf16(dv[(2 * n2) + 1], pa, bo[2], bo[3]);
+        LdMatrixX4Trans(bq, BTransFragAddress(qs, kk * 16, n2 * 16, lane));
+        MmaBf16(dk[2 * n2], da, bq[0], bq[1]);
+        MmaBf16(dk[(2 * n2) + 1], da, bq[2], bq[3]);
+      }
+    }
+  }
+
+  for (int r = 0; r < 2; r++) {
+    if (keys[r] >= d.seq) {
+      continue;
+    }
+    const size_t offset = base + (static_cast<size_t>(keys[r]) * d.embed);
+    for (int j = 0; j < 8; j++) {
+      const int col = (j * 8) + (2 * t4);
+      StorePairBf16(grad_k + offset + col, dk[j][2 * r] * d.scale,
+                    dk[j][(2 * r) + 1] * d.scale, accumulate_k);
+      StorePairBf16(grad_v + offset + col, dv[j][2 * r], dv[j][(2 * r) + 1],
+                    accumulate_v);
+    }
+  }
+#endif
+}
+
+__global__ void __launch_bounds__(kBfThreads)
+    FlashBackwardQBf16Kernel(const bf16 *q, const bf16 *k, const bf16 *v,
+                             const bf16 *grad_out, const float *lse,
+                             const float *delta, bf16 *grad_q,
+                             bool accumulate_q, FlashDims d) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+  __shared__ __align__(16) bf16 qs[kBfTile * kBfLd];
+  __shared__ __align__(16) bf16 dos[kBfTile * kBfLd];
+  __shared__ __align__(16) bf16 ks[kBfTile * kBfLd];
+  __shared__ __align__(16) bf16 vs[kBfTile * kBfLd];
+  const int tid = static_cast<int>(threadIdx.x);
+  const int warp = tid / 32;
+  const int lane = tid % 32;
+  const int g = lane >> 2;
+  const int t4 = lane & 3;
+  const int q_tile = static_cast<int>(gridDim.x - 1 - blockIdx.x);
+  const int bh = static_cast<int>(blockIdx.y);
+  const int b = bh / d.heads;
+  const int h = bh % d.heads;
+  const size_t base = (static_cast<size_t>(b) * d.seq * d.embed) +
+                      (static_cast<size_t>(h) * kBfHeadDim);
+  const size_t row_base = static_cast<size_t>(bh) * d.seq;
+  const int q0 = q_tile * kBfTile;
+
+  LoadTileBf16(qs, q + base, q0, kBfTile, d.seq, d.embed, tid, kBfThreads);
+  LoadTileBf16(dos, grad_out + base, q0, kBfTile, d.seq, d.embed, tid,
+               kBfThreads);
+  __syncthreads();
+  uint32_t qf[4][4];
+  uint32_t dof[4][4];
+  for (int kk = 0; kk < 4; kk++) {
+    LdMatrixX4(qf[kk], AFragAddress(qs, warp * 16, kk * 16, lane));
+    LdMatrixX4(dof[kk], AFragAddress(dos, warp * 16, kk * 16, lane));
+  }
+
+  const float sl2 = d.scale * kLog2e;
+  const int row_a = q0 + (warp * 16) + g;
+  const int rows[2] = {row_a, row_a + 8};
+  float row_lse[2];
+  float row_delta[2];
+  for (int r = 0; r < 2; r++) {
+    const bool in_range = rows[r] < d.seq;
+    row_lse[r] = in_range ? lse[row_base + rows[r]] * kLog2e : 0.0f;
+    row_delta[r] = in_range ? delta[row_base + rows[r]] : 0.0f;
+  }
+  float dq[8][4] = {};
+
+  for (int kv_tile = 0; kv_tile <= q_tile; kv_tile++) {
+    const int k0 = kv_tile * kBfTile;
+    __syncthreads();
+    LoadTileBf16(ks, k + base, k0, kBfTile, d.seq, d.embed, tid, kBfThreads);
+    LoadTileBf16(vs, v + base, k0, kBfTile, d.seq, d.embed, tid, kBfThreads);
+    __syncthreads();
+
+    float s[8][4] = {};
+    float dp[8][4] = {};
+    for (int j = 0; j < 8; j++) {
+      for (int kk2 = 0; kk2 < 2; kk2++) {
+        uint32_t bk[4];
+        uint32_t bv[4];
+        LdMatrixX4(bk, BFragAddress(ks, j * 8, kk2 * 32, lane));
+        MmaBf16(s[j], qf[2 * kk2], bk[0], bk[1]);
+        MmaBf16(s[j], qf[(2 * kk2) + 1], bk[2], bk[3]);
+        LdMatrixX4(bv, BFragAddress(vs, j * 8, kk2 * 32, lane));
+        MmaBf16(dp[j], dof[2 * kk2], bv[0], bv[1]);
+        MmaBf16(dp[j], dof[(2 * kk2) + 1], bv[2], bv[3]);
+      }
+    }
+
+    const bool diagonal = kv_tile == q_tile;
+    for (int j = 0; j < 8; j++) {
+      for (int e = 0; e < 4; e++) {
+        const int col = k0 + (j * 8) + (2 * t4) + (e & 1);
+        const bool valid = !(diagonal && col > rows[e / 2]);
+        const float p =
+            valid ? exp2f((s[j][e] * sl2) - row_lse[e / 2]) : 0.0f;
+        s[j][e] = p * (dp[j][e] - row_delta[e / 2]);
+      }
+    }
+
+    for (int kk = 0; kk < 4; kk++) {
+      const uint32_t da[4] = {
+          PackBf16(s[2 * kk][0], s[2 * kk][1]),
+          PackBf16(s[2 * kk][2], s[2 * kk][3]),
+          PackBf16(s[(2 * kk) + 1][0], s[(2 * kk) + 1][1]),
+          PackBf16(s[(2 * kk) + 1][2], s[(2 * kk) + 1][3])};
+      for (int n2 = 0; n2 < 4; n2++) {
+        uint32_t bk[4];
+        LdMatrixX4Trans(bk, BTransFragAddress(ks, kk * 16, n2 * 16, lane));
+        MmaBf16(dq[2 * n2], da, bk[0], bk[1]);
+        MmaBf16(dq[(2 * n2) + 1], da, bk[2], bk[3]);
+      }
+    }
+  }
+
+  for (int r = 0; r < 2; r++) {
+    if (rows[r] >= d.seq) {
+      continue;
+    }
+    bf16 *dst = grad_q + base + (static_cast<size_t>(rows[r]) * d.embed);
+    for (int j = 0; j < 8; j++) {
+      StorePairBf16(dst + (j * 8) + (2 * t4), dq[j][2 * r] * d.scale,
+                    dq[j][(2 * r) + 1] * d.scale, accumulate_q);
+    }
+  }
+#endif
+}
+
+void RequireBf16Flash(const FlashDims &d) {
+  static const int major = [] {
+    int device = 0;
+    int value = 0;
+    MICROGRAD_CUDA_CHECK(cudaGetDevice(&device));
+    MICROGRAD_CUDA_CHECK(cudaDeviceGetAttribute(
+        &value, cudaDevAttrComputeCapabilityMajor, device));
+    return value;
+  }();
+  if (major < 8 || d.embed != d.heads * kBfHeadDim) {
+    throw std::runtime_error(
+        "bf16 causal_self_attention needs sm_80 or newer and head dim 64");
+  }
+}
+
+void CausalSelfAttentionBf16(const OpArgs &args) {
+  const FlashDims fd =
+      MakeFlashDims(*args.lhs, static_cast<size_t>(args.dim), args.scalar);
+  RequireBf16Flash(fd);
+  const dim3 grid(
+      static_cast<unsigned int>((fd.seq + kBfTile - 1) / kBfTile),
+      static_cast<unsigned int>(fd.batch * fd.heads));
+  FlashForwardBf16Kernel<<<grid, kBfThreads, 0,
+                           CudaContext::instance().stream()>>>(
+      Bf16Data(args.lhs), Bf16Data(args.rhs), Bf16Data(args.extra),
+      Bf16Data(args.out), DataPtr(args.aux), fd);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+std::function<void()> CausalSelfAttentionBackwardBf16(const GradArgs &args) {
+  return [q = args.lhs, k = args.rhs, v = args.extra, out = args.out,
+          lse = args.aux, scale = args.scalar]() {
+    if (q.get() == k.get() || q.get() == v.get() || k.get() == v.get()) {
+      throw std::runtime_error(
+          "bf16 causal_self_attention backward needs distinct q, k and v");
+    }
+    const FlashDims fd = MakeFlashDims(*q, lse->shape()[1], scale);
+    RequireBf16Flash(fd);
+    cudaStream_t stream = CudaContext::instance().stream();
+    const size_t rows = static_cast<size_t>(fd.batch) * fd.heads * fd.seq;
+    const ScratchBuffer delta(rows);
+    const bf16 *grad_out = Bf16Grad(out);
+    const dim3 delta_block(kWarpSize, kSoftmaxRowsPerBlock);
+    FlashDeltaBf16Kernel<<<SoftmaxGrid(rows), delta_block, 0, stream>>>(
+        Bf16Data(static_cast<const Tensor *>(out)), grad_out, delta.get(), fd);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+
+    const unsigned int tiles =
+        static_cast<unsigned int>((fd.seq + kBfTile - 1) / kBfTile);
+    const dim3 grid(tiles, static_cast<unsigned int>(fd.batch * fd.heads));
+    const float *lse_data = DataPtr(static_cast<const Tensor *>(lse.get()));
+    const Bf16GradTarget dv = Bf16GradForWrite(v.get());
+    const Bf16GradTarget dk = Bf16GradForWrite(k.get());
+    FlashBackwardKVBf16Kernel<<<grid, kBfThreads, 0, stream>>>(
+        Bf16Data(static_cast<const Tensor *>(q.get())),
+        Bf16Data(static_cast<const Tensor *>(k.get())),
+        Bf16Data(static_cast<const Tensor *>(v.get())), grad_out, lse_data,
+        delta.get(), dk.ptr, dv.ptr, dk.accumulate, dv.accumulate, fd);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+    const Bf16GradTarget dq = Bf16GradForWrite(q.get());
+    FlashBackwardQBf16Kernel<<<grid, kBfThreads, 0, stream>>>(
+        Bf16Data(static_cast<const Tensor *>(q.get())),
+        Bf16Data(static_cast<const Tensor *>(k.get())),
+        Bf16Data(static_cast<const Tensor *>(v.get())), grad_out, lse_data,
+        delta.get(), dq.ptr, dq.accumulate, fd);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  };
+}
+
 }  // namespace
 
 void RegisterAttentionOps() {
@@ -1397,6 +1925,10 @@ void RegisterAttentionOps() {
                     CausalSelfAttention);
   registry.RegisterBackward(OpId::kCausalSelfAttention, Device::CUDA,
                             CausalSelfAttentionBackward);
+  registry.Register(OpId::kCausalSelfAttention, Device::CUDA,
+                    CausalSelfAttentionBf16, DType::kBFloat16);
+  registry.RegisterBackward(OpId::kCausalSelfAttention, Device::CUDA,
+                            CausalSelfAttentionBackwardBf16, DType::kBFloat16);
 }
 
 }  // namespace micrograd::cuda::ops

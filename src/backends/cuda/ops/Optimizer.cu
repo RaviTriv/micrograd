@@ -80,14 +80,19 @@ __global__ void FusedAdamWStepKernel(const AdamWTensor *tensors, scalar_t lr,
                                      scalar_t beta1, scalar_t beta2,
                                      scalar_t eps, scalar_t weight_decay,
                                      scalar_t bias_correction1,
-                                     scalar_t bias_correction2) {
+                                     scalar_t bias_correction2,
+                                     const scalar_t *clip_total,
+                                     scalar_t max_norm) {
   const AdamWTensor &t = tensors[blockIdx.y];
+  const bool clip = clip_total != nullptr;
+  const scalar_t scale =
+      clip ? fminf(1.0f, max_norm / (sqrtf(*clip_total) + 1e-6f)) : 1.0f;
   for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < t.n;
        i += static_cast<size_t>(blockDim.x) * gridDim.x) {
     if (t.decay) {
       t.data[i] -= lr * weight_decay * t.data[i];
     }
-    scalar_t g = t.grad[i];
+    scalar_t g = clip ? t.grad[i] * scale : t.grad[i];
     t.m[i] = (beta1 * t.m[i]) + ((1.0f - beta1) * g);
     t.v[i] = (beta2 * t.v[i]) + ((1.0f - beta2) * g * g);
     scalar_t m_hat = t.m[i] / bias_correction1;
@@ -214,6 +219,36 @@ scalar_t GradNormSquared(const Tensor &param) {
   return result;
 }
 
+const scalar_t *GradNormSquaredTotal(const std::vector<Tensor *> &params) {
+  std::vector<ClipTensor> tensors;
+  tensors.reserve(params.size());
+  size_t max_n = 0;
+  for (Tensor *param : params) {
+    tensors.push_back({.grad = GradPtr(param), .n = param->size()});
+    max_n = std::max(max_n, param->size());
+  }
+
+  static DeviceTable<ClipTensor> table;
+  const ClipTensor *device_tensors = UploadTable(table, tensors, SameClipEntry);
+
+  auto &ctx = CudaContext::instance();
+  static auto *total =
+      static_cast<scalar_t *>(ctx.allocate(sizeof(scalar_t)));
+  MICROGRAD_CUDA_CHECK(
+      cudaMemsetAsync(total, 0, sizeof(scalar_t), ctx.stream()));
+  if (tensors.empty()) {
+    return total;
+  }
+  const size_t blocks = std::clamp<size_t>(
+      (max_n + kBlockSize - 1) / kBlockSize, 1, kClipMaxBlocksPerTensor);
+  const dim3 grid(static_cast<unsigned>(blocks),
+                  static_cast<unsigned>(tensors.size()));
+  MultiGradNormSquaredKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(
+      device_tensors, total);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  return total;
+}
+
 void ClipGradNorm(const std::vector<Tensor *> &params, scalar_t max_norm) {
   if (params.empty()) {
     return;
@@ -269,7 +304,8 @@ void AdamWStep(Tensor &param, Tensor &m, Tensor &v, scalar_t lr, scalar_t beta1,
 void FusedAdamWStep(const std::vector<AdamWTensor> &tensors, scalar_t lr,
                     scalar_t beta1, scalar_t beta2, scalar_t eps,
                     scalar_t weight_decay, scalar_t bias_correction1,
-                    scalar_t bias_correction2) {
+                    scalar_t bias_correction2, const scalar_t *clip_total,
+                    scalar_t max_norm) {
   if (tensors.empty()) {
     return;
   }
@@ -287,7 +323,7 @@ void FusedAdamWStep(const std::vector<AdamWTensor> &tensors, scalar_t lr,
             static_cast<unsigned>(tensors.size()));
   FusedAdamWStepKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(
       device_tensors, lr, beta1, beta2, eps, weight_decay, bias_correction1,
-      bias_correction2);
+      bias_correction2, clip_total, max_norm);
   MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
 }
 

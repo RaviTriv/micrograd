@@ -69,13 +69,14 @@ std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape) {
 }
 
 std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape,
-                                      Backend device) {
-  return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape), device);
+                                      Backend device, DType dtype) {
+  return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape), device,
+                                  dtype);
 }
 
 std::shared_ptr<Tensor> Tensor::empty(std::vector<size_t> shape,
-                                      Backend device) {
-  Storage data(ElementCount(shape) * sizeof(scalar_t), device);
+                                      Backend device, DType dtype) {
+  Storage data(ElementCount(shape) * dtype_size(dtype), device, dtype);
   if (PoisonEmptyTensors()) {
     FillBytes(data, 0xFF, "poison_fill");
   }
@@ -93,9 +94,9 @@ Tensor::Tensor(ConstructorKey key, std::vector<size_t> shape)
     : Tensor(key, std::move(shape), Device::CPU) {}
 
 Tensor::Tensor(ConstructorKey /*key*/, std::vector<size_t> shape,
-               Backend device)
+               Backend device, DType dtype)
     : shape_(std::move(shape)) {
-  data_ = Storage(ElementCount(shape_) * sizeof(scalar_t), device);
+  data_ = Storage(ElementCount(shape_) * dtype_size(dtype), device, dtype);
   ZeroFill(data_);
 }
 
@@ -132,7 +133,7 @@ Tensor::~Tensor() {
 
 const std::vector<size_t> &Tensor::shape() const { return shape_; }
 
-size_t Tensor::size() const { return data_.bytes() / sizeof(scalar_t); }
+size_t Tensor::size() const { return data_.bytes() / dtype_size(dtype()); }
 
 scalar_t &Tensor::at(const std::vector<size_t> &indices) {
   return data()[flat_index(indices)];
@@ -171,21 +172,32 @@ size_t Tensor::flat_index(const std::vector<size_t> &indices) const {
 }
 
 std::span<scalar_t> Tensor::data() {
+  require_float32();
   return {static_cast<scalar_t *>(data_.data()), size()};
 }
 
 std::span<const scalar_t> Tensor::data() const {
+  require_float32();
   return {static_cast<const scalar_t *>(data_.data()), size()};
 }
 
 std::span<scalar_t> Tensor::grad() {
+  require_float32();
   ensure_grad();
   return {static_cast<scalar_t *>(grad_.data()), size()};
 }
 
 std::span<const scalar_t> Tensor::grad() const {
+  require_float32();
   ensure_grad();
   return {static_cast<const scalar_t *>(grad_.data()), size()};
+}
+
+void Tensor::require_float32() const {
+  if (dtype() != DType::kFloat32) {
+    throw std::runtime_error(
+        "Tensor element access needs float32, cast the tensor first");
+  }
 }
 
 bool Tensor::has_grad() const { return grad_.bytes() > 0; }
@@ -200,7 +212,7 @@ void Tensor::ensure_grad() const {
     return;
   }
 
-  grad_ = Storage(total * sizeof(scalar_t), backend());
+  grad_ = Storage(total * dtype_size(dtype()), backend(), dtype());
   fill_grad_with_zeros();
 }
 
@@ -258,7 +270,7 @@ Storage &Tensor::grad_storage_for_overwrite() {
   if (total == 0) {
     return grad_;
   }
-  grad_ = Storage(total * sizeof(scalar_t), backend());
+  grad_ = Storage(total * dtype_size(dtype()), backend(), dtype());
   if (PoisonEmptyTensors()) {
     FillBytes(grad_, 0xFF, "poison_fill");
   }
@@ -268,8 +280,8 @@ Storage &Tensor::grad_storage_for_overwrite() {
 Storage Tensor::take_grad_storage() { return std::move(grad_); }
 
 void Tensor::set_grad_storage(Storage grad) {
-  if (grad.bytes() != size() * sizeof(scalar_t) ||
-      grad.device() != backend()) {
+  if (grad.bytes() != size() * dtype_size(dtype()) ||
+      grad.device() != backend() || grad.dtype() != dtype()) {
     throw std::invalid_argument("Gradient storage does not match the tensor");
   }
   grad_ = std::move(grad);

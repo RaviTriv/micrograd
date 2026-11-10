@@ -99,12 +99,17 @@ std::shared_ptr<Tensor> Tensor::gather_per_row(
 }
 
 std::shared_ptr<Tensor> Tensor::cross_entropy_rows(
-    const std::vector<size_t> &targets) {
+    const std::vector<size_t> &targets, size_t classes) {
   if (shape_.size() < 2) {
     throw std::invalid_argument("cross_entropy expects logits of rank 2 or more");
   }
-  size_t cols = shape_.back();
-  size_t rows = cols == 0 ? 0 : size() / cols;
+  if (classes > shape_.back()) {
+    throw std::invalid_argument(
+        "cross_entropy class count exceeds the logits width");
+  }
+  size_t width = shape_.back();
+  size_t rows = width == 0 ? 0 : size() / width;
+  size_t cols = classes == 0 ? width : classes;
   if (targets.size() != rows) {
     throw std::invalid_argument(
         "gather_per_row index count does not match the row count");
@@ -123,7 +128,9 @@ std::shared_ptr<Tensor> Tensor::cross_entropy_rows(
   return apply(OpId::kCrossEntropy, {rows},
                {.lhs = shared_from_this(),
                 .rhs = target_tensor,
-                .grad_through_lhs_only = true});
+                .dim = static_cast<int64_t>(classes),
+                .grad_through_lhs_only = true,
+                .dtype = DType::kFloat32});
 }
 
 }  // namespace micrograd

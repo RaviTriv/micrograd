@@ -25,7 +25,8 @@ std::shared_ptr<Tensor> position_ids(size_t seq_len, Backend backend) {
 }  // namespace
 
 Model::Model(size_t vocab_size, const GPTConfig &config) : config_(config) {
-  token_embedding_ = std::make_shared<Embedding>(vocab_size, config_.n_embd);
+  token_embedding_ = std::make_shared<Embedding>(vocab_size, config_.n_embd,
+                                                 config_.padded_vocab_size);
   if (!config_.arch.rotary) {
     position_embedding_ =
         std::make_shared<Embedding>(config_.block_size, config_.n_embd);
@@ -69,7 +70,7 @@ std::shared_ptr<Tensor> Model::forward(const std::shared_ptr<Tensor> &input) {
         position_embedding_->forward(position_ids(seq_len, input->backend())));
   }
 
-  x = blocks_->forward(x);
+  x = blocks_->forward(x->cast(config_.activation_dtype));
   x = ln_f_->forward(x);
 
   return lm_head_->forward(x);

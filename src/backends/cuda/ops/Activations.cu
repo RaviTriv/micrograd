@@ -8,6 +8,7 @@
 #include <functional>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Bf16.h"
 #include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #include "micrograd/ops/Dispatch.h"
@@ -330,10 +331,76 @@ std::function<void()> NegBackward(const GradArgs &args) {
   };
 }
 
+__device__ inline float GeluValue(float x) {
+  const float t = tanhf(kGeluSqrt2OverPi * (x + (kGeluCubicCoeff * x * x * x)));
+  return 0.5f * x * (1.0f + t);
+}
+
+__device__ inline float GeluSlope(float x) {
+  const float t = tanhf(kGeluSqrt2OverPi * (x + (kGeluCubicCoeff * x * x * x)));
+  const float du_dx =
+      kGeluSqrt2OverPi * (1.0f + (3.0f * kGeluCubicCoeff * x * x));
+  return (0.5f * (1.0f + t)) + (0.5f * x * (1.0f - (t * t)) * du_dx);
+}
+
+struct GeluBf16Op {
+  const bf16 *in;
+  bf16 *out;
+  __device__ void vector(size_t i) const {
+    Bf16x8 x = LoadBf16x8(in + i);
+    for (int j = 0; j < kBf16Vector; j++) {
+      x.v[j] = GeluValue(x.v[j]);
+    }
+    StoreBf16x8(out + i, x);
+  }
+  __device__ void scalar(size_t i) const {
+    out[i] = __float2bfloat16(GeluValue(__bfloat162float(in[i])));
+  }
+};
+
+struct GeluBackwardBf16Op {
+  const bf16 *out_grad;
+  const bf16 *in;
+  bf16 *grad;
+  bool accumulate;
+  __device__ void vector(size_t i) const {
+    const Bf16x8 x = LoadBf16x8(in + i);
+    const Bf16x8 g = LoadBf16x8(out_grad + i);
+    Bf16x8 result = accumulate ? LoadBf16x8(grad + i) : Bf16x8{};
+    for (int j = 0; j < kBf16Vector; j++) {
+      result.v[j] += g.v[j] * GeluSlope(x.v[j]);
+    }
+    StoreBf16x8(grad + i, result);
+  }
+  __device__ void scalar(size_t i) const {
+    const float old = accumulate ? __bfloat162float(grad[i]) : 0.0f;
+    grad[i] = __float2bfloat16(
+        old + (__bfloat162float(out_grad[i]) *
+               GeluSlope(__bfloat162float(in[i]))));
+  }
+};
+
+void GeluBf16(const OpArgs &args) {
+  LaunchBf16Map(args.lhs->size(),
+                GeluBf16Op{Bf16Data(args.lhs), Bf16Data(args.out)});
+}
+
+std::function<void()> GeluBackwardBf16(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    const Bf16GradTarget target = Bf16GradForWrite(lhs.get());
+    LaunchBf16Map(lhs->size(),
+                  GeluBackwardBf16Op{Bf16Grad(out), Bf16Data(lhs.get()),
+                                     target.ptr, target.accumulate});
+  };
+}
+
 }  // namespace
 
 void RegisterActivationOps() {
   OpRegistry &registry = OpRegistry::Instance();
+  registry.Register(OpId::kGelu, Device::CUDA, GeluBf16, DType::kBFloat16);
+  registry.RegisterBackward(OpId::kGelu, Device::CUDA, GeluBackwardBf16,
+                            DType::kBFloat16);
   registry.Register(OpId::kRelu, Device::CUDA, Relu);
   registry.Register(OpId::kSigmoid, Device::CUDA, Sigmoid);
   registry.Register(OpId::kTanh, Device::CUDA, Tanh);

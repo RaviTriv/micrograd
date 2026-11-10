@@ -33,6 +33,9 @@ std::shared_ptr<Tensor> Tensor::layer_norm(
     throw std::invalid_argument(
         "layer_norm gain and bias must match normalized_shape");
   }
+  if (gain->dtype() != DType::kFloat32 || bias->dtype() != DType::kFloat32) {
+    throw std::invalid_argument("layer_norm expects float32 gain and bias");
+  }
 
   return apply(
       OpId::kLayerNorm, shape_,

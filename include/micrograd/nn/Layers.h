@@ -25,7 +25,7 @@ class Linear : public nn::Module {
 
 class Embedding : public nn::Module {
  public:
-  Embedding(size_t num_embeddings, size_t dim);
+  Embedding(size_t num_embeddings, size_t dim, size_t padded_embeddings = 0);
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;
   std::shared_ptr<Tensor> weight();

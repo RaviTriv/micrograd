@@ -45,6 +45,8 @@ bool ForwardOverwritesOutput(OpId op) {
     case OpId::kAttentionCombine:
     case OpId::kCausalSelfAttention:
     case OpId::kMatmulNT:
+    case OpId::kCast:
+    case OpId::kLinear:
       return true;
     case OpId::kMean:
     case OpId::kReshape:

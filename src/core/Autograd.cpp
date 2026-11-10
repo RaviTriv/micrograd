@@ -29,6 +29,7 @@ void Tensor::require_grad_for_backward() const {
 }
 
 void Tensor::accumulate_into_grad(const Storage &addend) {
+  require_float32();
   Storage total = grad_.copy_to(Device::CPU);
   const Storage extra = addend.copy_to(Device::CPU);
   auto *dst = static_cast<scalar_t *>(total.host_pointer());
@@ -46,6 +47,7 @@ void Tensor::backward(bool retain_graph) {
         "backward() requires a scalar tensor, pass an explicit gradient "
         "instead");
   }
+  require_float32();
 
   Storage seed(sizeof(scalar_t), Device::CPU);
   *static_cast<scalar_t *>(seed.data()) = 1.0f;
@@ -56,6 +58,9 @@ void Tensor::backward(const Tensor &grad_output, bool retain_graph) {
   require_grad_for_backward();
   if (grad_output.shape() != shape_) {
     throw std::invalid_argument("Gradient and tensor shape mismatch");
+  }
+  if (grad_output.dtype() != dtype()) {
+    throw std::invalid_argument("Gradient and tensor dtype mismatch");
   }
 
   propagate_gradients(grad_output.data_storage().copy_to(backend()),

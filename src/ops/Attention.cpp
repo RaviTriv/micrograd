@@ -67,6 +67,10 @@ std::shared_ptr<Tensor> Tensor::causal_self_attention(
   if (key->backend() != backend() || value->backend() != backend()) {
     throw std::invalid_argument("Tensor devices do not match");
   }
+  if (key->dtype() != dtype() || value->dtype() != dtype()) {
+    throw std::invalid_argument(
+        "causal_self_attention expects query, key, and value to share a dtype");
+  }
   if (n_head == 0 || shape_[2] % n_head != 0) {
     throw std::invalid_argument(
         "causal_self_attention: embed must be divisible by n_head");

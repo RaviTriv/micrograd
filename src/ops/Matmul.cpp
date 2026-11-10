@@ -2,6 +2,7 @@
 #include <utility>
 #include <vector>
 
+#include "micrograd/Autograd.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Dispatch.h"
 
@@ -10,6 +11,10 @@ namespace micrograd {
 std::shared_ptr<Tensor> Tensor::matmul(const std::shared_ptr<Tensor> &b) {
   if (backend() != b->backend()) {
     throw std::invalid_argument("Tensor devices do not match");
+  }
+
+  if (dtype() != b->dtype()) {
+    throw std::invalid_argument("Tensor dtypes do not match for matmul");
   }
 
   size_t lhs_rank = shape_.size();
@@ -50,6 +55,11 @@ std::shared_ptr<Tensor> Tensor::matmul_nt(const std::shared_ptr<Tensor> &b) {
   if (backend() != b->backend()) {
     throw std::invalid_argument("Tensor devices do not match");
   }
+  const bool master_weight =
+      b->dtype() == DType::kFloat32 && dtype() != DType::kFloat32;
+  if (dtype() != b->dtype() && !master_weight) {
+    throw std::invalid_argument("Tensor dtypes do not match for matmul_nt");
+  }
   if (shape_.size() < 2 || shape_.size() > 3 || b->shape_.size() != 2) {
     throw std::invalid_argument(
         "matmul_nt expects a 2D or 3D lhs and a 2D rhs");
@@ -60,8 +70,46 @@ std::shared_ptr<Tensor> Tensor::matmul_nt(const std::shared_ptr<Tensor> &b) {
 
   std::vector<size_t> out_shape = shape_;
   out_shape.back() = b->shape_[0];
+  std::shared_ptr<Tensor> copy;
+  if (master_weight) {
+    const NoGradGuard no_grad;
+    copy = b->cast(dtype());
+  }
   return apply(OpId::kMatmulNT, std::move(out_shape),
-               {.lhs = shared_from_this(), .rhs = b});
+               {.lhs = shared_from_this(), .rhs = b, .aux = std::move(copy)});
+}
+
+std::shared_ptr<Tensor> Tensor::linear(const std::shared_ptr<Tensor> &weight,
+                                       const std::shared_ptr<Tensor> &bias) {
+  if (backend() != weight->backend() || backend() != bias->backend()) {
+    throw std::invalid_argument("Tensor devices do not match");
+  }
+  const bool master_weight = weight->dtype() == DType::kFloat32;
+  if ((dtype() != weight->dtype() && !master_weight) ||
+      bias->dtype() != DType::kFloat32) {
+    throw std::invalid_argument(
+        "linear expects a weight of the input dtype or float32, and a float32 "
+        "bias");
+  }
+  if (shape_.size() < 2 || shape_.size() > 3 || weight->shape_.size() != 2 ||
+      shape_.back() != weight->shape_[0] || bias->shape_.size() != 1 ||
+      bias->shape_[0] != weight->shape_[1]) {
+    throw std::invalid_argument(
+        "linear expects (..., in) input, (in, out) weight and (out) bias");
+  }
+
+  std::vector<size_t> out_shape = shape_;
+  out_shape.back() = weight->shape_[1];
+  std::shared_ptr<Tensor> copy;
+  if (master_weight && dtype() != DType::kFloat32) {
+    const NoGradGuard no_grad;
+    copy = weight->cast(dtype());
+  }
+  return apply(OpId::kLinear, std::move(out_shape),
+               {.lhs = shared_from_this(),
+                .rhs = weight,
+                .extra = bias,
+                .aux = std::move(copy)});
 }
 
 }  // namespace micrograd

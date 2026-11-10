@@ -135,4 +135,12 @@ std::shared_ptr<Tensor> Tensor::transpose(int64_t dim0, int64_t dim1) {
 
 std::shared_ptr<Tensor> Tensor::contiguous() { return shared_from_this(); }
 
+std::shared_ptr<Tensor> Tensor::cast(DType dtype) {
+  if (dtype == this->dtype()) {
+    return shared_from_this();
+  }
+  return apply(OpId::kCast, shape_,
+               {.lhs = shared_from_this(), .dtype = dtype});
+}
+
 }  // namespace micrograd

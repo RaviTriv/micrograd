@@ -23,14 +23,17 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
  public:
   static std::shared_ptr<Tensor> zeros(std::vector<size_t> shape);
   static std::shared_ptr<Tensor> zeros(std::vector<size_t> shape,
-                                       Backend device);
+                                       Backend device,
+                                       DType dtype = DType::kFloat32);
   static std::shared_ptr<Tensor> empty(std::vector<size_t> shape,
-                                       Backend device);
+                                       Backend device,
+                                       DType dtype = DType::kFloat32);
   static std::shared_ptr<Tensor> from_values(std::vector<size_t> shape,
                                              std::vector<scalar_t> values);
 
   Tensor(ConstructorKey key, std::vector<size_t> shape);
-  Tensor(ConstructorKey key, std::vector<size_t> shape, Backend device);
+  Tensor(ConstructorKey key, std::vector<size_t> shape, Backend device,
+         DType dtype = DType::kFloat32);
   Tensor(ConstructorKey key, std::vector<size_t> shape, Storage data);
   Tensor(ConstructorKey key, std::vector<size_t> shape,
          std::vector<scalar_t> values);
@@ -59,6 +62,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> transpose(int64_t dim0, int64_t dim1);
   std::shared_ptr<Tensor> permute(const std::vector<int64_t> &dims);
   std::shared_ptr<Tensor> contiguous();
+  std::shared_ptr<Tensor> cast(DType dtype);
 
   std::shared_ptr<Tensor> sum();
   std::shared_ptr<Tensor> sum(int64_t dim, bool keepdim = false);
@@ -67,13 +71,15 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> argmax(int64_t dim);
   std::shared_ptr<Tensor> matmul(const std::shared_ptr<Tensor> &b);
   std::shared_ptr<Tensor> matmul_nt(const std::shared_ptr<Tensor> &b);
+  std::shared_ptr<Tensor> linear(const std::shared_ptr<Tensor> &weight,
+                                 const std::shared_ptr<Tensor> &bias);
   std::shared_ptr<Tensor> embedding_lookup(
       const std::shared_ptr<Tensor> &indices);
   std::shared_ptr<Tensor> gather_per_row(
       const std::shared_ptr<Tensor> &indices);
   std::shared_ptr<Tensor> gather_per_row(const std::vector<size_t> &indices);
   std::shared_ptr<Tensor> cross_entropy_rows(
-      const std::vector<size_t> &targets);
+      const std::vector<size_t> &targets, size_t classes = 0);
   std::shared_ptr<Tensor> layer_norm(
       const std::vector<size_t> &normalized_shape,
       const std::shared_ptr<Tensor> &gain, const std::shared_ptr<Tensor> &bias,
@@ -140,6 +146,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
  private:
   void ensure_grad() const;
+  void require_float32() const;
   void fill_grad_with_zeros() const;
   std::shared_ptr<Tensor> apply(OpId op, std::vector<size_t> out_shape,
                                 const OpInputs &inputs);

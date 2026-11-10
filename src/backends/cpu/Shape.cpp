@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <span>
@@ -66,10 +67,54 @@ std::function<void()> StridedCopyBackward(const GradArgs &args) {
   };
 }
 
+void Cast(const OpArgs &args) {
+  const size_t n = args.out->size();
+  if (args.out->dtype() == DType::kBFloat16) {
+    const auto *source =
+        static_cast<const scalar_t *>(args.lhs->data_storage().data());
+    auto *target = static_cast<uint16_t *>(args.out->data_storage().data());
+    for (size_t i = 0; i < n; i++) {
+      target[i] = float_to_bfloat16_bits(source[i]);
+    }
+    return;
+  }
+  const auto *source =
+      static_cast<const uint16_t *>(args.lhs->data_storage().data());
+  auto *target = static_cast<scalar_t *>(args.out->data_storage().data());
+  for (size_t i = 0; i < n; i++) {
+    target[i] = bfloat16_bits_to_float(source[i]);
+  }
+}
+
+std::function<void()> CastBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs]() {
+    const size_t n = lhs->size();
+    if (lhs->dtype() == DType::kFloat32) {
+      auto gradient = lhs->grad();
+      const auto *incoming =
+          static_cast<const uint16_t *>(out->grad_storage().data());
+      for (size_t i = 0; i < n; i++) {
+        gradient[i] += bfloat16_bits_to_float(incoming[i]);
+      }
+      return;
+    }
+    auto *gradient = static_cast<uint16_t *>(lhs->grad_storage().data());
+    auto incoming = out->grad();
+    for (size_t i = 0; i < n; i++) {
+      gradient[i] = float_to_bfloat16_bits(bfloat16_bits_to_float(gradient[i]) +
+                                           incoming[i]);
+    }
+  };
+}
+
 }  // namespace
 
 void RegisterShapeOps() {
   OpRegistry &registry = OpRegistry::Instance();
+  for (DType dtype : {DType::kFloat32, DType::kBFloat16}) {
+    registry.Register(OpId::kCast, Device::CPU, Cast, dtype);
+    registry.RegisterBackward(OpId::kCast, Device::CPU, CastBackward, dtype);
+  }
   registry.Register(OpId::kStridedCopy, Device::CPU, StridedCopy);
   registry.RegisterBackward(OpId::kReshape, Device::CPU, ReshapeBackward);
   registry.RegisterBackward(OpId::kStridedCopy, Device::CPU,

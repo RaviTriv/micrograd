@@ -121,13 +121,17 @@ const char *OpName(OpId op) {
       return "causal_self_attention";
     case OpId::kMatmulNT:
       return "matmul_nt";
+    case OpId::kCast:
+      return "cast";
+    case OpId::kLinear:
+      return "linear";
   }
   return "unknown";
 }
 
 void DispatchOp(OpId op, Device device, const OpArgs &args) {
   EnsureRegistered();
-  const Tensor *typed = args.out != nullptr ? args.out : args.lhs;
+  const Tensor *typed = args.lhs != nullptr ? args.lhs : args.out;
   DType dtype = typed != nullptr ? typed->dtype() : DType::kFloat32;
   OpFn fn = OpRegistry::Instance().Lookup(op, device, dtype);
   profiler::Scope scope(OpName(op), "fwd", device);
@@ -137,7 +141,7 @@ void DispatchOp(OpId op, Device device, const OpArgs &args) {
 std::function<void()> MakeBackward(OpId op, Device device,
                                    const GradArgs &args) {
   EnsureRegistered();
-  const Tensor *typed = args.out != nullptr ? args.out : args.lhs.get();
+  const Tensor *typed = args.lhs != nullptr ? args.lhs.get() : args.out;
   DType dtype = typed != nullptr ? typed->dtype() : DType::kFloat32;
   std::function<void()> backward =
       OpRegistry::Instance().LookupBackward(op, device, dtype)(args);
@@ -154,8 +158,10 @@ std::shared_ptr<Tensor> Tensor::apply(OpId op, std::vector<size_t> out_shape,
                                       const OpInputs &inputs) {
   const bool overwrites =
       backend() == Device::CUDA && cuda::ops::ForwardOverwritesOutput(op);
-  auto result = overwrites ? Tensor::empty(std::move(out_shape), backend())
-                           : Tensor::zeros(std::move(out_shape), backend());
+  const DType out_dtype = inputs.dtype.value_or(dtype());
+  auto result =
+      overwrites ? Tensor::empty(std::move(out_shape), backend(), out_dtype)
+                 : Tensor::zeros(std::move(out_shape), backend(), out_dtype);
   DispatchOp(op, backend(),
              {.lhs = inputs.lhs.get(),
               .rhs = inputs.rhs.get(),

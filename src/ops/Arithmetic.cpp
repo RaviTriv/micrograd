@@ -13,6 +13,9 @@ std::shared_ptr<Tensor> Tensor::apply_binary(OpId op,
   if (backend() != b->backend()) {
     throw std::invalid_argument("Tensor devices do not match");
   }
+  if (dtype() != b->dtype()) {
+    throw std::invalid_argument("Tensor dtypes do not match");
+  }
 
   std::vector<size_t> out_shape = BroadcastShapes(shape_, b->shape_);
   auto lhs = broadcast_to(out_shape);
@@ -29,6 +32,9 @@ std::shared_ptr<Tensor> Tensor::add(const std::shared_ptr<Tensor> &b) {
 std::shared_ptr<Tensor> Tensor::add_bias(const std::shared_ptr<Tensor> &bias) {
   if (backend() != bias->backend()) {
     throw std::invalid_argument("Tensor devices do not match");
+  }
+  if (bias->dtype() != DType::kFloat32) {
+    throw std::invalid_argument("add_bias expects a float32 bias");
   }
   if (shape_.empty() || bias->shape_.size() != 1 ||
       bias->shape_[0] != shape_.back()) {

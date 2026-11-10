@@ -46,7 +46,7 @@ std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
 
 std::shared_ptr<Tensor> cross_entropy(
     const std::shared_ptr<Tensor> &logits,
-    const std::vector<size_t> &target_indices) {
+    const std::vector<size_t> &target_indices, size_t classes) {
   const std::vector<size_t> &shape = logits->shape();
   if (shape.size() < 2) {
     throw std::invalid_argument("cross_entropy expects logits of rank 2 or more");
@@ -64,7 +64,7 @@ std::shared_ptr<Tensor> cross_entropy(
         "cross_entropy target count does not match the batch size");
   }
 
-  return logits->cross_entropy_rows(target_indices)
+  return logits->cross_entropy_rows(target_indices, classes)
       ->sum()
       ->div(static_cast<scalar_t>(rows));
 }

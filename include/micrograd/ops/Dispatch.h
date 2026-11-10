@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -60,10 +61,11 @@ enum class OpId {
   kAttentionCombine,
   kCausalSelfAttention,
   kMatmulNT,
+  kCast,
+  kLinear,
 };
 
-inline constexpr size_t kOpCount =
-    static_cast<size_t>(OpId::kMatmulNT) + 1;
+inline constexpr size_t kOpCount = static_cast<size_t>(OpId::kLinear) + 1;
 inline constexpr size_t kDeviceCount = static_cast<size_t>(Device::CUDA) + 1;
 
 struct OpArgs {
@@ -103,6 +105,7 @@ struct OpInputs {
   bool keepdim = false;
   std::span<const size_t> strides = {};
   bool grad_through_lhs_only = false;
+  std::optional<DType> dtype = std::nullopt;
 };
 
 class OpRegistry {

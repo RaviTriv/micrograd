@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <span>
 
@@ -81,15 +82,20 @@ double RowLogSumExp(std::span<const scalar_t> row) {
   return static_cast<double>(max_value) + std::log(sum);
 }
 
+size_t ClassCount(int64_t classes, size_t width) {
+  return classes == 0 ? width : static_cast<size_t>(classes);
+}
+
 void CrossEntropy(const OpArgs &args) {
-  size_t cols = args.lhs->shape().back();
-  size_t rows = args.lhs->size() / cols;
+  size_t width = args.lhs->shape().back();
+  size_t rows = args.lhs->size() / width;
+  size_t cols = ClassCount(args.dim, width);
   auto values = args.lhs->data();
   auto targets = args.rhs->data();
   auto out_values = args.out->data();
 
   for (size_t i = 0; i < rows; i++) {
-    auto row = values.subspan(i * cols, cols);
+    auto row = values.subspan(i * width, cols);
     auto target = static_cast<size_t>(std::lround(targets[i]));
     out_values[i] =
         static_cast<scalar_t>(RowLogSumExp(row) - static_cast<double>(row[target]));
@@ -97,22 +103,24 @@ void CrossEntropy(const OpArgs &args) {
 }
 
 std::function<void()> CrossEntropyBackward(const GradArgs &args) {
-  return [out = args.out, lhs = args.lhs, targets = args.rhs]() {
-    size_t cols = lhs->shape().back();
-    size_t rows = lhs->size() / cols;
+  return [out = args.out, lhs = args.lhs, targets = args.rhs,
+          classes = args.dim]() {
+    size_t width = lhs->shape().back();
+    size_t rows = lhs->size() / width;
+    size_t cols = ClassCount(classes, width);
     auto values = lhs->data();
     auto gradient = lhs->grad();
     auto incoming = out->grad();
     auto target_values = targets->data();
 
     for (size_t i = 0; i < rows; i++) {
-      auto row = values.subspan(i * cols, cols);
+      auto row = values.subspan(i * width, cols);
       const double lse = RowLogSumExp(row);
       auto target = static_cast<size_t>(std::lround(target_values[i]));
       for (size_t j = 0; j < cols; j++) {
         const double prob = std::exp(static_cast<double>(row[j]) - lse);
         const double onehot = j == target ? 1.0 : 0.0;
-        gradient[(i * cols) + j] +=
+        gradient[(i * width) + j] +=
             static_cast<scalar_t>((prob - onehot) * incoming[i]);
       }
     }

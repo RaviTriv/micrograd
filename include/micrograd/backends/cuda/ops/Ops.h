@@ -29,6 +29,7 @@ void RegisterAttentionOps();
 
 scalar_t GradNormSquared(const Tensor &param);
 void ClipGradNorm(const std::vector<Tensor *> &params, scalar_t max_norm);
+const scalar_t *GradNormSquaredTotal(const std::vector<Tensor *> &params);
 void ScaleGrad(Tensor &param, scalar_t scale);
 
 void AdamWStep(Tensor &param, Tensor &m, Tensor &v, scalar_t lr, scalar_t beta1,
@@ -47,7 +48,9 @@ struct AdamWTensor {
 void FusedAdamWStep(const std::vector<AdamWTensor> &tensors, scalar_t lr,
                     scalar_t beta1, scalar_t beta2, scalar_t eps,
                     scalar_t weight_decay, scalar_t bias_correction1,
-                    scalar_t bias_correction2);
+                    scalar_t bias_correction2,
+                    const scalar_t *clip_total = nullptr,
+                    scalar_t max_norm = 0.0f);
 
 void MuonStep(Tensor &param, Tensor &momentum, scalar_t lr, scalar_t beta,
               scalar_t weight_decay, bool nesterov, size_t ns_steps,

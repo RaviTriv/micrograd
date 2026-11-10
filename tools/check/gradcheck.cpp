@@ -28,6 +28,7 @@
 namespace {
 
 using micrograd::Device;
+using micrograd::DType;
 using micrograd::GradCheck;
 using micrograd::GradCheckFunction;
 using micrograd::GradCheckOptions;
@@ -61,6 +62,12 @@ TensorPtr Ramp(std::vector<size_t> shape, scalar_t start, scalar_t step) {
   }
   return Tensor::from_values(std::move(shape), std::move(values));
 }
+
+TensorPtr Low(const TensorPtr &t) {
+  return t->backend() == Device::CUDA ? t->cast(DType::kBFloat16) : t;
+}
+
+TensorPtr High(const TensorPtr &t) { return t->cast(DType::kFloat32); }
 
 TensorPtr Wave(std::vector<size_t> shape, scalar_t phase) {
   size_t count = 1;
@@ -292,6 +299,152 @@ std::vector<Case> AllCases() {
                   {Wave({2, 70, 128}, 0.4f), Wave({2, 70, 128}, 1.3f),
                    Wave({2, 70, 128}, 2.2f)},
                   bf16_tolerance, false, true);
+  const GradCheckOptions bf16_activations = {.rtol = 3e-2f, .atol = 2e-2f};
+  const GradCheckOptions bf16_row_sums = {.rtol = 3e-2f, .atol = 6e-2f};
+  add_device_only("cast_bf16_roundtrip",
+                  [](const TensorList &in) {
+                    return High(Low(in[0]))->mul(in[1]);
+                  },
+                  {Wave({3, 37}, 0.2f), Wave({3, 37}, 1.1f)},
+                  bf16_activations);
+  add_device_only("add_bf16",
+                  [](const TensorList &in) {
+                    return High(Low(in[0])->add(Low(in[1])));
+                  },
+                  {Wave({4, 37}, 0.2f), Wave({4, 37}, 1.4f)},
+                  bf16_activations);
+  add_device_only("add_bf16_shared_input",
+                  [](const TensorList &in) {
+                    const TensorPtr x = Low(in[0]);
+                    return High(x->add(x->gelu()));
+                  },
+                  {Wave({3, 40}, 0.6f)}, bf16_activations);
+  add_device_only("add_bias_bf16",
+                  [](const TensorList &in) {
+                    return High(Low(in[0])->add_bias(in[1]));
+                  },
+                  {Wave({2, 150, 40}, 0.2f), Wave({40}, 1.3f)},
+                  bf16_row_sums);
+  add_device_only("add_bias_bf16_odd_cols",
+                  [](const TensorList &in) {
+                    return High(Low(in[0])->add_bias(in[1]));
+                  },
+                  {Wave({5, 37}, 0.2f), Wave({37}, 1.3f)}, bf16_activations);
+  add_device_only("linear_bf16",
+                  [](const TensorList &in) {
+                    if (in[0]->backend() != Device::CUDA) {
+                      return in[0]->matmul(in[1])->add_bias(in[2]);
+                    }
+                    return High(Low(in[0])->linear(in[1], in[2]));
+                  },
+                  {Wave({2, 37, 24}, 0.2f), Wave({24, 40}, 0.9f),
+                   Wave({40}, 1.3f)},
+                  bf16_row_sums);
+  add_device_only("linear_bf16_odd_shape",
+                  [](const TensorList &in) {
+                    if (in[0]->backend() != Device::CUDA) {
+                      return in[0]->matmul(in[1])->add_bias(in[2]);
+                    }
+                    return High(Low(in[0])->linear(Low(in[1]), in[2]));
+                  },
+                  {Wave({5, 19}, 0.2f), Wave({19, 7}, 0.9f), Wave({7}, 1.3f)},
+                  bf16_activations);
+  add_device_only("gelu_bf16",
+                  [](const TensorList &in) {
+                    return High(Low(in[0]->mul(2.0f))->gelu());
+                  },
+                  {Wave({3, 45}, 0.4f)}, bf16_activations);
+  add_device_only("layer_norm_bf16",
+                  [](const TensorList &in) {
+                    return High(
+                        Low(in[0])->layer_norm({64}, in[1], in[2], 1e-5f));
+                  },
+                  {Wave({3, 5, 64}, 0.4f), Wave({64}, 1.0f), Wave({64}, 2.0f)},
+                  bf16_activations);
+  add_device_only("layer_norm_bf16_gpt2_width",
+                  [](const TensorList &in) {
+                    return High(
+                        Low(in[0])->layer_norm({768}, in[1], in[2], 1e-5f));
+                  },
+                  {Wave({3, 5, 768}, 0.4f), Wave({768}, 1.0f),
+                   Wave({768}, 2.0f)},
+                  bf16_row_sums);
+  add_device_only("layer_norm_bf16_odd_width",
+                  [](const TensorList &in) {
+                    return High(
+                        Low(in[0])->layer_norm({37}, in[1], in[2], 1e-5f));
+                  },
+                  {Wave({4, 37}, 0.4f), Wave({37}, 1.0f), Wave({37}, 2.0f)},
+                  bf16_activations);
+  add_device_only("matmul_bf16_activations",
+                  [](const TensorList &in) {
+                    return High(Low(in[0])->matmul(Low(in[1])));
+                  },
+                  {Wave({2, 37, 20}, 0.3f), Wave({20, 33}, 1.1f)},
+                  bf16_activations);
+  add_device_only("matmul_batched_bf16_activations",
+                  [](const TensorList &in) {
+                    return High(Low(in[0])->matmul(Low(in[1])));
+                  },
+                  {Wave({3, 17, 20}, 0.3f), Wave({3, 20, 9}, 1.1f)},
+                  bf16_activations);
+  add_device_only("matmul_nt_bf16_activations",
+                  [](const TensorList &in) {
+                    return High(Low(in[0])->matmul_nt(Low(in[1])));
+                  },
+                  {Wave({2, 37, 20}, 0.3f), Wave({33, 20}, 1.1f)},
+                  bf16_activations);
+  add_device_only("matmul_nt_bf16_master_weight",
+                  [](const TensorList &in) {
+                    return High(Low(in[0])->matmul_nt(in[1]));
+                  },
+                  {Wave({2, 37, 20}, 0.3f), Wave({33, 20}, 1.1f)},
+                  bf16_activations);
+  add_device_only("cross_entropy_bf16",
+                  [](const TensorList &in) {
+                    return micrograd::cross_entropy(
+                        Low(in[0]->mul(3.0f)), {0, 5, 36, 12, 1, 20});
+                  },
+                  {Wave({6, 37}, 0.3f)}, bf16_activations);
+  add_device_only("cross_entropy_bf16_padded",
+                  [](const TensorList &in) {
+                    return micrograd::cross_entropy(
+                        Low(in[0]->mul(3.0f)), {0, 5, 36, 12, 1, 20}, 37);
+                  },
+                  {Wave({6, 40}, 0.3f)}, bf16_activations);
+  add_device_only("causal_self_attention_bf16_activations",
+                  [](const TensorList &in) {
+                    return High(Low(in[0])->causal_self_attention(
+                        Low(in[1]), Low(in[2]), 2, 0.125f));
+                  },
+                  {Wave({2, 70, 128}, 0.4f), Wave({2, 70, 128}, 1.3f),
+                   Wave({2, 70, 128}, 2.2f)},
+                  bf16_activations);
+  add_device_only("causal_self_attention_bf16_three_tiles",
+                  [](const TensorList &in) {
+                    return High(Low(in[0]->mul(2.0f))
+                                    ->causal_self_attention(
+                                        Low(in[1]->mul(2.0f)), Low(in[2]), 3,
+                                        0.125f));
+                  },
+                  {Wave({1, 150, 192}, 0.4f), Wave({1, 150, 192}, 1.3f),
+                   Wave({1, 150, 192}, 2.2f)},
+                  bf16_activations);
+  add_device_only(
+      "gpt_block_bf16",
+      [](const TensorList &in) {
+        const TensorPtr x = Low(in[0]);
+        const TensorPtr h = x->layer_norm({64}, in[1], in[2], 1e-5f)
+                                ->matmul(Low(in[3]))
+                                ->add_bias(in[4])
+                                ->gelu()
+                                ->matmul(Low(in[5]));
+        return High(x->add(h));
+      },
+      {Wave({2, 9, 64}, 0.4f), Wave({64}, 1.0f), Wave({64}, 2.0f),
+       Wave({64, 96}, 0.7f)->mul(0.2f), Wave({96}, 1.5f),
+       Wave({96, 64}, 2.5f)->mul(0.2f)},
+      bf16_row_sums);
   add("layer_norm",
       [](const TensorList &in) {
         return in[0]->layer_norm({3}, in[1], in[2], 1e-5f);
@@ -454,6 +607,11 @@ std::vector<Case> AllCases() {
         return micrograd::cross_entropy(in[0], {0, 2, 1, 2, 0, 1});
       },
       {signed_cube()});
+  add("cross_entropy_padded_classes",
+      [](const TensorList &in) {
+        return micrograd::cross_entropy(in[0], {0, 2, 1, 2, 0, 1}, 3);
+      },
+      {Ramp({2, 3, 5}, -1.1f, 0.15f)});
   add("binary_cross_entropy",
       [](const TensorList &in) {
         return micrograd::binary_cross_entropy(in[0], in[1]);

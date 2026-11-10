@@ -13,8 +13,10 @@
 #include <cstddef>
 #include <functional>
 #include <optional>
+#include <type_traits>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Bf16.h"
 #include "micrograd/backends/cuda/ops/Gemm.h"
 #include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
@@ -314,14 +316,6 @@ scalar_t *GradPtr(Tensor *t) {
 }
 
 #ifdef MICROGRAD_CUBLAS_ENABLED
-const __nv_bfloat16 *DataPtrBf16(const Tensor *t) {
-  return static_cast<const __nv_bfloat16 *>(t->data_storage().device_pointer());
-}
-
-__nv_bfloat16 *DataPtrBf16(Tensor *t) {
-  return static_cast<__nv_bfloat16 *>(t->data_storage().device_pointer());
-}
-
 void MatmulCublas(const OpArgs &args, size_t batch, size_t m, size_t k,
                   size_t n) {
   const scalar_t alpha = 1.0f;
@@ -372,87 +366,206 @@ void MatmulBackwardCublas(const scalar_t *grad_out, const scalar_t *lhs,
   }
 }
 
-constexpr size_t kCublasLtWorkspaceBytes = 4 * 1024 * 1024;
+#endif
 
-cublasLtMatrixLayout_t MakeBf16BatchLayout(uint64_t rows, uint64_t cols,
-                                           int64_t ld, int64_t stride,
-                                           int32_t batch) {
-  cublasLtMatrixLayout_t layout = nullptr;
-  MICROGRAD_CUBLAS_CHECK(
-      cublasLtMatrixLayoutCreate(&layout, CUDA_R_16BF, rows, cols, ld));
-  MICROGRAD_CUBLAS_CHECK(cublasLtMatrixLayoutSetAttribute(
-      layout, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch, sizeof(batch)));
-  MICROGRAD_CUBLAS_CHECK(cublasLtMatrixLayoutSetAttribute(
-      layout, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &stride,
-      sizeof(stride)));
-  return layout;
+constexpr unsigned int kBf16GemmTile = 16;
+
+__device__ inline float ToFloat(float value) { return value; }
+__device__ inline float ToFloat(__nv_bfloat16 value) {
+  return __bfloat162float(value);
+}
+__device__ inline void StoreOut(float *out, float value) { *out = value; }
+__device__ inline void StoreOut(__nv_bfloat16 *out, float value) {
+  *out = __float2bfloat16(value);
 }
 
-void MatmulCublasLtBf16(const OpArgs &args, size_t batch, size_t m, size_t k,
-                        size_t n) {
-  CudaContext &ctx = CudaContext::instance();
-
-  cublasLtMatmulDesc_t op_desc = nullptr;
-  MICROGRAD_CUBLAS_CHECK(
-      cublasLtMatmulDescCreate(&op_desc, CUBLAS_COMPUTE_32F, CUDA_R_32F));
-  const cublasOperation_t no_trans = CUBLAS_OP_N;
-  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(
-      op_desc, CUBLASLT_MATMUL_DESC_TRANSA, &no_trans, sizeof(no_trans)));
-  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulDescSetAttribute(
-      op_desc, CUBLASLT_MATMUL_DESC_TRANSB, &no_trans, sizeof(no_trans)));
-
-  const int32_t batch_count = static_cast<int32_t>(batch);
-  cublasLtMatrixLayout_t rhs_layout = MakeBf16BatchLayout(
-      n, k, static_cast<int64_t>(n), static_cast<int64_t>(k * n), batch_count);
-  cublasLtMatrixLayout_t lhs_layout = MakeBf16BatchLayout(
-      k, m, static_cast<int64_t>(k), static_cast<int64_t>(m * k), batch_count);
-  cublasLtMatrixLayout_t out_layout = MakeBf16BatchLayout(
-      n, m, static_cast<int64_t>(n), static_cast<int64_t>(m * n), batch_count);
-
-  cublasLtMatmulPreference_t preference = nullptr;
-  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulPreferenceCreate(&preference));
-  size_t max_workspace_bytes = kCublasLtWorkspaceBytes;
-  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulPreferenceSetAttribute(
-      preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
-      &max_workspace_bytes, sizeof(max_workspace_bytes)));
-
-  cublasLtMatmulHeuristicResult_t heuristic{};
-  int result_count = 0;
-  MICROGRAD_CUBLAS_CHECK(cublasLtMatmulAlgoGetHeuristic(
-      ctx.cublasLtHandle(), op_desc, rhs_layout, lhs_layout, out_layout,
-      out_layout, preference, 1, &heuristic, &result_count));
-
-  const scalar_t alpha = 1.0f;
-  const scalar_t beta = 0.0f;
-  void *workspace = result_count > 0 && heuristic.workspaceSize > 0
-                        ? ctx.allocate(heuristic.workspaceSize)
-                        : nullptr;
-
-  MICROGRAD_CUBLAS_CHECK(cublasLtMatmul(
-      ctx.cublasLtHandle(), op_desc, &alpha, DataPtrBf16(args.rhs), rhs_layout,
-      DataPtrBf16(args.lhs), lhs_layout, &beta, DataPtrBf16(args.out),
-      out_layout, DataPtrBf16(args.out), out_layout,
-      result_count > 0 ? &heuristic.algo : nullptr, workspace,
-      workspace != nullptr ? heuristic.workspaceSize : 0, ctx.stream()));
-
-  if (workspace != nullptr) {
-    ctx.deallocate(workspace, heuristic.workspaceSize);
+template <typename Out>
+__global__ void GemmBf16Kernel(bool trans_a, bool trans_b, size_t m, size_t n,
+                               size_t k, const __nv_bfloat16 *a, size_t lda,
+                               size_t stride_a, const __nv_bfloat16 *b,
+                               size_t ldb, size_t stride_b, bool accumulate,
+                               Out *c, size_t ldc, size_t stride_c) {
+  const size_t row = (blockIdx.x * kBf16GemmTile) + threadIdx.x;
+  const size_t col = (blockIdx.y * kBf16GemmTile) + threadIdx.y;
+  if (row >= m || col >= n) {
+    return;
   }
-  cublasLtMatmulPreferenceDestroy(preference);
-  cublasLtMatrixLayoutDestroy(out_layout);
-  cublasLtMatrixLayoutDestroy(lhs_layout);
-  cublasLtMatrixLayoutDestroy(rhs_layout);
-  cublasLtMatmulDescDestroy(op_desc);
+  const __nv_bfloat16 *a_batch = a + (blockIdx.z * stride_a);
+  const __nv_bfloat16 *b_batch = b + (blockIdx.z * stride_b);
+  float acc = 0.0f;
+  for (size_t l = 0; l < k; l++) {
+    const float a_value = __bfloat162float(
+        trans_a ? a_batch[l + (row * lda)] : a_batch[row + (l * lda)]);
+    const float b_value = __bfloat162float(
+        trans_b ? b_batch[col + (l * ldb)] : b_batch[l + (col * ldb)]);
+    acc += a_value * b_value;
+  }
+  Out *out = c + (blockIdx.z * stride_c) + row + (col * ldc);
+  StoreOut(out, accumulate ? acc + ToFloat(*out) : acc);
+}
+
+template <typename Out>
+void GemmBf16(bool trans_a, bool trans_b, size_t m, size_t n, size_t k,
+              const __nv_bfloat16 *a, size_t lda, size_t stride_a,
+              const __nv_bfloat16 *b, size_t ldb, size_t stride_b,
+              bool accumulate, Out *c, size_t ldc, size_t stride_c,
+              size_t batch) {
+  if (m == 0 || n == 0 || batch == 0) {
+    return;
+  }
+#ifdef MICROGRAD_CUBLAS_ENABLED
+  const scalar_t alpha = 1.0f;
+  const scalar_t beta = accumulate ? 1.0f : 0.0f;
+  const cudaDataType_t c_type =
+      std::is_same_v<Out, float> ? CUDA_R_32F : CUDA_R_16BF;
+  MICROGRAD_CUBLAS_CHECK(cublasGemmStridedBatchedEx(
+      CudaContext::instance().cublasHandle(),
+      trans_a ? CUBLAS_OP_T : CUBLAS_OP_N, trans_b ? CUBLAS_OP_T : CUBLAS_OP_N,
+      static_cast<int>(m),
+      static_cast<int>(n), static_cast<int>(k), &alpha, a, CUDA_R_16BF,
+      static_cast<int>(lda), static_cast<long long>(stride_a), b, CUDA_R_16BF,
+      static_cast<int>(ldb), static_cast<long long>(stride_b), &beta, c,
+      c_type, static_cast<int>(ldc), static_cast<long long>(stride_c),
+      static_cast<int>(batch), CUBLAS_COMPUTE_32F,
+      CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+#else
+  const dim3 block(kBf16GemmTile, kBf16GemmTile);
+  const dim3 grid(
+      static_cast<unsigned int>((m + kBf16GemmTile - 1) / kBf16GemmTile),
+      static_cast<unsigned int>((n + kBf16GemmTile - 1) / kBf16GemmTile),
+      static_cast<unsigned int>(batch));
+  GemmBf16Kernel<<<grid, block, 0, CudaContext::instance().stream()>>>(
+      trans_a, trans_b, m, n, k, a, lda, stride_a, b, ldb, stride_b, accumulate,
+      c, ldc, stride_c);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+#endif
 }
 
 void MatmulBf16(const OpArgs &args) {
-  const auto &lhs_shape = args.lhs->shape();
-  const auto &rhs_shape = args.rhs->shape();
-  const auto [batch, m, k, n] = ResolveMatmulDims(lhs_shape, rhs_shape);
-
-  MatmulCublasLtBf16(args, batch, m, k, n);
+  const auto [batch, m, k, n] =
+      ResolveMatmulDims(args.lhs->shape(), args.rhs->shape());
+  GemmBf16(false, false, n, m, k, Bf16Data(args.rhs), n, k * n,
+           Bf16Data(args.lhs), k, m * k, false, Bf16Data(args.out), n,
+           m * n, batch);
 }
-#endif
+
+std::function<void()> MatmulBackwardBf16(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    const auto [batch, m, k, n] =
+        ResolveMatmulDims(lhs->shape(), rhs->shape());
+    const __nv_bfloat16 *grad_out = Bf16Grad(out);
+    const __nv_bfloat16 *lhs_data =
+        Bf16Data(static_cast<const Tensor *>(lhs.get()));
+    const __nv_bfloat16 *rhs_data =
+        Bf16Data(static_cast<const Tensor *>(rhs.get()));
+    if (lhs->requires_grad()) {
+      const Bf16GradTarget grad_lhs = Bf16GradForWrite(lhs.get());
+      GemmBf16(true, false, k, m, n, rhs_data, n, k * n, grad_out,
+               n, m * n, grad_lhs.accumulate, grad_lhs.ptr, k, m * k, batch);
+    }
+    if (rhs->requires_grad()) {
+      const Bf16GradTarget grad_rhs = Bf16GradForWrite(rhs.get());
+      GemmBf16(false, true, n, k, m, grad_out, n, m * n, lhs_data,
+               k, m * k, grad_rhs.accumulate, grad_rhs.ptr, n, k * n, batch);
+    }
+  };
+}
+
+struct AddBiasInPlaceBf16Op {
+  __nv_bfloat16 *out;
+  const float *bias;
+  size_t cols;
+  __device__ void vector(size_t i) const {
+    Bf16x8 values = LoadBf16x8(out + i);
+    for (int j = 0; j < kBf16Vector; j++) {
+      values.v[j] += bias[(i + j) % cols];
+    }
+    StoreBf16x8(out + i, values);
+  }
+  __device__ void scalar(size_t i) const {
+    out[i] = __float2bfloat16(__bfloat162float(out[i]) + bias[i % cols]);
+  }
+};
+
+const __nv_bfloat16 *LinearWeight(const Tensor *weight, const Tensor *copy) {
+  return weight->dtype() == DType::kBFloat16 ? Bf16Data(weight)
+                                             : Bf16Data(copy);
+}
+
+void LinearBf16(const OpArgs &args) {
+  const size_t k = args.lhs->shape().back();
+  const size_t m = args.lhs->size() / k;
+  const size_t n = args.rhs->shape()[1];
+  const __nv_bfloat16 *weight = LinearWeight(args.rhs, args.aux);
+  GemmBf16(false, false, n, m, k, weight, n, 0, Bf16Data(args.lhs), k, 0,
+           false, Bf16Data(args.out), n, 0, 1);
+  LaunchBf16Map(m * n, AddBiasInPlaceBf16Op{Bf16Data(args.out),
+                                             DataPtr(args.extra), n});
+}
+
+std::function<void()> LinearBackwardBf16(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs, bias = args.extra,
+          copy = args.aux]() {
+    const size_t k = lhs->shape().back();
+    const size_t m = lhs->size() / k;
+    const size_t n = rhs->shape()[1];
+    const __nv_bfloat16 *grad_out = Bf16Grad(out);
+    const __nv_bfloat16 *weight = LinearWeight(rhs.get(), copy.get());
+    if (lhs->requires_grad()) {
+      const Bf16GradTarget grad_lhs = Bf16GradForWrite(lhs.get());
+      GemmBf16(true, false, k, m, n, weight, n, 0, grad_out, n, 0,
+               grad_lhs.accumulate, grad_lhs.ptr, k, 0, 1);
+    }
+    const __nv_bfloat16 *input =
+        Bf16Data(static_cast<const Tensor *>(lhs.get()));
+    if (rhs->requires_grad() && rhs->dtype() == DType::kFloat32) {
+      const GradTarget grad_rhs = GradForWrite(rhs.get());
+      GemmBf16(false, true, n, k, m, grad_out, n, 0, input, k, 0,
+               grad_rhs.accumulate, grad_rhs.ptr, n, 0, 1);
+    } else if (rhs->requires_grad()) {
+      const Bf16GradTarget grad_rhs = Bf16GradForWrite(rhs.get());
+      GemmBf16(false, true, n, k, m, grad_out, n, 0, input, k, 0,
+               grad_rhs.accumulate, grad_rhs.ptr, n, 0, 1);
+    }
+    if (bias->requires_grad()) {
+      Bf16BiasGrad(grad_out, GradPtr(bias.get()), m, n);
+    }
+  };
+}
+
+void MatmulNTBf16(const OpArgs &args) {
+  const size_t k = args.lhs->shape().back();
+  const size_t m = args.lhs->size() / k;
+  const size_t n = args.rhs->shape()[0];
+  GemmBf16(true, false, n, m, k, LinearWeight(args.rhs, args.aux), k, 0,
+           Bf16Data(args.lhs), k, 0, false, Bf16Data(args.out), n, 0, 1);
+}
+
+std::function<void()> MatmulNTBackwardBf16(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs, copy = args.aux]() {
+    const size_t k = lhs->shape().back();
+    const size_t m = lhs->size() / k;
+    const size_t n = rhs->shape()[0];
+    const __nv_bfloat16 *grad_out = Bf16Grad(out);
+    const __nv_bfloat16 *lhs_data =
+        Bf16Data(static_cast<const Tensor *>(lhs.get()));
+    const __nv_bfloat16 *rhs_data = LinearWeight(rhs.get(), copy.get());
+    if (lhs->requires_grad()) {
+      const Bf16GradTarget grad_lhs = Bf16GradForWrite(lhs.get());
+      GemmBf16(false, false, k, m, n, rhs_data, k, 0, grad_out, n, 0,
+               grad_lhs.accumulate, grad_lhs.ptr, k, 0, 1);
+    }
+    if (rhs->requires_grad() && rhs->dtype() == DType::kFloat32) {
+      const GradTarget grad_rhs = GradForWrite(rhs.get());
+      GemmBf16(false, true, k, n, m, lhs_data, k, 0, grad_out, n, 0,
+               grad_rhs.accumulate, grad_rhs.ptr, k, 0, 1);
+    } else if (rhs->requires_grad()) {
+      const Bf16GradTarget grad_rhs = Bf16GradForWrite(rhs.get());
+      GemmBf16(false, true, k, n, m, lhs_data, k, 0, grad_out, n, 0,
+               grad_rhs.accumulate, grad_rhs.ptr, k, 0, 1);
+    }
+  };
+}
 
 void Matmul(const OpArgs &args) {
   const auto &lhs_shape = args.lhs->shape();
@@ -562,9 +675,16 @@ void RegisterMatmulOps() {
   registry.RegisterBackward(OpId::kMatmul, Device::CUDA, MatmulBackward);
   registry.Register(OpId::kMatmulNT, Device::CUDA, MatmulNT);
   registry.RegisterBackward(OpId::kMatmulNT, Device::CUDA, MatmulNTBackward);
-#ifdef MICROGRAD_CUBLAS_ENABLED
   registry.Register(OpId::kMatmul, Device::CUDA, MatmulBf16, DType::kBFloat16);
-#endif
+  registry.RegisterBackward(OpId::kMatmul, Device::CUDA, MatmulBackwardBf16,
+                            DType::kBFloat16);
+  registry.Register(OpId::kMatmulNT, Device::CUDA, MatmulNTBf16,
+                    DType::kBFloat16);
+  registry.RegisterBackward(OpId::kMatmulNT, Device::CUDA,
+                            MatmulNTBackwardBf16, DType::kBFloat16);
+  registry.Register(OpId::kLinear, Device::CUDA, LinearBf16, DType::kBFloat16);
+  registry.RegisterBackward(OpId::kLinear, Device::CUDA, LinearBackwardBf16,
+                            DType::kBFloat16);
 }
 
 }  // namespace micrograd::cuda::ops

@@ -17,6 +17,7 @@ add_executable(micrograd_tests
     caching_allocator_test.cpp
     dataloader_test.cpp
     dataset_test.cpp
+    dtype_test.cpp
     gelu_test.cpp
     gpt_arch_test.cpp
     grad_clip_test.cpp

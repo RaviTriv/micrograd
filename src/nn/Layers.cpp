@@ -1,5 +1,6 @@
 #include "micrograd/nn/Layers.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -31,23 +32,27 @@ Linear::Linear(size_t in_features, size_t out_features, bool bias) {
 }
 
 std::shared_ptr<Tensor> Linear::forward(const std::shared_ptr<Tensor> &input) {
-  auto output = input->matmul(weights_);
+  if (bias_ && input->dtype() == DType::kBFloat16) {
+    return input->linear(weights_, bias_);
+  }
+  auto output = input->matmul(weights_->cast(input->dtype()));
   return bias_ ? output->add_bias(bias_) : output;
 }
 
 std::shared_ptr<Tensor> Linear::weights() { return weights_; }
 std::shared_ptr<Tensor> Linear::bias() { return bias_; }
 
-Embedding::Embedding(size_t num_embeddings, size_t dim) {
+Embedding::Embedding(size_t num_embeddings, size_t dim,
+                     size_t padded_embeddings) {
   std::uniform_real_distribution<scalar_t> dis(-0.1f, 0.1f);
 
-  std::vector<scalar_t> w_data(num_embeddings * dim);
-  for (auto &w : w_data) {
-    w = dis(global_rng());
+  const size_t rows = std::max(num_embeddings, padded_embeddings);
+  std::vector<scalar_t> w_data(rows * dim, 0.0f);
+  for (size_t i = 0; i < num_embeddings * dim; i++) {
+    w_data[i] = dis(global_rng());
   }
 
-  weight_ =
-      Tensor::from_values(std::vector<size_t>{num_embeddings, dim}, w_data);
+  weight_ = Tensor::from_values(std::vector<size_t>{rows, dim}, w_data);
   weight_->set_requires_grad(true);
 
   register_parameter("weight", weight_);

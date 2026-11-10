@@ -8,6 +8,7 @@
 #include <functional>
 
 #include "micrograd/Tensor.h"
+#include "micrograd/backends/cuda/ops/Bf16.h"
 #include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #include "micrograd/ops/Dispatch.h"
@@ -520,10 +521,169 @@ std::function<void()> ClampMaxBackward(const GradArgs &args) {
   };
 }
 
+struct AddBf16Op {
+  const bf16 *lhs;
+  const bf16 *rhs;
+  bf16 *out;
+  __device__ void vector(size_t i) const {
+    Bf16x8 a = LoadBf16x8(lhs + i);
+    const Bf16x8 b = LoadBf16x8(rhs + i);
+    for (int j = 0; j < kBf16Vector; j++) {
+      a.v[j] += b.v[j];
+    }
+    StoreBf16x8(out + i, a);
+  }
+  __device__ void scalar(size_t i) const {
+    out[i] = __float2bfloat16(__bfloat162float(lhs[i]) +
+                              __bfloat162float(rhs[i]));
+  }
+};
+
+struct AddBiasBf16Op {
+  const bf16 *lhs;
+  const float *bias;
+  bf16 *out;
+  size_t cols;
+  __device__ void vector(size_t i) const {
+    Bf16x8 a = LoadBf16x8(lhs + i);
+    for (int j = 0; j < kBf16Vector; j++) {
+      a.v[j] += bias[(i + j) % cols];
+    }
+    StoreBf16x8(out + i, a);
+  }
+  __device__ void scalar(size_t i) const {
+    out[i] = __float2bfloat16(__bfloat162float(lhs[i]) + bias[i % cols]);
+  }
+};
+
+void CopyGradBf16(Tensor *out, Tensor *target) {
+  const size_t n = target->size();
+  const bf16 *source = Bf16Grad(out);
+  const Bf16GradTarget dst = Bf16GradForWrite(target);
+  if (dst.accumulate) {
+    LaunchBf16Map(n, AddBf16Op{dst.ptr, source, dst.ptr});
+    return;
+  }
+  MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(dst.ptr, source, n * sizeof(bf16),
+                                       cudaMemcpyDeviceToDevice,
+                                       CudaContext::instance().stream()));
+}
+
+void PassGradBf16(Tensor *out, Tensor *target) {
+  if (!target->requires_grad() || MoveGrad(out, target)) {
+    return;
+  }
+  CopyGradBf16(out, target);
+}
+
+void AddBf16(const OpArgs &args) {
+  LaunchBf16Map(args.lhs->size(), AddBf16Op{Bf16Data(args.lhs),
+                                            Bf16Data(args.rhs),
+                                            Bf16Data(args.out)});
+}
+
+std::function<void()> AddBackwardBf16(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    if (rhs->requires_grad()) {
+      CopyGradBf16(out, rhs.get());
+    }
+    PassGradBf16(out, lhs.get());
+  };
+}
+
+void AddBiasBf16(const OpArgs &args) {
+  LaunchBf16Map(args.lhs->size(),
+                AddBiasBf16Op{Bf16Data(args.lhs), DataPtr(args.rhs),
+                              Bf16Data(args.out), args.rhs->size()});
+}
+
+constexpr unsigned int kBf16BiasCols = 64;
+constexpr unsigned int kBf16BiasRowThreads = 4;
+constexpr size_t kBf16BiasRowsPerBlock = 128;
+
+__global__ void BiasGradBf16Kernel(const bf16 *out_grad, float *bias_grad,
+                                   size_t rows, size_t cols) {
+  __shared__ float partial[kBf16BiasRowThreads][kBf16BiasCols];
+  const size_t col = (blockIdx.x * kBf16BiasCols) + (threadIdx.x * 2);
+  const size_t row_begin = blockIdx.y * kBf16BiasRowsPerBlock;
+  const size_t row_end = min(row_begin + kBf16BiasRowsPerBlock, rows);
+  const bool paired = col + 1 < cols && cols % 2 == 0;
+
+  float sum0 = 0.0f;
+  float sum1 = 0.0f;
+  if (col < cols) {
+    for (size_t row = row_begin + threadIdx.y; row < row_end;
+         row += kBf16BiasRowThreads) {
+      const bf16 *src = out_grad + (row * cols) + col;
+      if (paired) {
+        const float2 g =
+            __bfloat1622float2(*reinterpret_cast<const __nv_bfloat162 *>(src));
+        sum0 += g.x;
+        sum1 += g.y;
+      } else {
+        sum0 += __bfloat162float(src[0]);
+        if (col + 1 < cols) {
+          sum1 += __bfloat162float(src[1]);
+        }
+      }
+    }
+  }
+  partial[threadIdx.y][threadIdx.x * 2] = sum0;
+  partial[threadIdx.y][(threadIdx.x * 2) + 1] = sum1;
+  __syncthreads();
+
+  if (threadIdx.y == 0 && col < cols) {
+    float total0 = 0.0f;
+    float total1 = 0.0f;
+    for (unsigned int k = 0; k < kBf16BiasRowThreads; k++) {
+      total0 += partial[k][threadIdx.x * 2];
+      total1 += partial[k][(threadIdx.x * 2) + 1];
+    }
+    atomicAdd(&bias_grad[col], total0);
+    if (col + 1 < cols) {
+      atomicAdd(&bias_grad[col + 1], total1);
+    }
+  }
+}
+
+std::function<void()> AddBiasBackwardBf16(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, rhs = args.rhs]() {
+    const size_t n = lhs->size();
+    const size_t cols = rhs->size();
+    const size_t rows = n / cols;
+    if (rhs->requires_grad()) {
+      Bf16BiasGrad(Bf16Grad(out), GradPtr(rhs.get()), rows, cols);
+    }
+    PassGradBf16(out, lhs.get());
+  };
+}
+
 }  // namespace
+
+void Bf16BiasGrad(const bf16 *grad, float *bias_grad, size_t rows,
+                  size_t cols) {
+  if (rows == 0 || cols == 0) {
+    return;
+  }
+  const dim3 block(kBf16BiasCols / 2, kBf16BiasRowThreads);
+  const dim3 grid(
+      static_cast<unsigned int>((cols + kBf16BiasCols - 1) / kBf16BiasCols),
+      static_cast<unsigned int>((rows + kBf16BiasRowsPerBlock - 1) /
+                                kBf16BiasRowsPerBlock));
+  BiasGradBf16Kernel<<<grid, block, 0, CudaContext::instance().stream()>>>(
+      grad, bias_grad, rows, cols);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+}
 
 void RegisterArithmeticOps() {
   OpRegistry &registry = OpRegistry::Instance();
+  registry.Register(OpId::kAdd, Device::CUDA, AddBf16, DType::kBFloat16);
+  registry.RegisterBackward(OpId::kAdd, Device::CUDA, AddBackwardBf16,
+                            DType::kBFloat16);
+  registry.Register(OpId::kAddBias, Device::CUDA, AddBiasBf16,
+                    DType::kBFloat16);
+  registry.RegisterBackward(OpId::kAddBias, Device::CUDA, AddBiasBackwardBf16,
+                            DType::kBFloat16);
   registry.Register(OpId::kAdd, Device::CUDA, Add);
   registry.Register(OpId::kAddBias, Device::CUDA, AddBias);
   registry.Register(OpId::kSub, Device::CUDA, Sub);

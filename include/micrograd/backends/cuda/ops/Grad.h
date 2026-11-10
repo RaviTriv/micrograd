@@ -19,7 +19,7 @@ inline GradTarget GradForWrite(Tensor *t) {
 
 inline bool MoveGrad(Tensor *from, Tensor *to) {
   if (from == to || to->has_grad() || !from->has_grad() ||
-      from->size() != to->size()) {
+      from->size() != to->size() || from->dtype() != to->dtype()) {
     return false;
   }
   to->set_grad_storage(from->take_grad_storage());

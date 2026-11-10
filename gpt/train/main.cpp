@@ -97,6 +97,8 @@ struct TrainConfig {
   Device device = Device::CPU;
   bool tf32 = false;
   bool bf16_matmul = false;
+  bool bf16 = false;
+  bool pad_vocab = false;
   bool profile = false;
   bool recompute = true;
   micrograd::gpt::ArchOptions arch;
@@ -192,6 +194,10 @@ TrainConfig parse_args(int argc, char **argv) {
       config.tf32 = true;
     } else if (arg == "--bf16-matmul") {
       config.bf16_matmul = true;
+    } else if (arg == "--bf16") {
+      config.bf16 = true;
+    } else if (arg == "--pad-vocab") {
+      config.pad_vocab = true;
     } else if (arg == "--profile") {
       config.profile = true;
     } else if (arg == "--no-recompute") {
@@ -226,7 +232,9 @@ TrainConfig parse_args(int argc, char **argv) {
   return config;
 }
 
-GPTConfig build_model_config(const TrainConfig &config) {
+constexpr size_t kVocabPadMultiple = 128;
+
+GPTConfig build_model_config(const TrainConfig &config, size_t vocab_size) {
   GPTConfig model_config;
   model_config.depth = config.n_layer;
   model_config.n_layer = config.n_layer;
@@ -240,6 +248,13 @@ GPTConfig build_model_config(const TrainConfig &config) {
   model_config.unembedding_lr = 0.0f;
   model_config.recompute_activations = config.recompute;
   model_config.arch = config.arch;
+  if (config.pad_vocab) {
+    model_config.padded_vocab_size = (vocab_size + kVocabPadMultiple - 1) /
+                                     kVocabPadMultiple * kVocabPadMultiple;
+  }
+  if (config.bf16) {
+    model_config.activation_dtype = micrograd::DType::kBFloat16;
+  }
   return model_config;
 }
 
@@ -354,7 +369,18 @@ class TrainOptimizer {
     }
   }
 
-  void step(scalar_t learning_rate) {
+  bool fuses_grad_clip() const {
+#ifdef MICROGRAD_CUDA_ENABLED
+    return muon_lr_ <= 0.0f && !parameters_.empty() &&
+           parameters_.front()->backend() == Device::CUDA;
+#else
+    return false;
+#endif
+  }
+
+  void step(scalar_t learning_rate, [[maybe_unused]] scalar_t grad_clip = 0.0f,
+            [[maybe_unused]] const std::vector<std::shared_ptr<Tensor>>
+                &clip_params = {}) {
     step_count_++;
     scalar_t bias_correction1 =
         1.0f - std::pow(beta1_, static_cast<scalar_t>(step_count_));
@@ -379,9 +405,18 @@ class TrainOptimizer {
             static_cast<scalar_t *>(v_[i]->data_storage().device_pointer()),
             parameters_[i]->size(), decay_[i]});
       }
-      micrograd::cuda::ops::FusedAdamWStep(tensors, learning_rate, beta1_,
-                                           beta2_, eps_, weight_decay_,
-                                           bias_correction1, bias_correction2);
+      const scalar_t *clip_total = nullptr;
+      if (grad_clip > 0.0f && !clip_params.empty()) {
+        std::vector<Tensor *> raw;
+        raw.reserve(clip_params.size());
+        for (const auto &p : clip_params) {
+          raw.push_back(p.get());
+        }
+        clip_total = micrograd::cuda::ops::GradNormSquaredTotal(raw);
+      }
+      micrograd::cuda::ops::FusedAdamWStep(
+          tensors, learning_rate, beta1_, beta2_, eps_, weight_decay_,
+          bias_correction1, bias_correction2, clip_total, grad_clip);
       return;
     }
 #else
@@ -662,7 +697,7 @@ double estimate_loss(Model &model, const TrainingData &dataset,
     auto input = token_tensor(batch.inputs, config.batch_size,
                               config.block_size, config.device);
     auto logits = model.forward(input);
-    auto loss = cross_entropy(logits, batch.targets);
+    auto loss = cross_entropy(logits, batch.targets, dataset.vocab_size());
     loss->to(Device::CPU);
     total += static_cast<double>(loss->at({}));
   }
@@ -677,7 +712,7 @@ void run_sample(const TrainConfig &config) {
         "--sample needs --data-format char; BPE decoding is not wired");
   }
   Dataset dataset(config.data_path, config.val_fraction);
-  GPTConfig model_config = build_model_config(config);
+  GPTConfig model_config = build_model_config(config, dataset.vocab_size());
   Model model(dataset.vocab_size(), model_config);
 
   std::vector<std::shared_ptr<Tensor>> parameters = model.parameters();
@@ -705,7 +740,7 @@ void run_sample(const TrainConfig &config) {
     std::vector<size_t> window(context.end() - static_cast<int64_t>(seq_len),
                                context.end());
     auto input = token_tensor(window, 1, seq_len, config.device);
-    auto logits = model.forward(input);
+    auto logits = model.forward(input)->cast(micrograd::DType::kFloat32);
     logits->to(Device::CPU);
 
     std::vector<scalar_t> last_step(dataset.vocab_size());
@@ -799,6 +834,10 @@ int main(int argc, char **argv) {
 #endif
     }
 
+    if (config.bf16 && config.device != Device::CUDA) {
+      throw std::invalid_argument("--bf16 requires --device cuda");
+    }
+
     TrainingData dataset(config);
     SampleOrder train_order(dataset.train_span_tokens(), config.block_size,
                             config.seed);
@@ -807,8 +846,15 @@ int main(int argc, char **argv) {
     std::cout << "val pass: " << val_batches(dataset, config) << " of "
               << dataset.val_windows(config.block_size) / config.batch_size
               << " available batches\n";
-    GPTConfig model_config = build_model_config(config);
+    GPTConfig model_config = build_model_config(config, dataset.vocab_size());
     Model model(dataset.vocab_size(), model_config);
+    if (model_config.padded_vocab_size > dataset.vocab_size()) {
+      std::cout << "vocab: " << dataset.vocab_size() << " padded to "
+                << model_config.padded_vocab_size << "\n";
+    }
+    if (config.bf16) {
+      std::cout << "activations: bf16, fp32 master weights\n";
+    }
 
     std::vector<std::shared_ptr<Tensor>> parameters = model.parameters();
     for (auto &p : parameters) {
@@ -917,7 +963,7 @@ int main(int argc, char **argv) {
         }
         step_data_seconds += seconds_since(data_start);
         auto logits = model.forward(input);
-        auto loss = cross_entropy(logits, batch.targets);
+        auto loss = cross_entropy(logits, batch.targets, dataset.vocab_size());
         auto scaled_loss =
             loss->div(static_cast<scalar_t>(config.grad_accum_steps * world));
         scaled_loss->backward();
@@ -926,13 +972,18 @@ int main(int argc, char **argv) {
         micrograd::profiler::Scope scope("grad_sync", "step", config.device);
         sync_gradients(parameters);
       }
-      {
+      const bool fused_clip = optimizer.fuses_grad_clip();
+      if (!fused_clip) {
         micrograd::profiler::Scope scope("grad_clip", "step", config.device);
         micrograd::ops::ClipGradNorm(parameters, config.grad_clip);
       }
       {
         micrograd::profiler::Scope scope("optimizer", "step", config.device);
-        optimizer.step(LrAt(it, config));
+        if (fused_clip) {
+          optimizer.step(LrAt(it, config), config.grad_clip, parameters);
+        } else {
+          optimizer.step(LrAt(it, config));
+        }
       }
       if (micrograd::profiler::Enabled()) {
         micrograd::profiler::Flush();
