@@ -94,6 +94,8 @@ struct TrainConfig {
   size_t eval_iters = 200;
   size_t checkpoint_interval = 250;
   size_t throughput_interval = 10;
+  size_t grad_bucket_mb = 25;
+  bool bf16_grad_reduce = false;
   Device device = Device::CPU;
   bool tf32 = false;
   bool bf16_matmul = false;
@@ -188,6 +190,10 @@ TrainConfig parse_args(int argc, char **argv) {
     } else if (arg == "--throughput-interval") {
       config.throughput_interval =
           static_cast<size_t>(std::stoul(next_value()));
+    } else if (arg == "--grad-bucket-mb") {
+      config.grad_bucket_mb = static_cast<size_t>(std::stoul(next_value()));
+    } else if (arg == "--bf16-grad-reduce") {
+      config.bf16_grad_reduce = true;
     } else if (arg == "--device") {
       config.device = parse_device(next_value());
     } else if (arg == "--tf32") {
@@ -778,18 +784,6 @@ void skip_samples(SampleOrder &order, size_t count) {
   }
 }
 
-void sync_gradients(const std::vector<std::shared_ptr<Tensor>> &parameters) {
-  if (distributed::WorldSize() == 1) {
-    return;
-  }
-  std::vector<Storage *> grads;
-  grads.reserve(parameters.size());
-  for (const auto &p : parameters) {
-    grads.push_back(&p->grad_storage());
-  }
-  distributed::AllReduceSum(grads);
-}
-
 void broadcast_parameters(
     const std::vector<std::shared_ptr<Tensor>> &parameters) {
   if (distributed::WorldSize() == 1) {
@@ -866,6 +860,14 @@ int main(int argc, char **argv) {
                 << distributed::DeviceDescription(config.device)
                 << " on rank 0\n";
       manual_seed(config.seed + rank);
+    }
+    distributed::GradientReducer reducer(
+        parameters, config.grad_bucket_mb << 20, config.bf16_grad_reduce);
+    if (reducer.overlaps()) {
+      std::cout << "gradient all-reduce: " << reducer.bucket_count()
+                << " buckets of about " << config.grad_bucket_mb << " MB"
+                << (config.bf16_grad_reduce ? " in bf16" : "")
+                << ", overlapped with backward\n";
     }
 
     TrainOptimizer optimizer(model.named_parameters(), config.weight_decay,
@@ -962,6 +964,7 @@ int main(int argc, char **argv) {
                                config.block_size, config.device);
         }
         step_data_seconds += seconds_since(data_start);
+        reducer.prepare(micro_step + 1 == config.grad_accum_steps);
         auto logits = model.forward(input);
         auto loss = cross_entropy(logits, batch.targets, dataset.vocab_size());
         auto scaled_loss =
@@ -970,7 +973,7 @@ int main(int argc, char **argv) {
       }
       {
         micrograd::profiler::Scope scope("grad_sync", "step", config.device);
-        sync_gradients(parameters);
+        reducer.finish();
       }
       const bool fused_clip = optimizer.fuses_grad_clip();
       if (!fused_clip) {

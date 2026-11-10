@@ -11,6 +11,7 @@
 
 #include "micrograd/Tensor.h"
 #include "micrograd/backends/cuda/ops/Bf16.h"
+#include "micrograd/backends/cuda/ops/Convert.h"
 #include "micrograd/backends/cuda/ops/Grad.h"
 #include "micrograd/backends/cuda/ops/Ops.h"
 #include "micrograd/ops/Dispatch.h"
@@ -224,6 +225,24 @@ std::function<void()> ReshapeBackwardBf16(const GradArgs &args) {
 }
 
 }  // namespace
+
+void FloatToBf16(const scalar_t *in, void *out, size_t n, cudaStream_t stream) {
+  if (n == 0) {
+    return;
+  }
+  Bf16MapKernel<<<Bf16GridSize(n), kBf16BlockSize, 0, stream>>>(
+      n, ToBf16Op{in, static_cast<bf16 *>(out)});
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+void Bf16ToFloat(const void *in, scalar_t *out, size_t n, cudaStream_t stream) {
+  if (n == 0) {
+    return;
+  }
+  Bf16MapKernel<<<Bf16GridSize(n), kBf16BlockSize, 0, stream>>>(
+      n, ToFloatOp{static_cast<const bf16 *>(in), out, false});
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+}
 
 void RegisterShapeOps() {
   OpRegistry &registry = OpRegistry::Instance();

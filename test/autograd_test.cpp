@@ -5,6 +5,7 @@
 #include <memory>
 #include <span>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include "test_helpers.h"
@@ -449,4 +450,52 @@ TEST(Autograd, BackwardWithGradientOnLeafAccumulates) {
 
   EXPECT_FLOAT_EQ(x->grad()[0], 1.0f);
   EXPECT_FLOAT_EQ(x->grad()[1], 4.0f);
+}
+
+TEST(Autograd, PostAccumulateGradHookSeesFinalGradOnce) {
+  auto x = scalar(3);
+  auto y = scalar(2);
+  std::vector<std::pair<char, scalar_t>> calls;
+  x->set_post_accumulate_grad_hook(
+      [&](Tensor &t) { calls.emplace_back('x', t.grad()[0]); });
+  y->set_post_accumulate_grad_hook(
+      [&](Tensor &t) { calls.emplace_back('y', t.grad()[0]); });
+
+  auto loss = x->mul(x)->mul(y)->add(x->mul(4.0f))->sum();
+  loss->backward();
+
+  ASSERT_EQ(calls.size(), 2u);
+  EXPECT_EQ(calls[0], std::make_pair('y', 9.0f));
+  EXPECT_EQ(calls[1], std::make_pair('x', 16.0f));
+}
+
+TEST(Autograd, PostAccumulateGradHookFiresInsideCheckpoint) {
+  auto x = scalar(2);
+  auto w = scalar(5);
+  size_t calls = 0;
+  scalar_t seen = 0.0f;
+  w->set_post_accumulate_grad_hook([&](Tensor &t) {
+    calls++;
+    seen = t.grad()[0];
+  });
+
+  auto out = Tensor::checkpoint(
+      x, [&](const std::shared_ptr<Tensor> &in) { return in->mul(w); });
+  out->sum()->backward();
+
+  EXPECT_EQ(calls, 1u);
+  EXPECT_FLOAT_EQ(seen, 2.0f);
+  EXPECT_FLOAT_EQ(x->grad()[0], 5.0f);
+}
+
+TEST(Autograd, PostAccumulateGradHookCanBeCleared) {
+  auto x = scalar(3);
+  size_t calls = 0;
+  x->set_post_accumulate_grad_hook([&](Tensor &) { calls++; });
+  x->mul(2.0f)->sum()->backward();
+  x->set_post_accumulate_grad_hook(nullptr);
+  x->mul(2.0f)->sum()->backward();
+
+  EXPECT_EQ(calls, 1u);
+  EXPECT_FLOAT_EQ(x->grad()[0], 4.0f);
 }

@@ -1,14 +1,17 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 #include "micrograd/Device.h"
 #include "micrograd/Scalar.h"
 
 namespace micrograd {
 class Storage;
+class Tensor;
 }  // namespace micrograd
 
 namespace micrograd::distributed {
@@ -40,5 +43,28 @@ void AllReduceSum(std::span<Storage *const> storages);
 void Broadcast(Storage &storage);
 double AllReduceSum(double value);
 void Barrier();
+
+class GradientReducer {
+ public:
+  static constexpr size_t kDefaultBucketBytes = size_t{25} << 20;
+
+  GradientReducer(std::vector<std::shared_ptr<Tensor>> parameters,
+                  size_t bucket_bytes = kDefaultBucketBytes,
+                  bool bf16 = false);
+  ~GradientReducer();
+
+  GradientReducer(const GradientReducer &) = delete;
+  GradientReducer &operator=(const GradientReducer &) = delete;
+
+  void prepare(bool reduce_this_backward);
+  void finish();
+
+  bool overlaps() const;
+  size_t bucket_count() const;
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
 
 }  // namespace micrograd::distributed

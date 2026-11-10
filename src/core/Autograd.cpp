@@ -3,6 +3,7 @@
 
 #include <ranges>
 #include <stdexcept>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -98,9 +99,19 @@ void Tensor::propagate_gradients(Storage seed, bool retain_graph) {
     pending.pop_back();
   }
 
+  const auto hooked_leaf = [](const Tensor &node) {
+    return !node.backward_fn_ && node.post_accumulate_grad_hook_ &&
+           node.requires_grad_;
+  };
+  std::unordered_map<Tensor *, size_t> pending_uses;
   for (const auto &node : ordered) {
     if (node->backward_fn_) {
       node->grad_ = Storage();
+      for (const auto &child : node->children_) {
+        if (hooked_leaf(*child)) {
+          pending_uses[child.get()]++;
+        }
+      }
     }
   }
   if (backward_fn_ || !has_grad()) {
@@ -108,11 +119,24 @@ void Tensor::propagate_gradients(Storage seed, bool retain_graph) {
   } else {
     accumulate_into_grad(seed);
   }
+  if (hooked_leaf(*this)) {
+    post_accumulate_grad_hook_(*this);
+  }
 
   for (const auto &node : std::ranges::reverse_view(ordered)) {
-    if (node->backward_fn_) {
-      node->backward_fn_();
-      node->grad_ = Storage();
+    if (!node->backward_fn_) {
+      continue;
+    }
+    node->backward_fn_();
+    node->grad_ = Storage();
+    if (pending_uses.empty()) {
+      continue;
+    }
+    for (const auto &child : node->children_) {
+      const auto use = pending_uses.find(child.get());
+      if (use != pending_uses.end() && --use->second == 0) {
+        child->post_accumulate_grad_hook_(*child);
+      }
     }
   }
 

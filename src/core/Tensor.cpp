@@ -232,6 +232,11 @@ void Tensor::set_requires_grad(bool requires_grad) {
   requires_grad_ = requires_grad;
 }
 
+void Tensor::set_post_accumulate_grad_hook(
+    std::function<void(Tensor &)> hook) {
+  post_accumulate_grad_hook_ = std::move(hook);
+}
+
 void Tensor::to(Backend device) {
   if (data_.device() == device) {
     return;

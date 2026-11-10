@@ -16,15 +16,18 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "micrograd/Storage.h"
+#include "micrograd/Tensor.h"
 
 #ifdef MICROGRAD_CUDA_ENABLED
 #include <cuda_runtime.h>
 
 #include "micrograd/backends/cuda/CudaCheck.h"
 #include "micrograd/backends/cuda/CudaContext.h"
+#include "micrograd/backends/cuda/ops/Convert.h"
 #endif
 
 #ifdef MICROGRAD_NCCL_ENABLED
@@ -481,5 +484,223 @@ void Barrier() {
   scalar_t token = 0.0f;
   HostAllReduceSum(state, &token, 1);
 }
+
+struct GradientReducer::Impl {
+  struct Bucket {
+    std::vector<size_t> params;
+    std::vector<size_t> offsets;
+    size_t pending = 0;
+    Storage packed;
+#ifdef MICROGRAD_NCCL_ENABLED
+    cudaEvent_t ready = nullptr;
+#endif
+  };
+
+  std::vector<std::shared_ptr<Tensor>> parameters;
+  std::vector<size_t> bucket_of;
+  std::vector<bool> ready;
+  std::vector<Bucket> buckets;
+  size_t next_bucket = 0;
+  bool overlap = false;
+  bool bf16 = false;
+  bool armed = false;
+#ifdef MICROGRAD_NCCL_ENABLED
+  cudaStream_t stream = nullptr;
+  cudaEvent_t done = nullptr;
+#endif
+
+  void mark_ready(size_t index) {
+    if (!armed) {
+      return;
+    }
+    if (ready[index]) {
+      throw std::logic_error(
+          "distributed: a parameter gradient became ready twice in one "
+          "backward pass");
+    }
+    ready[index] = true;
+    if (--buckets[bucket_of[index]].pending == 0) {
+      while (next_bucket < buckets.size() &&
+             buckets[next_bucket].pending == 0) {
+        launch(buckets[next_bucket++]);
+      }
+    }
+  }
+
+  void launch([[maybe_unused]] Bucket &bucket) {
+#ifdef MICROGRAD_NCCL_ENABLED
+    State &state = GetState();
+    std::vector<std::pair<scalar_t *, size_t>> grads;
+    grads.reserve(bucket.params.size());
+    for (size_t index : bucket.params) {
+      Storage &grad = parameters[index]->grad_storage();
+      grads.emplace_back(StoragePointer(grad), StorageCount(grad));
+    }
+    MICROGRAD_CUDA_CHECK(
+        cudaEventRecord(bucket.ready, CudaContext::instance().stream()));
+    MICROGRAD_CUDA_CHECK(cudaStreamWaitEvent(stream, bucket.ready, 0));
+    if (bf16) {
+      auto *packed = static_cast<char *>(bucket.packed.device_pointer());
+      constexpr size_t kBf16Bytes = 2;
+      for (size_t i = 0; i < grads.size(); i++) {
+        cuda::ops::FloatToBf16(grads[i].first,
+                               packed + (bucket.offsets[i] * kBf16Bytes),
+                               grads[i].second, stream);
+      }
+      CheckNccl(ncclAllReduce(packed, packed, bucket.offsets.back(),
+                              ncclBfloat16, ncclSum, state.comm, stream),
+                "ncclAllReduce");
+      for (size_t i = 0; i < grads.size(); i++) {
+        cuda::ops::Bf16ToFloat(packed + (bucket.offsets[i] * kBf16Bytes),
+                               grads[i].first, grads[i].second, stream);
+      }
+      return;
+    }
+    CheckNccl(ncclGroupStart(), "ncclGroupStart");
+    for (const auto &[data, count] : grads) {
+      CheckNccl(ncclAllReduce(data, data, count, ncclFloat, ncclSum,
+                              state.comm, stream),
+                "ncclAllReduce");
+    }
+    CheckNccl(ncclGroupEnd(), "ncclGroupEnd");
+#endif
+  }
+};
+
+GradientReducer::GradientReducer(
+    std::vector<std::shared_ptr<Tensor>> parameters,
+    [[maybe_unused]] size_t bucket_bytes, bool bf16)
+    : impl_(std::make_unique<Impl>()) {
+  Impl &impl = *impl_;
+  impl.parameters = std::move(parameters);
+  if (bf16 && bucket_bytes == 0) {
+    throw std::invalid_argument(
+        "distributed: bf16 gradient all-reduce needs gradient buckets");
+  }
+#ifdef MICROGRAD_NCCL_ENABLED
+  State &state = GetState();
+  bool overlap = bucket_bytes > 0 && state.active &&
+                 state.info.world_size > 1 && state.comm != nullptr &&
+                 !impl.parameters.empty();
+  for (const auto &p : impl.parameters) {
+    overlap = overlap && p->backend() == Device::CUDA &&
+              p->dtype() == DType::kFloat32;
+  }
+  if (!overlap) {
+    return;
+  }
+  impl.overlap = true;
+  impl.bf16 = bf16;
+
+  const size_t count = impl.parameters.size();
+  impl.bucket_of.resize(count);
+  impl.ready.assign(count, false);
+  size_t bytes = 0;
+  for (size_t i = count; i-- > 0;) {
+    if (impl.buckets.empty() || bytes >= bucket_bytes) {
+      impl.buckets.emplace_back();
+      bytes = 0;
+    }
+    impl.buckets.back().params.push_back(i);
+    impl.bucket_of[i] = impl.buckets.size() - 1;
+    bytes += impl.parameters[i]->size() * sizeof(scalar_t);
+  }
+
+  int least = 0;
+  int greatest = 0;
+  MICROGRAD_CUDA_CHECK(cudaDeviceGetStreamPriorityRange(&least, &greatest));
+  MICROGRAD_CUDA_CHECK(cudaStreamCreateWithPriority(
+      &impl.stream, cudaStreamNonBlocking, greatest));
+  MICROGRAD_CUDA_CHECK(
+      cudaEventCreateWithFlags(&impl.done, cudaEventDisableTiming));
+  constexpr size_t kPackAlign = 8;
+  for (Impl::Bucket &bucket : impl.buckets) {
+    MICROGRAD_CUDA_CHECK(
+        cudaEventCreateWithFlags(&bucket.ready, cudaEventDisableTiming));
+    if (!impl.bf16) {
+      continue;
+    }
+    size_t offset = 0;
+    for (size_t index : bucket.params) {
+      bucket.offsets.push_back(offset);
+      offset += (impl.parameters[index]->size() + kPackAlign - 1) /
+                kPackAlign * kPackAlign;
+    }
+    bucket.offsets.push_back(offset);
+    bucket.packed = Storage(offset * 2, Device::CUDA, DType::kBFloat16);
+    MICROGRAD_CUDA_CHECK(cudaMemsetAsync(bucket.packed.device_pointer(), 0,
+                                         bucket.packed.bytes(),
+                                         CudaContext::instance().stream()));
+  }
+  for (size_t i = 0; i < count; i++) {
+    impl.parameters[i]->set_post_accumulate_grad_hook(
+        [&impl, i](Tensor & /*param*/) { impl.mark_ready(i); });
+  }
+#endif
+}
+
+GradientReducer::~GradientReducer() {
+  Impl &impl = *impl_;
+  if (!impl.overlap) {
+    return;
+  }
+  for (const auto &p : impl.parameters) {
+    p->set_post_accumulate_grad_hook(nullptr);
+  }
+#ifdef MICROGRAD_NCCL_ENABLED
+  cudaStreamSynchronize(impl.stream);
+  for (Impl::Bucket &bucket : impl.buckets) {
+    cudaEventDestroy(bucket.ready);
+  }
+  cudaEventDestroy(impl.done);
+  cudaStreamDestroy(impl.stream);
+#endif
+}
+
+void GradientReducer::prepare(bool reduce_this_backward) {
+  Impl &impl = *impl_;
+  impl.armed = impl.overlap && reduce_this_backward;
+  if (!impl.armed) {
+    return;
+  }
+  impl.ready.assign(impl.parameters.size(), false);
+  for (Impl::Bucket &bucket : impl.buckets) {
+    bucket.pending = bucket.params.size();
+  }
+  impl.next_bucket = 0;
+}
+
+void GradientReducer::finish() {
+  Impl &impl = *impl_;
+  State &state = GetState();
+  if (!state.active || state.info.world_size == 1) {
+    return;
+  }
+  if (!impl.overlap) {
+    std::vector<Storage *> grads;
+    grads.reserve(impl.parameters.size());
+    for (const auto &p : impl.parameters) {
+      grads.push_back(&p->grad_storage());
+    }
+    AllReduceSum(grads);
+    return;
+  }
+  if (!impl.armed) {
+    prepare(true);
+  }
+  while (impl.next_bucket < impl.buckets.size()) {
+    impl.launch(impl.buckets[impl.next_bucket++]);
+  }
+  impl.armed = false;
+#ifdef MICROGRAD_NCCL_ENABLED
+  MICROGRAD_CUDA_CHECK(cudaEventRecord(impl.done, impl.stream));
+  MICROGRAD_CUDA_CHECK(
+      cudaStreamWaitEvent(CudaContext::instance().stream(), impl.done, 0));
+#endif
+}
+
+bool GradientReducer::overlaps() const { return impl_->overlap; }
+
+size_t GradientReducer::bucket_count() const { return impl_->buckets.size(); }
 
 }  // namespace micrograd::distributed

@@ -117,6 +117,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   bool has_grad() const;
   bool requires_grad() const;
   void set_requires_grad(bool requires_grad);
+  void set_post_accumulate_grad_hook(std::function<void(Tensor &)> hook);
 
   static std::shared_ptr<Tensor> checkpoint(
       const std::shared_ptr<Tensor> &input,
@@ -165,6 +166,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 
   std::vector<std::shared_ptr<Tensor>> children_;
   std::function<void()> backward_fn_;
+  std::function<void(Tensor &)> post_accumulate_grad_hook_;
   bool requires_grad_ = false;
   bool graph_released_ = false;
 
