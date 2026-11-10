@@ -49,4 +49,8 @@ void FusedAdamWStep(const std::vector<AdamWTensor> &tensors, scalar_t lr,
                     scalar_t weight_decay, scalar_t bias_correction1,
                     scalar_t bias_correction2);
 
+void MuonStep(Tensor &param, Tensor &momentum, scalar_t lr, scalar_t beta,
+              scalar_t weight_decay, bool nesterov, size_t ns_steps,
+              scalar_t update_scale);
+
 }  // namespace micrograd::cuda::ops

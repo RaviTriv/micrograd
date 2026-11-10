@@ -18,6 +18,7 @@ add_executable(micrograd_tests
     dataloader_test.cpp
     dataset_test.cpp
     gelu_test.cpp
+    gpt_arch_test.cpp
     grad_clip_test.cpp
     init_test.cpp
     layers_test.cpp
@@ -50,6 +51,7 @@ micrograd_add_check(bpe_roundtrip tools/check/bpe_roundtrip.cpp)
 micrograd_add_check(core_eval tools/eval/core_eval.cpp)
 micrograd_add_check(grpo_check tools/check/grpo_check.cpp)
 micrograd_add_check(dist_check tools/check/dist_check.cpp)
+micrograd_add_check(optim_check tools/check/optim_check.cpp)
 
 add_test(NAME dist_check_two_ranks
     COMMAND bash "${PROJECT_SOURCE_DIR}/tools/launch.sh" 2 $<TARGET_FILE:dist_check>)

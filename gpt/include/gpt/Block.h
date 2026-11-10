@@ -14,7 +14,7 @@ namespace micrograd::gpt {
 class Block : public nn::Module {
  public:
   Block(size_t n_embd, size_t n_head, scalar_t dropout,
-        bool recompute_activations = true);
+        bool recompute_activations = true, const ArchOptions &arch = {});
 
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;
@@ -26,6 +26,7 @@ class Block : public nn::Module {
   std::shared_ptr<Linear> mlp_fc_;
   std::shared_ptr<Linear> mlp_proj_;
   std::shared_ptr<Dropout> mlp_dropout_;
+  bool relu_squared_ = false;
 };
 
 }  // namespace micrograd::gpt

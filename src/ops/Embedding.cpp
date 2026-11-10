@@ -98,4 +98,27 @@ std::shared_ptr<Tensor> Tensor::gather_per_row(
                 .grad_through_lhs_only = true});
 }
 
+std::shared_ptr<Tensor> Tensor::cross_entropy_rows(
+    const std::vector<size_t> &targets) {
+  RequireRowGather(shape_, targets.size());
+
+  size_t rows = shape_[0];
+  size_t cols = shape_[1];
+  std::vector<scalar_t> target_values(rows);
+  for (size_t i = 0; i < rows; i++) {
+    if (targets[i] >= cols) {
+      throw std::out_of_range("cross_entropy target is out of range");
+    }
+    target_values[i] = static_cast<scalar_t>(targets[i]);
+  }
+  auto target_tensor =
+      Tensor::from_values(std::vector<size_t>{rows}, std::move(target_values));
+  target_tensor->to(backend());
+
+  return apply(OpId::kCrossEntropy, {rows},
+               {.lhs = shared_from_this(),
+                .rhs = target_tensor,
+                .grad_through_lhs_only = true});
+}
+
 }  // namespace micrograd

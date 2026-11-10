@@ -101,6 +101,8 @@ const char *OpName(OpId op) {
       return "broadcast_to";
     case OpId::kEmbeddingLookup:
       return "embedding_lookup";
+    case OpId::kCrossEntropy:
+      return "cross_entropy";
     case OpId::kGatherPerRow:
       return "gather_per_row";
     case OpId::kLayerNorm:

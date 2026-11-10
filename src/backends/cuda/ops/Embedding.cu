@@ -66,6 +66,76 @@ __global__ void GatherPerRowBackwardKernel(const scalar_t *indices,
   }
 }
 
+struct MaxSum {
+  scalar_t max;
+  scalar_t sum;
+};
+
+__device__ MaxSum CombineMaxSum(MaxSum a, MaxSum b) {
+  if (a.sum == 0.0f) {
+    return b;
+  }
+  if (b.sum == 0.0f) {
+    return a;
+  }
+  const scalar_t m = fmaxf(a.max, b.max);
+  return {m, (a.sum * expf(a.max - m)) + (b.sum * expf(b.max - m))};
+}
+
+__device__ MaxSum RowMaxSum(const scalar_t *row, size_t cols) {
+  __shared__ MaxSum shared[kBlockSize];
+  MaxSum local = {0.0f, 0.0f};
+  for (size_t j = threadIdx.x; j < cols; j += blockDim.x) {
+    local = CombineMaxSum(local, {row[j], 1.0f});
+  }
+  shared[threadIdx.x] = local;
+  __syncthreads();
+  for (unsigned stride = kBlockSize / 2; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      shared[threadIdx.x] =
+          CombineMaxSum(shared[threadIdx.x], shared[threadIdx.x + stride]);
+    }
+    __syncthreads();
+  }
+  const MaxSum result = shared[0];
+  __syncthreads();
+  return result;
+}
+
+__global__ void CrossEntropyKernel(const scalar_t *logits,
+                                   const scalar_t *targets, scalar_t *out,
+                                   size_t rows, size_t cols) {
+  for (size_t i = blockIdx.x; i < rows; i += gridDim.x) {
+    const scalar_t *row = logits + (i * cols);
+    const MaxSum ms = RowMaxSum(row, cols);
+    if (threadIdx.x == 0) {
+      auto target = static_cast<size_t>(llroundf(targets[i]));
+      out[i] = ms.max + logf(ms.sum) - row[target];
+    }
+  }
+}
+
+__global__ void CrossEntropyBackwardKernel(const scalar_t *logits,
+                                           const scalar_t *targets,
+                                           const scalar_t *out_grad,
+                                           scalar_t *grad, size_t rows,
+                                           size_t cols) {
+  for (size_t i = blockIdx.x; i < rows; i += gridDim.x) {
+    const scalar_t *row = logits + (i * cols);
+    scalar_t *grad_row = grad + (i * cols);
+    const MaxSum ms = RowMaxSum(row, cols);
+    const scalar_t scale = out_grad[i] / ms.sum;
+    const auto target = static_cast<size_t>(llroundf(targets[i]));
+    for (size_t j = threadIdx.x; j < cols; j += blockDim.x) {
+      scalar_t g = expf(row[j] - ms.max) * scale;
+      if (j == target) {
+        g -= out_grad[i];
+      }
+      grad_row[j] += g;
+    }
+  }
+}
+
 const scalar_t *DataPtr(const Tensor *t) {
   return static_cast<const scalar_t *>(t->data_storage().device_pointer());
 }
@@ -118,6 +188,32 @@ std::function<void()> GatherPerRowBackward(const GradArgs &args) {
   };
 }
 
+int RowGrid(size_t rows) {
+  return static_cast<int>(std::min(rows, kMaxBlocks));
+}
+
+void CrossEntropy(const OpArgs &args) {
+  size_t rows = args.lhs->shape()[0];
+  size_t cols = args.lhs->shape()[1];
+  CrossEntropyKernel<<<RowGrid(rows), kBlockSize, 0,
+                       CudaContext::instance().stream()>>>(
+      DataPtr(args.lhs), DataPtr(args.rhs), DataPtr(args.out), rows, cols);
+  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+}
+
+std::function<void()> CrossEntropyBackward(const GradArgs &args) {
+  return [out = args.out, lhs = args.lhs, targets = args.rhs]() {
+    size_t rows = lhs->shape()[0];
+    size_t cols = lhs->shape()[1];
+    CrossEntropyBackwardKernel<<<RowGrid(rows), kBlockSize, 0,
+                                 CudaContext::instance().stream()>>>(
+        DataPtr(static_cast<const Tensor *>(lhs.get())),
+        DataPtr(static_cast<const Tensor *>(targets.get())), GradPtr(out),
+        GradPtr(lhs.get()), rows, cols);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  };
+}
+
 }  // namespace
 
 void RegisterEmbeddingOps() {
@@ -128,6 +224,9 @@ void RegisterEmbeddingOps() {
   registry.Register(OpId::kGatherPerRow, Device::CUDA, GatherPerRow);
   registry.RegisterBackward(OpId::kGatherPerRow, Device::CUDA,
                             GatherPerRowBackward);
+  registry.Register(OpId::kCrossEntropy, Device::CUDA, CrossEntropy);
+  registry.RegisterBackward(OpId::kCrossEntropy, Device::CUDA,
+                            CrossEntropyBackward);
 }
 
 }  // namespace micrograd::cuda::ops

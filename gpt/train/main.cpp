@@ -20,6 +20,7 @@
 #include "gpt/GPTConfig.h"
 #include "gpt/Model.h"
 #include "micrograd/Autograd.h"
+#include "micrograd/Distributed.h"
 #include "micrograd/NN.h"
 #include "micrograd/Profiler.h"
 #include "micrograd/Random.h"
@@ -46,6 +47,7 @@ namespace {
 using micrograd::Backend;
 using micrograd::cross_entropy;
 using micrograd::Device;
+namespace distributed = micrograd::distributed;
 using micrograd::global_rng;
 using micrograd::load;
 using micrograd::manual_seed;
@@ -96,6 +98,8 @@ struct TrainConfig {
   bool tf32 = false;
   bool profile = false;
   bool recompute = true;
+  micrograd::gpt::ArchOptions arch;
+  scalar_t muon_lr = 0.0f;
   uint64_t seed = 1337;
   bool sample = false;
   std::string prompt = "\n";
@@ -189,6 +193,14 @@ TrainConfig parse_args(int argc, char **argv) {
       config.profile = true;
     } else if (arg == "--no-recompute") {
       config.recompute = false;
+    } else if (arg == "--rotary") {
+      config.arch.rotary = true;
+    } else if (arg == "--qk-norm") {
+      config.arch.qk_norm = true;
+    } else if (arg == "--relu2") {
+      config.arch.relu_squared = true;
+    } else if (arg == "--muon-lr") {
+      config.muon_lr = std::stof(next_value());
     } else if (arg == "--seed") {
       config.seed = std::stoull(next_value());
     } else if (arg == "--sample") {
@@ -224,6 +236,7 @@ GPTConfig build_model_config(const TrainConfig &config) {
   model_config.embedding_lr = 0.0f;
   model_config.unembedding_lr = 0.0f;
   model_config.recompute_activations = config.recompute;
+  model_config.arch = config.arch;
   return model_config;
 }
 
@@ -279,17 +292,33 @@ bool is_decayed(const std::string &name) {
   return name.substr(leaf_start) == "weight";
 }
 
+bool is_muon_matrix(const std::string &name, const Tensor &param) {
+  return name.starts_with("h.") && param.shape().size() == 2;
+}
+
 class TrainOptimizer {
  public:
   TrainOptimizer(const NamedParameters &named_parameters, scalar_t weight_decay,
-                 scalar_t beta1, scalar_t beta2, scalar_t eps)
-      : weight_decay_(weight_decay), beta1_(beta1), beta2_(beta2), eps_(eps) {
+                 scalar_t beta1, scalar_t beta2, scalar_t eps,
+                 scalar_t base_lr = 0.0f, scalar_t muon_lr = 0.0f)
+      : weight_decay_(weight_decay),
+        beta1_(beta1),
+        beta2_(beta2),
+        eps_(eps),
+        base_lr_(base_lr),
+        muon_lr_(muon_lr) {
     for (const auto &[name, p] : named_parameters) {
+      const bool muon = muon_lr > 0.0f && is_muon_matrix(name, *p);
       parameters_.push_back(p);
       decay_.push_back(is_decayed(name));
+      muon_.push_back(muon);
       m_.push_back(make_moment(*p));
-      v_.push_back(make_moment(*p));
+      v_.push_back(muon ? Tensor::zeros({1}, p->backend()) : make_moment(*p));
     }
+  }
+
+  size_t muon_count() const {
+    return static_cast<size_t>(std::count(muon_.begin(), muon_.end(), true));
   }
 
   size_t decayed_count() const {
@@ -329,11 +358,15 @@ class TrainOptimizer {
     scalar_t bias_correction2 =
         1.0f - std::pow(beta2_, static_cast<scalar_t>(step_count_));
 #ifdef MICROGRAD_CUDA_ENABLED
+    step_muon(learning_rate);
     if (!parameters_.empty() &&
         parameters_.front()->backend() == Device::CUDA) {
       std::vector<micrograd::cuda::ops::AdamWTensor> tensors;
       tensors.reserve(parameters_.size());
       for (size_t i = 0; i < parameters_.size(); i++) {
+        if (muon_[i]) {
+          continue;
+        }
         tensors.push_back(micrograd::cuda::ops::AdamWTensor{
             static_cast<scalar_t *>(
                 parameters_[i]->data_storage().device_pointer()),
@@ -348,8 +381,13 @@ class TrainOptimizer {
                                            bias_correction1, bias_correction2);
       return;
     }
+#else
+    step_muon(learning_rate);
 #endif
     for (size_t i = 0; i < parameters_.size(); i++) {
+      if (muon_[i]) {
+        continue;
+      }
       micrograd::ops::AdamWStep(*parameters_[i], *m_[i], *v_[i], learning_rate,
                                 beta1_, beta2_, eps_, weight_decay_, decay_[i],
                                 bias_correction1, bias_correction2);
@@ -357,6 +395,27 @@ class TrainOptimizer {
   }
 
  private:
+  void step_muon(scalar_t learning_rate) {
+    if (muon_lr_ <= 0.0f) {
+      return;
+    }
+    const scalar_t lr = muon_lr_ * learning_rate / base_lr_;
+    for (size_t i = 0; i < parameters_.size(); i++) {
+      if (!muon_[i]) {
+        continue;
+      }
+      const auto &shape = parameters_[i]->shape();
+      const scalar_t fan_in = static_cast<scalar_t>(shape[0]);
+      const scalar_t fan_out = static_cast<scalar_t>(shape[1]);
+      const scalar_t scale = std::sqrt(std::max(1.0f, fan_out / fan_in));
+      micrograd::ops::MuonStep(*parameters_[i], *m_[i], lr, kMuonMomentum,
+                               0.0f, true, kMuonNsSteps, scale);
+    }
+  }
+
+  static constexpr scalar_t kMuonMomentum = 0.95f;
+  static constexpr size_t kMuonNsSteps = 5;
+
   static std::shared_ptr<Tensor> make_moment(const Tensor &param) {
     auto moment = Tensor::zeros(param.shape());
     moment->to(param.backend());
@@ -383,10 +442,13 @@ class TrainOptimizer {
 
   std::vector<std::shared_ptr<Tensor>> parameters_;
   std::vector<bool> decay_;
+  std::vector<bool> muon_;
   scalar_t weight_decay_;
   scalar_t beta1_;
   scalar_t beta2_;
   scalar_t eps_;
+  scalar_t base_lr_;
+  scalar_t muon_lr_;
   size_t step_count_ = 0;
   std::vector<std::shared_ptr<Tensor>> m_;
   std::vector<std::shared_ptr<Tensor>> v_;
@@ -583,12 +645,17 @@ double estimate_loss(Model &model, const TrainingData &dataset,
       is_val ? val_batches(dataset, config) : config.eval_iters;
   model.eval();
 
+  const auto rank = static_cast<size_t>(distributed::Rank());
+  const auto world = static_cast<size_t>(distributed::WorldSize());
   double total = 0.0;
   for (size_t i = 0; i < batches; i++) {
     Dataset::Batch batch =
         is_val ? dataset.val_batch(config.batch_size, config.block_size, i)
                : dataset.sample(config.batch_size, config.block_size, split,
                                 rng);
+    if (i % world != rank) {
+      continue;
+    }
     auto input = token_tensor(batch.inputs, config.batch_size,
                               config.block_size, config.device);
     auto logits = model.forward(input);
@@ -601,7 +668,7 @@ double estimate_loss(Model &model, const TrainingData &dataset,
   }
 
   model.train();
-  return total / static_cast<double>(batches);
+  return distributed::AllReduceSum(total) / static_cast<double>(batches);
 }
 
 void run_sample(const TrainConfig &config) {
@@ -670,9 +737,43 @@ double seconds_since(std::chrono::steady_clock::time_point start) {
 
 }  // namespace
 
+void skip_samples(SampleOrder &order, size_t count) {
+  for (size_t i = 0; i < count; i++) {
+    order.next();
+  }
+}
+
+void sync_gradients(const std::vector<std::shared_ptr<Tensor>> &parameters) {
+  if (distributed::WorldSize() == 1) {
+    return;
+  }
+  std::vector<Storage *> grads;
+  grads.reserve(parameters.size());
+  for (const auto &p : parameters) {
+    grads.push_back(&p->grad_storage());
+  }
+  distributed::AllReduceSum(grads);
+}
+
+void broadcast_parameters(
+    const std::vector<std::shared_ptr<Tensor>> &parameters) {
+  if (distributed::WorldSize() == 1) {
+    return;
+  }
+  for (const auto &p : parameters) {
+    distributed::Broadcast(p->data_storage());
+  }
+}
+
 int main(int argc, char **argv) {
   try {
     TrainConfig config = parse_args(argc, argv);
+    distributed::Initialize(distributed::FromEnvironment());
+    const auto rank = static_cast<size_t>(distributed::Rank());
+    const auto world = static_cast<size_t>(distributed::WorldSize());
+    if (!distributed::IsMain()) {
+      std::cout.setstate(std::ios::failbit);
+    }
     manual_seed(config.seed);
 
     if (config.sample) {
@@ -704,9 +805,21 @@ int main(int argc, char **argv) {
     for (auto &p : parameters) {
       p->to(config.device);
     }
+    broadcast_parameters(parameters);
+    if (world > 1) {
+      std::cout << "data parallel: " << world << " ranks, "
+                << distributed::DeviceDescription(config.device)
+                << " on rank 0\n";
+      manual_seed(config.seed + rank);
+    }
 
     TrainOptimizer optimizer(model.named_parameters(), config.weight_decay,
-                             config.beta1, config.beta2, 1e-8f);
+                             config.beta1, config.beta2, 1e-8f,
+                             config.learning_rate, config.muon_lr);
+    if (optimizer.muon_count() > 0) {
+      std::cout << "muon: " << optimizer.muon_count()
+                << " block matrices at lr " << config.muon_lr << "\n";
+    }
     const size_t decayed = optimizer.decayed_count();
     const size_t undecayed = optimizer.parameter_count() - decayed;
     std::cout << "weight decay: " << decayed << " tensors decayed, "
@@ -719,18 +832,20 @@ int main(int argc, char **argv) {
       start_iter = optimizer.step_count();
       load_data_state(
           data_state_path(config.resume_path),
-          start_iter * config.batch_size * config.grad_accum_steps,
+          start_iter * config.batch_size * config.grad_accum_steps * world,
           train_order);
       load_rng_state(rng_state_path(config.resume_path));
       std::cout << "resuming data order at epoch " << train_order.epoch()
                 << ", sample " << train_order.position() << "\n";
     }
 
-    std::ofstream log_file(config.log_path,
-                           config.resume_path.empty()
-                               ? std::ios::out
-                               : std::ios::out | std::ios::app);
-    if (!log_file.is_open()) {
+    std::ofstream log_file;
+    if (distributed::IsMain()) {
+      log_file.open(config.log_path, config.resume_path.empty()
+                                         ? std::ios::out
+                                         : std::ios::out | std::ios::app);
+    }
+    if (distributed::IsMain() && !log_file.is_open()) {
       throw std::runtime_error("Could not open log file: " + config.log_path);
     }
     if (config.resume_path.empty()) {
@@ -739,7 +854,7 @@ int main(int argc, char **argv) {
 
     const size_t tokens_per_micro_step = config.batch_size * config.block_size;
     const size_t tokens_per_step =
-        tokens_per_micro_step * config.grad_accum_steps;
+        tokens_per_micro_step * config.grad_accum_steps * world;
     size_t timed_steps = 0;
     size_t profiled_steps = 0;
     double timed_seconds = 0.0;
@@ -757,7 +872,7 @@ int main(int argc, char **argv) {
         log_file.flush();
       }
 
-      if (config.checkpoint_interval > 0 && it > 0 &&
+      if (distributed::IsMain() && config.checkpoint_interval > 0 && it > 0 &&
           it % config.checkpoint_interval == 0) {
         save(config.checkpoint_path, model);
         save_optimizer_state(optimizer_state_path(config.checkpoint_path),
@@ -780,8 +895,10 @@ int main(int argc, char **argv) {
       for (size_t micro_step = 0; micro_step < config.grad_accum_steps;
            micro_step++) {
         const auto data_start = std::chrono::steady_clock::now();
+        skip_samples(train_order, rank * config.batch_size);
         Dataset::Batch batch =
             dataset.train_batch(config.batch_size, train_order);
+        skip_samples(train_order, (world - 1 - rank) * config.batch_size);
         std::shared_ptr<Tensor> input;
         {
           micrograd::profiler::Scope scope("batch_to_device", "step",
@@ -796,8 +913,12 @@ int main(int argc, char **argv) {
              static_cast<int64_t>(dataset.vocab_size())});
         auto loss = cross_entropy(flat_logits, batch.targets);
         auto scaled_loss =
-            loss->div(static_cast<scalar_t>(config.grad_accum_steps));
+            loss->div(static_cast<scalar_t>(config.grad_accum_steps * world));
         scaled_loss->backward();
+      }
+      {
+        micrograd::profiler::Scope scope("grad_sync", "step", config.device);
+        sync_gradients(parameters);
       }
       {
         micrograd::profiler::Scope scope("grad_clip", "step", config.device);
@@ -854,12 +975,16 @@ int main(int argc, char **argv) {
         estimate_loss(model, dataset, Dataset::Split::kVal, config);
     std::cout << "final val loss " << final_val_loss << "\n";
 
-    save(config.checkpoint_path, model);
-    save_optimizer_state(optimizer_state_path(config.checkpoint_path),
-                         optimizer);
-    save_data_state(data_state_path(config.checkpoint_path), train_order);
-    save_rng_state(rng_state_path(config.checkpoint_path));
-    std::cout << "Saved trained model to " << config.checkpoint_path << "\n";
+    if (distributed::IsMain()) {
+      save(config.checkpoint_path, model);
+      save_optimizer_state(optimizer_state_path(config.checkpoint_path),
+                           optimizer);
+      save_data_state(data_state_path(config.checkpoint_path), train_order);
+      save_rng_state(rng_state_path(config.checkpoint_path));
+      std::cout << "Saved trained model to " << config.checkpoint_path << "\n";
+    }
+    distributed::Barrier();
+    distributed::Shutdown();
   } catch (const std::exception &e) {
     std::cerr << "error: " << e.what() << "\n";
     return 1;

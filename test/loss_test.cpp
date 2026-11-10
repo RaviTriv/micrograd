@@ -201,3 +201,36 @@ TEST(Loss, LogSoftmaxStaysFiniteAsLogitsGrow) {
     EXPECT_NEAR(total, 1.0f, 1e-6f) << "row max " << row.back();
   }
 }
+
+TEST(Loss, FusedCrossEntropyMatchesComposed) {
+  constexpr size_t kRows = 5;
+  constexpr size_t kCols = 37;
+  std::vector<scalar_t> values(kRows * kCols);
+  for (size_t i = 0; i < values.size(); i++) {
+    values[i] = 40.0f * std::sin(0.37f * static_cast<scalar_t>(i));
+  }
+  const std::vector<size_t> targets = {0, 36, 5, 17, 17};
+
+  auto fused_in = Tensor::from_values({kRows, kCols}, values);
+  fused_in->set_requires_grad(true);
+  auto fused = fused_in->cross_entropy_rows(targets);
+  fused->sum()->backward();
+
+  auto composed_in = Tensor::from_values({kRows, kCols}, values);
+  composed_in->set_requires_grad(true);
+  auto composed = composed_in->log_softmax(1)->gather_per_row(targets)->neg();
+  composed->sum()->backward();
+
+  for (size_t i = 0; i < kRows; i++) {
+    EXPECT_NEAR(fused->data()[i], composed->data()[i], 1e-4f) << "row " << i;
+  }
+  for (size_t i = 0; i < values.size(); i++) {
+    EXPECT_NEAR(fused_in->grad()[i], composed_in->grad()[i], 1e-5f)
+        << "element " << i;
+  }
+}
+
+TEST(Loss, FusedCrossEntropyRejectsOutOfRangeTarget) {
+  auto logits = Tensor::from_values({1, 3}, {0.0f, 1.0f, 2.0f});
+  EXPECT_THROW(logits->cross_entropy_rows({3}), std::out_of_range);
+}

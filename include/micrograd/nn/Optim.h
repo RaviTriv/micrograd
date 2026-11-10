@@ -97,7 +97,7 @@ class Muon : public Optimizer {
   scalar_t weight_decay_;
   bool nesterov_;
   size_t ns_steps_;
-  std::vector<std::vector<scalar_t>> momentum_buffer_;
+  std::vector<std::shared_ptr<Tensor>> momentum_buffer_;
 };
 
 }  // namespace micrograd

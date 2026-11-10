@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <memory>
 
+#include "gpt/GPTConfig.h"
 #include "micrograd/NN.h"
 #include "micrograd/Scalar.h"
 #include "micrograd/Tensor.h"
@@ -20,7 +21,8 @@ std::shared_ptr<Tensor> causal_attention(const std::shared_ptr<Tensor> &q,
 
 class CausalSelfAttention : public nn::Module {
  public:
-  CausalSelfAttention(size_t n_embd, size_t n_head, scalar_t dropout);
+  CausalSelfAttention(size_t n_embd, size_t n_head, scalar_t dropout,
+                      const ArchOptions &arch = {});
 
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;
@@ -28,6 +30,9 @@ class CausalSelfAttention : public nn::Module {
  private:
   size_t n_embd_;
   size_t n_head_;
+  ArchOptions arch_;
+  std::shared_ptr<RMSNorm> q_norm_;
+  std::shared_ptr<RMSNorm> k_norm_;
   std::shared_ptr<Linear> query_;
   std::shared_ptr<Linear> key_;
   std::shared_ptr<Linear> value_;

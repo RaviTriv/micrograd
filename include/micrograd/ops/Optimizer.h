@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 
@@ -19,6 +20,10 @@ void ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &params,
 void AdamWStep(Tensor &param, Tensor &m, Tensor &v, scalar_t lr, scalar_t beta1,
                scalar_t beta2, scalar_t eps, scalar_t weight_decay, bool decay,
                scalar_t bias_correction1, scalar_t bias_correction2);
+
+void MuonStep(Tensor &param, Tensor &momentum, scalar_t lr, scalar_t beta,
+              scalar_t weight_decay, bool nesterov, size_t ns_steps,
+              scalar_t update_scale);
 
 }  // namespace ops
 }  // namespace micrograd

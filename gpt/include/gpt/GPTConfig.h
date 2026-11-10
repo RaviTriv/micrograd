@@ -6,6 +6,12 @@
 
 namespace micrograd::gpt {
 
+struct ArchOptions {
+  bool rotary = false;
+  bool qk_norm = false;
+  bool relu_squared = false;
+};
+
 struct GPTConfig {
   size_t depth;
   size_t n_layer = 6;
@@ -19,6 +25,7 @@ struct GPTConfig {
   scalar_t embedding_lr;
   scalar_t unembedding_lr;
   bool recompute_activations = true;
+  ArchOptions arch;
 };
 
 GPTConfig config_for_depth(size_t depth);

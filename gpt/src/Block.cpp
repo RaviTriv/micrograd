@@ -11,9 +11,10 @@ constexpr size_t kMlpRatio = 4;
 }  // namespace
 
 Block::Block(size_t n_embd, size_t n_head, scalar_t dropout,
-             bool recompute_activations) {
+             bool recompute_activations, const ArchOptions &arch)
+    : relu_squared_(arch.relu_squared) {
   ln1_ = std::make_shared<LayerNorm>(std::vector<size_t>{n_embd});
-  attn_ = std::make_shared<CausalSelfAttention>(n_embd, n_head, dropout);
+  attn_ = std::make_shared<CausalSelfAttention>(n_embd, n_head, dropout, arch);
   ln2_ = std::make_shared<LayerNorm>(std::vector<size_t>{n_embd});
   mlp_fc_ = std::make_shared<Linear>(n_embd, n_embd * kMlpRatio);
   mlp_proj_ = std::make_shared<Linear>(n_embd * kMlpRatio, n_embd);
@@ -33,8 +34,10 @@ std::shared_ptr<Tensor> Block::forward(const std::shared_ptr<Tensor> &input) {
   return maybe_checkpoint(input, [this](const std::shared_ptr<Tensor> &x) {
     std::shared_ptr<Tensor> residual = x->add(attn_->forward(ln1_->forward(x)));
 
-    std::shared_ptr<Tensor> mlp_out = mlp_dropout_->forward(
-        mlp_proj_->forward(gelu(mlp_fc_->forward(ln2_->forward(residual)))));
+    std::shared_ptr<Tensor> hidden = mlp_fc_->forward(ln2_->forward(residual));
+    hidden = relu_squared_ ? relu_squared(hidden) : gelu(hidden);
+    std::shared_ptr<Tensor> mlp_out =
+        mlp_dropout_->forward(mlp_proj_->forward(hidden));
 
     return residual->add(mlp_out);
   });

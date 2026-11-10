@@ -54,6 +54,7 @@ enum class OpId {
   kLayerNorm,
   kRmsNorm,
   kRotaryEmbedding,
+  kCrossEntropy,
   kFlashAttention,
 };
 

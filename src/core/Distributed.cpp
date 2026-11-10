@@ -219,10 +219,11 @@ void ConnectControlChannel(State &state) {
   state.peer_fds = {fd};
 }
 
-void HostAllReduceSum(State &state, scalar_t *data, size_t count) {
-  const size_t bytes = count * sizeof(scalar_t);
+template <typename T>
+void HostAllReduceSum(State &state, T *data, size_t count) {
+  const size_t bytes = count * sizeof(T);
   if (state.info.rank == 0) {
-    std::vector<scalar_t> incoming(count);
+    std::vector<T> incoming(count);
     for (int peer = 1; peer < state.info.world_size; peer++) {
       RecvAll(state.peer_fds[static_cast<size_t>(peer)], incoming.data(),
               bytes);
@@ -239,7 +240,7 @@ void HostAllReduceSum(State &state, scalar_t *data, size_t count) {
   RecvAll(state.peer_fds[0], data, bytes);
 }
 
-[[maybe_unused]] void BroadcastBytes(State &state, void *data, size_t bytes) {
+void BroadcastBytes(State &state, void *data, size_t bytes) {
   if (state.info.rank == 0) {
     for (int peer = 1; peer < state.info.world_size; peer++) {
       SendAll(state.peer_fds[static_cast<size_t>(peer)], data, bytes);
@@ -387,16 +388,89 @@ void AllReduceSum(scalar_t *data, size_t count, Device device) {
   HostAllReduceSum(state, data, count);
 }
 
-void AllReduceSum(Storage &storage) {
+namespace {
+
+scalar_t *StoragePointer(Storage &storage) {
   if (storage.dtype() != DType::kFloat32) {
-    throw std::invalid_argument(
-        "distributed: all-reduce supports float32 only");
+    throw std::invalid_argument("distributed: collectives support float32 only");
   }
-  const size_t count = storage.bytes() / sizeof(scalar_t);
-  auto *data = static_cast<scalar_t *>(storage.device() == Device::CUDA
-                                          ? storage.device_pointer()
-                                          : storage.host_pointer());
-  AllReduceSum(data, count, storage.device());
+  return static_cast<scalar_t *>(storage.device() == Device::CUDA
+                                     ? storage.device_pointer()
+                                     : storage.host_pointer());
+}
+
+size_t StorageCount(const Storage &storage) {
+  return storage.bytes() / sizeof(scalar_t);
+}
+
+}  // namespace
+
+void AllReduceSum(Storage &storage) {
+  AllReduceSum(StoragePointer(storage), StorageCount(storage),
+               storage.device());
+}
+
+void AllReduceSum(std::span<Storage *const> storages) {
+  State &state = GetState();
+  if (!state.active || state.info.world_size == 1) {
+    return;
+  }
+#ifdef MICROGRAD_NCCL_ENABLED
+  bool all_cuda = !storages.empty();
+  for (Storage *storage : storages) {
+    all_cuda = all_cuda && storage->device() == Device::CUDA;
+  }
+  if (all_cuda && state.comm != nullptr) {
+    CheckNccl(ncclGroupStart(), "ncclGroupStart");
+    for (Storage *storage : storages) {
+      const size_t count = StorageCount(*storage);
+      if (count == 0) {
+        continue;
+      }
+      scalar_t *data = StoragePointer(*storage);
+      CheckNccl(ncclAllReduce(data, data, count, ncclFloat, ncclSum,
+                              state.comm, CudaContext::instance().stream()),
+                "ncclAllReduce");
+    }
+    CheckNccl(ncclGroupEnd(), "ncclGroupEnd");
+    return;
+  }
+#endif
+  for (Storage *storage : storages) {
+    AllReduceSum(*storage);
+  }
+}
+
+void Broadcast(Storage &storage) {
+  State &state = GetState();
+  if (!state.active || state.info.world_size == 1 || storage.bytes() == 0) {
+    return;
+  }
+  scalar_t *data = StoragePointer(storage);
+  if (storage.device() == Device::CUDA) {
+#ifdef MICROGRAD_NCCL_ENABLED
+    if (state.comm == nullptr) {
+      throw std::runtime_error("distributed: no NCCL communicator");
+    }
+    CheckNccl(ncclBroadcast(data, data, StorageCount(storage), ncclFloat, 0,
+                            state.comm, CudaContext::instance().stream()),
+              "ncclBroadcast");
+    return;
+#else
+    throw std::runtime_error(
+        "distributed: CUDA broadcast needs a build with -DENABLE_NCCL=ON");
+#endif
+  }
+  BroadcastBytes(state, data, storage.bytes());
+}
+
+double AllReduceSum(double value) {
+  State &state = GetState();
+  if (!state.active || state.info.world_size == 1) {
+    return value;
+  }
+  HostAllReduceSum(state, &value, 1);
+  return value;
 }
 
 void Barrier() {

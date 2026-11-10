@@ -69,9 +69,9 @@ std::shared_ptr<Tensor> cross_entropy(
                   ? logits
                   : logits->reshape({static_cast<int64_t>(rows),
                                      static_cast<int64_t>(classes)});
-  auto picked = flat->log_softmax(1)->gather_per_row(target_indices);
-
-  return picked->sum()->neg()->div(static_cast<scalar_t>(rows));
+  return flat->cross_entropy_rows(target_indices)
+      ->sum()
+      ->div(static_cast<scalar_t>(rows));
 }
 
 std::shared_ptr<Tensor> binary_cross_entropy(

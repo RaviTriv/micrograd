@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <span>
 #include <string>
 
 #include "micrograd/Device.h"
@@ -35,6 +36,9 @@ std::string DeviceDescription(Device device);
 
 void AllReduceSum(Storage &storage);
 void AllReduceSum(scalar_t *data, size_t count, Device device);
+void AllReduceSum(std::span<Storage *const> storages);
+void Broadcast(Storage &storage);
+double AllReduceSum(double value);
 void Barrier();
 
 }  // namespace micrograd::distributed

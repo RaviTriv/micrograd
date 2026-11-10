@@ -35,6 +35,7 @@ bool ForwardOverwritesOutput(OpId op) {
     case OpId::kStridedCopy:
     case OpId::kBroadcastTo:
     case OpId::kEmbeddingLookup:
+    case OpId::kCrossEntropy:
     case OpId::kGatherPerRow:
     case OpId::kLayerNorm:
     case OpId::kRmsNorm:

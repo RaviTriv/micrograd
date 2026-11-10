@@ -74,8 +74,9 @@ std::shared_ptr<Tensor> BroadcastCausalMask(size_t batch_heads, size_t seq_len,
 }  // namespace
 
 CausalSelfAttention::CausalSelfAttention(size_t n_embd, size_t n_head,
-                                         scalar_t dropout)
-    : n_embd_(n_embd), n_head_(n_head) {
+                                         scalar_t dropout,
+                                         const ArchOptions &arch)
+    : n_embd_(n_embd), n_head_(n_head), arch_(arch) {
   if (n_head == 0 || n_embd % n_head != 0) {
     throw std::invalid_argument(
         "CausalSelfAttention: n_embd must be divisible by n_head");
@@ -92,6 +93,14 @@ CausalSelfAttention::CausalSelfAttention(size_t n_embd, size_t n_head,
   register_module("value", value_);
   register_module("out_proj", out_proj_);
   register_module("resid_dropout", resid_dropout_);
+
+  if (arch_.qk_norm) {
+    const size_t head_dim = n_embd / n_head;
+    q_norm_ = std::make_shared<RMSNorm>(std::vector<size_t>{head_dim});
+    k_norm_ = std::make_shared<RMSNorm>(std::vector<size_t>{head_dim});
+    register_module("q_norm", q_norm_);
+    register_module("k_norm", k_norm_);
+  }
 }
 
 std::shared_ptr<Tensor> CausalSelfAttention::forward(
@@ -112,6 +121,15 @@ std::shared_ptr<Tensor> CausalSelfAttention::forward(
       split_heads(key_->forward(input), batch, seq_len, n_head_, head_dim);
   std::shared_ptr<Tensor> v =
       split_heads(value_->forward(input), batch, seq_len, n_head_, head_dim);
+
+  if (arch_.qk_norm) {
+    q = q_norm_->forward(q);
+    k = k_norm_->forward(k);
+  }
+  if (arch_.rotary) {
+    q = q->rotary_embedding();
+    k = k->rotary_embedding();
+  }
 
   scalar_t scale = 1.0f / std::sqrt(static_cast<scalar_t>(head_dim));
   const auto mask = BroadcastCausalMask(batch * n_head_, seq_len, q->backend());
