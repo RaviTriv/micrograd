@@ -5,14 +5,30 @@
 #include <utility>
 #include <vector>
 
-#include "micrograd/Storage.h"
 #include "micrograd/Tensor.h"
 
 namespace micrograd {
 
+struct BufferState {
+  std::vector<size_t> shape;
+  std::vector<scalar_t> values;
+};
+
+struct AdamWState {
+  size_t step_count = 0;
+  std::vector<BufferState> m;
+  std::vector<BufferState> v;
+};
+
+struct MuonState {
+  size_t step_count = 0;
+  std::vector<BufferState> momentum;
+};
+
 class Optimizer {
  public:
-  explicit Optimizer(std::vector<std::shared_ptr<Tensor>> parameters);
+  Optimizer(std::vector<std::shared_ptr<Tensor>> parameters,
+            scalar_t learning_rate);
   virtual ~Optimizer() = default;
 
   Optimizer(const Optimizer &) = delete;
@@ -22,12 +38,15 @@ class Optimizer {
   void zero_grad();
 
   size_t step_count() const { return step_count_; }
+  scalar_t learning_rate() const { return learning_rate_; }
+  void set_learning_rate(scalar_t learning_rate);
   const std::vector<std::shared_ptr<Tensor>> &parameters() const {
     return parameters_;
   }
 
  protected:
   std::vector<std::shared_ptr<Tensor>> parameters_;
+  scalar_t learning_rate_;
   size_t step_count_ = 0;
 };
 
@@ -39,7 +58,6 @@ class SGD : public Optimizer {
   void step() override;
 
  private:
-  scalar_t learning_rate_;
   scalar_t momentum_;
   scalar_t weight_decay_;
   bool nesterov_;
@@ -55,7 +73,6 @@ class Adam : public Optimizer {
   void step() override;
 
  private:
-  scalar_t learning_rate_;
   scalar_t beta1_;
   scalar_t beta2_;
   scalar_t eps_;
@@ -69,18 +86,23 @@ class AdamW : public Optimizer {
   AdamW(std::vector<std::shared_ptr<Tensor>> parameters, scalar_t learning_rate,
         std::pair<scalar_t, scalar_t> betas = {0.9f, 0.999f},
         scalar_t eps = 1e-8f, scalar_t weight_decay = 1e-2f);
+  AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
+        std::vector<bool> decay, scalar_t learning_rate,
+        std::pair<scalar_t, scalar_t> betas = {0.9f, 0.999f},
+        scalar_t eps = 1e-8f, scalar_t weight_decay = 1e-2f);
 
   void step() override;
+  AdamWState state() const;
+  void load_state(const AdamWState &saved);
 
  private:
-  scalar_t learning_rate_;
   scalar_t beta1_;
   scalar_t beta2_;
   scalar_t eps_;
   scalar_t weight_decay_;
-  std::vector<Storage> m_;
-  std::vector<Storage> v_;
-  std::vector<std::vector<scalar_t>> master_;
+  std::vector<bool> decay_;
+  std::vector<std::shared_ptr<Tensor>> m_;
+  std::vector<std::shared_ptr<Tensor>> v_;
 };
 
 class Muon : public Optimizer {
@@ -90,9 +112,10 @@ class Muon : public Optimizer {
        bool nesterov = true, size_t ns_steps = 5);
 
   void step() override;
+  MuonState state() const;
+  void load_state(const MuonState &saved);
 
  private:
-  scalar_t learning_rate_;
   scalar_t momentum_;
   scalar_t weight_decay_;
   bool nesterov_;

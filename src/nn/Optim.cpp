@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -37,8 +35,10 @@ void require_beta(const char *name, scalar_t value) {
 
 }  // namespace
 
-Optimizer::Optimizer(std::vector<std::shared_ptr<Tensor>> parameters)
-    : parameters_(std::move(parameters)) {
+Optimizer::Optimizer(std::vector<std::shared_ptr<Tensor>> parameters,
+                     scalar_t learning_rate)
+    : parameters_(std::move(parameters)), learning_rate_(learning_rate) {
+  require_nonnegative("learning_rate", learning_rate_);
   std::unordered_set<const Tensor *> seen;
   for (const auto &p : parameters_) {
     if (!p) {
@@ -51,6 +51,11 @@ Optimizer::Optimizer(std::vector<std::shared_ptr<Tensor>> parameters)
   }
 }
 
+void Optimizer::set_learning_rate(scalar_t learning_rate) {
+  require_nonnegative("learning_rate", learning_rate);
+  learning_rate_ = learning_rate;
+}
+
 void Optimizer::zero_grad() {
   for (auto &p : parameters_) {
     p->zero_grad();
@@ -60,12 +65,10 @@ void Optimizer::zero_grad() {
 SGD::SGD(std::vector<std::shared_ptr<Tensor>> parameters,
          scalar_t learning_rate, scalar_t momentum, scalar_t weight_decay,
          bool nesterov)
-    : Optimizer(std::move(parameters)),
-      learning_rate_(learning_rate),
+    : Optimizer(std::move(parameters), learning_rate),
       momentum_(momentum),
       weight_decay_(weight_decay),
       nesterov_(nesterov) {
-  require_nonnegative("learning_rate", learning_rate_);
   require_nonnegative("momentum", momentum_);
   require_nonnegative("weight_decay", weight_decay_);
   if (momentum_ != 0) {
@@ -98,13 +101,11 @@ void SGD::step() {
 Adam::Adam(std::vector<std::shared_ptr<Tensor>> parameters,
            scalar_t learning_rate, std::pair<scalar_t, scalar_t> betas,
            scalar_t eps, scalar_t weight_decay)
-    : Optimizer(std::move(parameters)),
-      learning_rate_(learning_rate),
+    : Optimizer(std::move(parameters), learning_rate),
       beta1_(betas.first),
       beta2_(betas.second),
       eps_(eps),
       weight_decay_(weight_decay) {
-  require_nonnegative("learning_rate", learning_rate_);
   require_beta("beta1", beta1_);
   require_beta("beta2", beta2_);
   require_nonnegative("eps", eps_);
@@ -147,36 +148,46 @@ void Adam::step() {
 
 namespace {
 
-scalar_t read_master_weight(const Storage &storage, size_t index) {
-  if (storage.dtype() == DType::kBFloat16) {
-    uint16_t bits = static_cast<const uint16_t *>(storage.data())[index];
-    uint32_t widened = static_cast<uint32_t>(bits) << 16;
-    scalar_t value = 0;
-    std::memcpy(&value, &widened, sizeof(value));
-    return value;
+void require_float32(const Tensor &p, const char *name) {
+  if (p.dtype() != DType::kFloat32 ||
+      p.grad_storage().dtype() != DType::kFloat32) {
+    throw std::invalid_argument(std::string(name) +
+                                " requires float32 parameters and gradients");
   }
-  return static_cast<const scalar_t *>(storage.data())[index];
 }
 
-void write_master_weight(Storage &storage, size_t index, scalar_t value) {
-  if (storage.dtype() == DType::kBFloat16) {
-    uint32_t bits = 0;
-    std::memcpy(&bits, &value, sizeof(bits));
-    uint32_t rounded = bits + 0x7fffu + ((bits >> 16) & 1u);
-    static_cast<uint16_t *>(storage.data())[index] =
-        static_cast<uint16_t>(rounded >> 16);
-    return;
+void match_device(Tensor &buffer, const Tensor &param) {
+  if (buffer.backend() != param.backend()) {
+    buffer.to(param.backend());
   }
-  static_cast<scalar_t *>(storage.data())[index] = value;
 }
 
-Storage zero_moment(size_t n, Device device) {
-  Storage host(n * sizeof(scalar_t), Device::CPU);
-  std::memset(host.data(), 0, host.bytes());
-  if (device == Device::CPU) {
-    return host;
+BufferState save_buffer(const Tensor &buffer) {
+  Storage host = buffer.data_storage().copy_to(Device::CPU);
+  const auto *values = static_cast<const scalar_t *>(host.data());
+  return {buffer.shape(),
+          std::vector<scalar_t>(values, values + buffer.size())};
+}
+
+std::vector<std::shared_ptr<Tensor>> load_buffers(
+    const std::vector<BufferState> &buffers,
+    const std::vector<std::shared_ptr<Tensor>> &parameters, const char *name) {
+  if (buffers.size() != parameters.size()) {
+    throw std::invalid_argument(std::string(name) +
+                                " state has the wrong number of buffers");
   }
-  return host.copy_to(device);
+  std::vector<std::shared_ptr<Tensor>> loaded;
+  loaded.reserve(buffers.size());
+  for (size_t i = 0; i < buffers.size(); i++) {
+    const BufferState &buffer = buffers[i];
+    if (buffer.shape != parameters[i]->shape() ||
+        buffer.values.size() != parameters[i]->size()) {
+      throw std::invalid_argument(std::string(name) +
+                                  " state buffer does not match its parameter");
+    }
+    loaded.push_back(Tensor::from_values(buffer.shape, buffer.values));
+  }
+  return loaded;
 }
 
 }  // namespace
@@ -184,37 +195,41 @@ Storage zero_moment(size_t n, Device device) {
 AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
              scalar_t learning_rate, std::pair<scalar_t, scalar_t> betas,
              scalar_t eps, scalar_t weight_decay)
-    : Optimizer(std::move(parameters)),
-      learning_rate_(learning_rate),
+    : AdamW(parameters, std::vector<bool>(parameters.size(), true),
+            learning_rate, betas, eps, weight_decay) {}
+
+AdamW::AdamW(std::vector<std::shared_ptr<Tensor>> parameters,
+             std::vector<bool> decay, scalar_t learning_rate,
+             std::pair<scalar_t, scalar_t> betas, scalar_t eps,
+             scalar_t weight_decay)
+    : Optimizer(std::move(parameters), learning_rate),
       beta1_(betas.first),
       beta2_(betas.second),
       eps_(eps),
-      weight_decay_(weight_decay) {
-  require_nonnegative("learning_rate", learning_rate_);
+      weight_decay_(weight_decay),
+      decay_(std::move(decay)) {
   require_beta("beta1", beta1_);
   require_beta("beta2", beta2_);
   require_nonnegative("eps", eps_);
   require_nonnegative("weight_decay", weight_decay_);
+  if (decay_.size() != parameters_.size()) {
+    throw std::invalid_argument("AdamW needs one decay flag per parameter");
+  }
   m_.reserve(parameters_.size());
   v_.reserve(parameters_.size());
-  master_.resize(parameters_.size());
-  for (size_t i = 0; i < parameters_.size(); i++) {
-    auto &p = parameters_[i];
-    m_.push_back(zero_moment(p->size(), p->backend()));
-    v_.push_back(zero_moment(p->size(), p->backend()));
-    if (p->backend() == Device::CPU &&
-        p->data_storage().dtype() == DType::kBFloat16) {
-      std::vector<scalar_t> weights(p->size());
-      const Storage &storage = p->data_storage();
-      for (size_t j = 0; j < p->size(); j++) {
-        weights[j] = read_master_weight(storage, j);
-      }
-      master_[i] = std::move(weights);
-    }
+  for (auto &p : parameters_) {
+    m_.push_back(Tensor::zeros(p->shape(), p->backend()));
+    v_.push_back(Tensor::zeros(p->shape(), p->backend()));
   }
 }
 
 void AdamW::step() {
+  for (size_t i = 0; i < parameters_.size(); i++) {
+    require_float32(*parameters_[i], "AdamW");
+    match_device(*m_[i], *parameters_[i]);
+    match_device(*v_[i], *parameters_[i]);
+  }
+
   step_count_++;
   scalar_t bias_correction1 =
       1.0f - std::pow(beta1_, static_cast<scalar_t>(step_count_));
@@ -233,33 +248,17 @@ void AdamW::step() {
         cuda_tensors.push_back(cuda::ops::AdamWTensor{
             static_cast<scalar_t *>(p->data_storage().device_pointer()),
             static_cast<const scalar_t *>(p->grad_storage().device_pointer()),
-            static_cast<scalar_t *>(m_[i].device_pointer()),
-            static_cast<scalar_t *>(v_[i].device_pointer()), p->size(), true});
+            static_cast<scalar_t *>(m_[i]->data_storage().device_pointer()),
+            static_cast<scalar_t *>(v_[i]->data_storage().device_pointer()),
+            p->size(), decay_[i]});
         continue;
       }
 #endif
       throw std::runtime_error("AdamW: unsupported device");
     }
-    Storage &storage = p->data_storage();
-    const bool bf16 = storage.dtype() == DType::kBFloat16;
-    auto *weights = bf16 ? master_[i].data()
-                         : static_cast<scalar_t *>(storage.data());
-    auto *m = static_cast<scalar_t *>(m_[i].data());
-    auto *v = static_cast<scalar_t *>(v_[i].data());
-    auto grad = p->grad();
-    for (size_t j = 0; j < p->size(); j++) {
-      scalar_t weight =
-          weights[j] - learning_rate_ * weight_decay_ * weights[j];
-      m[j] = beta1_ * m[j] + (1.0f - beta1_) * grad[j];
-      v[j] = beta2_ * v[j] + (1.0f - beta2_) * grad[j] * grad[j];
-      scalar_t m_hat = m[j] / bias_correction1;
-      scalar_t v_hat = v[j] / bias_correction2;
-      weight -= learning_rate_ * m_hat / (std::sqrt(v_hat) + eps_);
-      weights[j] = weight;
-      if (bf16) {
-        write_master_weight(storage, j, weight);
-      }
-    }
+    ops::AdamWStep(*p, *m_[i], *v_[i], learning_rate_, beta1_, beta2_, eps_,
+                   weight_decay_, decay_[i], bias_correction1,
+                   bias_correction2);
   }
 
 #ifdef MICROGRAD_CUDA_ENABLED
@@ -271,16 +270,32 @@ void AdamW::step() {
 #endif
 }
 
+AdamWState AdamW::state() const {
+  AdamWState saved;
+  saved.step_count = step_count_;
+  for (size_t i = 0; i < parameters_.size(); i++) {
+    saved.m.push_back(save_buffer(*m_[i]));
+    saved.v.push_back(save_buffer(*v_[i]));
+  }
+  return saved;
+}
+
+void AdamW::load_state(const AdamWState &saved) {
+  auto m = load_buffers(saved.m, parameters_, "AdamW");
+  auto v = load_buffers(saved.v, parameters_, "AdamW");
+  m_ = std::move(m);
+  v_ = std::move(v);
+  step_count_ = saved.step_count;
+}
+
 Muon::Muon(std::vector<std::shared_ptr<Tensor>> parameters,
            scalar_t learning_rate, scalar_t momentum, scalar_t weight_decay,
            bool nesterov, size_t ns_steps)
-    : Optimizer(std::move(parameters)),
-      learning_rate_(learning_rate),
+    : Optimizer(std::move(parameters), learning_rate),
       momentum_(momentum),
       weight_decay_(weight_decay),
       nesterov_(nesterov),
       ns_steps_(ns_steps) {
-  require_nonnegative("learning_rate", learning_rate_);
   require_nonnegative("momentum", momentum_);
   require_nonnegative("weight_decay", weight_decay_);
   momentum_buffer_.reserve(parameters_.size());
@@ -296,16 +311,28 @@ void Muon::step() {
   for (size_t i = 0; i < parameters_.size(); i++) {
     auto &p = parameters_[i];
     auto &buf = momentum_buffer_[i];
-    if (buf->backend() != p->backend()) {
-      buf->to(p->backend());
-    }
-    const scalar_t rows = static_cast<scalar_t>(p->shape()[0]);
-    const scalar_t cols = static_cast<scalar_t>(p->shape()[1]);
-    const scalar_t scale = std::sqrt(std::max(1.0f, rows / cols));
+    match_device(*buf, *p);
+    const scalar_t fan_in = static_cast<scalar_t>(p->shape()[0]);
+    const scalar_t fan_out = static_cast<scalar_t>(p->shape()[1]);
+    const scalar_t scale = std::sqrt(std::max(1.0f, fan_out / fan_in));
     ops::MuonStep(*p, *buf, learning_rate_, momentum_, weight_decay_,
                   nesterov_, ns_steps_, scale);
   }
   step_count_++;
+}
+
+MuonState Muon::state() const {
+  MuonState saved;
+  saved.step_count = step_count_;
+  for (const auto &buffer : momentum_buffer_) {
+    saved.momentum.push_back(save_buffer(*buffer));
+  }
+  return saved;
+}
+
+void Muon::load_state(const MuonState &saved) {
+  momentum_buffer_ = load_buffers(saved.momentum, parameters_, "Muon");
+  step_count_ = saved.step_count;
 }
 
 }  // namespace micrograd
