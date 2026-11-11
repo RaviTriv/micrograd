@@ -2,8 +2,10 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <functional>
 #include <memory>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -27,6 +29,28 @@ inline std::vector<scalar_t> Arange(size_t count) {
 inline std::vector<scalar_t> Values(const std::shared_ptr<Tensor> &tensor) {
   auto data = tensor->data();
   return {data.begin(), data.end()};
+}
+
+inline std::shared_ptr<Tensor> Wave(std::vector<size_t> shape, scalar_t phase) {
+  size_t count = 1;
+  for (auto dim : shape) {
+    count *= dim;
+  }
+  std::vector<scalar_t> values(count);
+  for (size_t i = 0; i < count; i++) {
+    values[i] = std::sin((0.37f * static_cast<scalar_t>(i)) + phase);
+  }
+  auto tensor = Tensor::from_values(std::move(shape), std::move(values));
+  tensor->set_requires_grad(true);
+  return tensor;
+}
+
+inline void ExpectClose(std::span<const scalar_t> expected,
+                        std::span<const scalar_t> actual) {
+  ASSERT_EQ(expected.size(), actual.size());
+  for (size_t i = 0; i < expected.size(); i++) {
+    EXPECT_NEAR(expected[i], actual[i], 1e-5f) << "index " << i;
+  }
 }
 
 inline auto leaf(const std::vector<size_t> &shape,

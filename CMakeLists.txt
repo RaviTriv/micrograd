@@ -157,6 +157,7 @@ add_library(micrograd_gpt
     gpt/src/Dataset.cpp
     gpt/src/GPTConfig.cpp
     gpt/src/GRPO.cpp
+    gpt/src/JsonText.cpp
     gpt/src/KVCache.cpp
     gpt/src/Model.cpp
     gpt/src/SampleOrder.cpp

@@ -11,6 +11,27 @@
 namespace micrograd::ops::cpu {
 namespace {
 
+struct RowStats {
+  scalar_t mean;
+  scalar_t rstd;
+};
+
+RowStats RowMeanRstd(const scalar_t *row, size_t n, scalar_t eps) {
+  scalar_t mean = 0.0f;
+  for (size_t i = 0; i < n; i++) {
+    mean += row[i];
+  }
+  mean /= static_cast<scalar_t>(n);
+
+  scalar_t variance = 0.0f;
+  for (size_t i = 0; i < n; i++) {
+    scalar_t centered = row[i] - mean;
+    variance += centered * centered;
+  }
+  variance /= static_cast<scalar_t>(n);
+  return {.mean = mean, .rstd = 1.0f / std::sqrt(variance + eps)};
+}
+
 void LayerNorm(const OpArgs &args) {
   size_t n = args.rhs->size();
   size_t outer = args.lhs->size() / n;
@@ -24,19 +45,7 @@ void LayerNorm(const OpArgs &args) {
   for (size_t o = 0; o < outer; o++) {
     const scalar_t *row = input.data() + (o * n);
 
-    scalar_t mean = 0.0f;
-    for (size_t i = 0; i < n; i++) {
-      mean += row[i];
-    }
-    mean /= static_cast<scalar_t>(n);
-
-    scalar_t variance = 0.0f;
-    for (size_t i = 0; i < n; i++) {
-      scalar_t centered = row[i] - mean;
-      variance += centered * centered;
-    }
-    variance /= static_cast<scalar_t>(n);
-    scalar_t rstd = 1.0f / std::sqrt(variance + eps);
+    const auto [mean, rstd] = RowMeanRstd(row, n, eps);
 
     for (size_t i = 0; i < n; i++) {
       scalar_t normalized = (row[i] - mean) * rstd;
@@ -64,19 +73,7 @@ std::function<void()> LayerNormBackward(const GradArgs &args) {
       const scalar_t *row = input.data() + (o * n);
       const scalar_t *row_incoming = incoming.data() + (o * n);
 
-      scalar_t mean = 0.0f;
-      for (size_t i = 0; i < n; i++) {
-        mean += row[i];
-      }
-      mean /= static_cast<scalar_t>(n);
-
-      scalar_t variance = 0.0f;
-      for (size_t i = 0; i < n; i++) {
-        scalar_t centered = row[i] - mean;
-        variance += centered * centered;
-      }
-      variance /= static_cast<scalar_t>(n);
-      scalar_t rstd = 1.0f / std::sqrt(variance + eps);
+      const auto [mean, rstd] = RowMeanRstd(row, n, eps);
 
       scalar_t mean_dxhat = 0.0f;
       scalar_t mean_dxhat_xhat = 0.0f;

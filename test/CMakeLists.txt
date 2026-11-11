@@ -23,6 +23,7 @@ add_executable(micrograd_tests
     gpt_arch_test.cpp
     grad_clip_test.cpp
     init_test.cpp
+    json_text_test.cpp
     layers_test.cpp
     loss_test.cpp
     matmul_test.cpp

@@ -190,21 +190,25 @@ Row BenchMatmul(Device device, const MatmulCase &matmul_case, bool backward) {
           "gflops"};
 }
 
-Row BenchTrainingStep(Device device, size_t batch_size, int iterations) {
+std::function<void()> ClassifierTrainStep(Device device, size_t batch_size) {
   auto net = BuildClassifier(device);
-  AdamW optimizer(net->parameters(), 1e-3f);
+  auto optimizer = std::make_shared<AdamW>(net->parameters(), 1e-3f);
 
   auto input = Ramp({batch_size, kFeatures}, -1.0f, 0.0001f);
   input->to(device);
   auto targets = RampTargets(batch_size);
 
-  auto step_once = [&]() {
+  return [net, optimizer, input, targets]() {
     auto out = net->forward(input);
     auto loss = micrograd::cross_entropy(out, targets);
-    optimizer.zero_grad();
+    optimizer->zero_grad();
     loss->backward();
-    optimizer.step();
+    optimizer->step();
   };
+}
+
+Row BenchTrainingStep(Device device, size_t batch_size, int iterations) {
+  const auto step_once = ClassifierTrainStep(device, batch_size);
 
   const double seconds_per_iter =
       MedianSecondsPerIter(device, iterations, step_once);
@@ -220,20 +224,7 @@ Row BenchTrainingStep(Device device, size_t batch_size, int iterations) {
 }
 
 Row BenchEpoch(Device device, size_t batch_size, size_t total_samples) {
-  auto net = BuildClassifier(device);
-  AdamW optimizer(net->parameters(), 1e-3f);
-
-  auto input = Ramp({batch_size, kFeatures}, -1.0f, 0.0001f);
-  input->to(device);
-  auto targets = RampTargets(batch_size);
-
-  auto step_once = [&]() {
-    auto out = net->forward(input);
-    auto loss = micrograd::cross_entropy(out, targets);
-    optimizer.zero_grad();
-    loss->backward();
-    optimizer.step();
-  };
+  const auto step_once = ClassifierTrainStep(device, batch_size);
 
   const size_t batches = total_samples / batch_size;
   const double seconds =

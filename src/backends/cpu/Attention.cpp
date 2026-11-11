@@ -15,6 +15,14 @@ namespace {
 
 constexpr scalar_t kNegInf = -std::numeric_limits<scalar_t>::infinity();
 
+scalar_t Dot(const scalar_t *a, const scalar_t *b, size_t n) {
+  scalar_t sum = 0.0f;
+  for (size_t i = 0; i < n; i++) {
+    sum += a[i] * b[i];
+  }
+  return sum;
+}
+
 void FlashAttentionForward(const OpArgs &args) {
   const std::vector<size_t> &shape = args.lhs->shape();
   size_t head_dim = shape.back();
@@ -42,11 +50,7 @@ void FlashAttentionForward(const OpArgs &args) {
 
       for (size_t j = 0; j <= i; j++) {
         const scalar_t *k_row = k_base + (j * head_dim);
-        scalar_t s = 0.0f;
-        for (size_t d = 0; d < head_dim; d++) {
-          s += q_row[d] * k_row[d];
-        }
-        s *= scale;
+        scalar_t s = Dot(q_row, k_row, head_dim) * scale;
 
         scalar_t m_new = std::max(m, s);
         scalar_t correction = std::exp(m - m_new);
@@ -105,11 +109,7 @@ std::function<void()> FlashAttentionBackward(const GradArgs &args) {
         scalar_t l = 0.0f;
         for (size_t j = 0; j <= i; j++) {
           const scalar_t *k_row = k_base + (j * head_dim);
-          scalar_t s = 0.0f;
-          for (size_t d = 0; d < head_dim; d++) {
-            s += q_row[d] * k_row[d];
-          }
-          s *= scale;
+          scalar_t s = Dot(q_row, k_row, head_dim) * scale;
           scalar_t m_new = std::max(m, s);
           l = (l * std::exp(m - m_new)) + std::exp(s - m_new);
           m = m_new;
@@ -119,11 +119,7 @@ std::function<void()> FlashAttentionBackward(const GradArgs &args) {
 
         const scalar_t *do_row = do_base + (i * head_dim);
         const scalar_t *o_row = o_base + (i * head_dim);
-        scalar_t delta = 0.0f;
-        for (size_t d = 0; d < head_dim; d++) {
-          delta += do_row[d] * o_row[d];
-        }
-        row_delta[i] = delta;
+        row_delta[i] = Dot(do_row, o_row, head_dim);
       }
 
       for (size_t i = 0; i < seq_len; i++) {
@@ -140,17 +136,10 @@ std::function<void()> FlashAttentionBackward(const GradArgs &args) {
           scalar_t *dk_row = dk_base + (j * head_dim);
           scalar_t *dv_row = dv_base + (j * head_dim);
 
-          scalar_t s = 0.0f;
-          for (size_t d = 0; d < head_dim; d++) {
-            s += q_row[d] * k_row[d];
-          }
-          s *= scale;
+          scalar_t s = Dot(q_row, k_row, head_dim) * scale;
           scalar_t p = std::exp(s - m) / l;
 
-          scalar_t dp = 0.0f;
-          for (size_t d = 0; d < head_dim; d++) {
-            dp += do_row[d] * v_row[d];
-          }
+          scalar_t dp = Dot(do_row, v_row, head_dim);
           scalar_t dl = p * (dp - delta);
 
           for (size_t d = 0; d < head_dim; d++) {
@@ -196,11 +185,7 @@ void CausalAttentionProbs(const OpArgs &args) {
         for (size_t s = 0; s <= t; s++) {
           const scalar_t *k_row =
               k.data() + (((b * seq) + s) * embed) + (h * head_dim);
-          scalar_t dot = 0.0f;
-          for (size_t d = 0; d < head_dim; d++) {
-            dot += q_row[d] * k_row[d];
-          }
-          row[s] = dot * scale;
+          row[s] = Dot(q_row, k_row, head_dim) * scale;
           row_max = std::max(row_max, row[s]);
         }
         scalar_t total = 0.0f;
@@ -241,10 +226,7 @@ std::function<void()> CausalAttentionProbsBackward(const GradArgs &args) {
           const size_t row_offset = ((((b * heads) + h) * seq) + t) * seq;
           const scalar_t *p_row = probs.data() + row_offset;
           const scalar_t *dp_row = probs_grad.data() + row_offset;
-          scalar_t dot = 0.0f;
-          for (size_t s = 0; s <= t; s++) {
-            dot += p_row[s] * dp_row[s];
-          }
+          const scalar_t dot = Dot(p_row, dp_row, t + 1);
           const size_t q_offset = (((b * seq) + t) * embed) + (h * head_dim);
           for (size_t s = 0; s <= t; s++) {
             const scalar_t ds = scale * p_row[s] * (dp_row[s] - dot);
@@ -355,11 +337,7 @@ void CausalScores(const SelfAttentionDims &d, const scalar_t *q,
   for (size_t s = 0; s <= t; s++) {
     const scalar_t *k_row =
         k + (((b * d.seq) + s) * d.embed) + (h * d.head_dim);
-    scalar_t dot = 0.0f;
-    for (size_t i = 0; i < d.head_dim; i++) {
-      dot += q_row[i] * k_row[i];
-    }
-    scores[s] = dot * scale;
+    scores[s] = Dot(q_row, k_row, d.head_dim) * scale;
   }
 }
 
@@ -426,17 +404,11 @@ std::function<void()> CausalSelfAttentionBackward(const GradArgs &args) {
           CausalScores(d, q_data, k_data, b, h, t, scale, scores);
           const size_t row = (((b * d.seq) + t) * d.embed) + (h * d.head_dim);
           const scalar_t row_lse = lse[(((b * d.heads) + h) * d.seq) + t];
-          scalar_t delta = 0.0f;
-          for (size_t i = 0; i < d.head_dim; i++) {
-            delta += do_data[row + i] * o_data[row + i];
-          }
+          const scalar_t delta = Dot(do_data + row, o_data + row, d.head_dim);
           for (size_t s = 0; s <= t; s++) {
             const size_t key = (((b * d.seq) + s) * d.embed) + (h * d.head_dim);
             const scalar_t p = std::exp(scores[s] - row_lse);
-            scalar_t dp = 0.0f;
-            for (size_t i = 0; i < d.head_dim; i++) {
-              dp += do_data[row + i] * v_data[key + i];
-            }
+            const scalar_t dp = Dot(do_data + row, v_data + key, d.head_dim);
             const scalar_t ds = p * (dp - delta) * scale;
             for (size_t i = 0; i < d.head_dim; i++) {
               dq[row + i] += ds * k_data[key + i];

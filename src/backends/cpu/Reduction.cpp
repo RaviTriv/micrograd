@@ -5,27 +5,10 @@
 #include "micrograd/Tensor.h"
 #include "micrograd/backends/cpu/Ops.h"
 #include "micrograd/ops/Dispatch.h"
+#include "AxisLayout.h"
 
 namespace micrograd::ops::cpu {
 namespace {
-
-struct AxisLayout {
-  size_t outer = 1;
-  size_t reduced = 1;
-  size_t inner = 1;
-};
-
-AxisLayout LayoutFor(const std::vector<size_t> &shape, size_t axis) {
-  AxisLayout layout;
-  for (size_t i = 0; i < axis; i++) {
-    layout.outer *= shape[i];
-  }
-  layout.reduced = shape[axis];
-  for (size_t i = axis + 1; i < shape.size(); i++) {
-    layout.inner *= shape[i];
-  }
-  return layout;
-}
 
 std::vector<size_t> ArgmaxIndices(const scalar_t *source,
                                   const AxisLayout &layout) {

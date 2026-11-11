@@ -8,96 +8,62 @@
 namespace micrograd::ops::cpu {
 namespace {
 
-void Add(const OpArgs &args) {
+template <typename Op>
+void Elementwise(const OpArgs &args, Op op) {
   auto lhs = args.lhs->data();
   auto rhs = args.rhs->data();
   auto out = args.out->data();
   for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] + rhs[i];
+    out[i] = op(lhs[i], rhs[i]);
   }
 }
 
-void Sub(const OpArgs &args) {
+template <typename Op>
+void ElementwiseScalar(const OpArgs &args, Op op) {
   auto lhs = args.lhs->data();
-  auto rhs = args.rhs->data();
   auto out = args.out->data();
+  const scalar_t scalar = args.scalar;
   for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] - rhs[i];
+    out[i] = op(lhs[i], scalar);
   }
 }
 
-void Mul(const OpArgs &args) {
-  auto lhs = args.lhs->data();
-  auto rhs = args.rhs->data();
-  auto out = args.out->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] * rhs[i];
-  }
-}
+void Add(const OpArgs &args) { Elementwise(args, std::plus<>{}); }
 
-void Div(const OpArgs &args) {
-  auto lhs = args.lhs->data();
-  auto rhs = args.rhs->data();
-  auto out = args.out->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] / rhs[i];
-  }
-}
+void Sub(const OpArgs &args) { Elementwise(args, std::minus<>{}); }
 
-void AddScalar(const OpArgs &args) {
-  auto lhs = args.lhs->data();
-  auto out = args.out->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] + args.scalar;
-  }
-}
+void Mul(const OpArgs &args) { Elementwise(args, std::multiplies<>{}); }
 
-void SubScalar(const OpArgs &args) {
-  auto lhs = args.lhs->data();
-  auto out = args.out->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] - args.scalar;
-  }
-}
+void Div(const OpArgs &args) { Elementwise(args, std::divides<>{}); }
+
+void AddScalar(const OpArgs &args) { ElementwiseScalar(args, std::plus<>{}); }
+
+void SubScalar(const OpArgs &args) { ElementwiseScalar(args, std::minus<>{}); }
 
 void MulScalar(const OpArgs &args) {
-  auto lhs = args.lhs->data();
-  auto out = args.out->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] * args.scalar;
-  }
+  ElementwiseScalar(args, std::multiplies<>{});
 }
 
 void DivScalar(const OpArgs &args) {
-  auto lhs = args.lhs->data();
-  auto out = args.out->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] / args.scalar;
-  }
+  ElementwiseScalar(args, std::divides<>{});
 }
 
 void Pow(const OpArgs &args) {
-  auto lhs = args.lhs->data();
-  auto out = args.out->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = std::pow(lhs[i], args.scalar);
-  }
+  ElementwiseScalar(args, [](scalar_t x, scalar_t exponent) {
+    return std::pow(x, exponent);
+  });
 }
 
 void ClampMin(const OpArgs &args) {
-  auto lhs = args.lhs->data();
-  auto out = args.out->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] < args.scalar ? args.scalar : lhs[i];
-  }
+  ElementwiseScalar(args, [](scalar_t x, scalar_t bound) {
+    return x < bound ? bound : x;
+  });
 }
 
 void ClampMax(const OpArgs &args) {
-  auto lhs = args.lhs->data();
-  auto out = args.out->data();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] > args.scalar ? args.scalar : lhs[i];
-  }
+  ElementwiseScalar(args, [](scalar_t x, scalar_t bound) {
+    return x > bound ? bound : x;
+  });
 }
 
 std::function<void()> AddBackward(const GradArgs &args) {

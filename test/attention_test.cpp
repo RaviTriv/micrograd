@@ -2,38 +2,17 @@
 
 #include <gtest/gtest.h>
 
-#include <cmath>
 #include <memory>
 #include <span>
 #include <vector>
 
 #include "micrograd/Tensor.h"
+#include "test_helpers.h"
 
 using namespace micrograd;
+using namespace micrograd::test_helpers;
 
 namespace {
-
-std::shared_ptr<Tensor> Wave(std::vector<size_t> shape, scalar_t phase) {
-  size_t count = 1;
-  for (auto dim : shape) {
-    count *= dim;
-  }
-  std::vector<scalar_t> values(count);
-  for (size_t i = 0; i < count; i++) {
-    values[i] = std::sin((0.37f * static_cast<scalar_t>(i)) + phase);
-  }
-  auto tensor = Tensor::from_values(std::move(shape), std::move(values));
-  tensor->set_requires_grad(true);
-  return tensor;
-}
-
-void ExpectClose(std::span<const scalar_t> expected,
-                 std::span<const scalar_t> actual) {
-  ASSERT_EQ(expected.size(), actual.size());
-  for (size_t i = 0; i < expected.size(); i++) {
-    EXPECT_NEAR(expected[i], actual[i], 1e-5f) << "index " << i;
-  }
-}
 
 void CompareWithFused(const std::vector<size_t> &shape, scalar_t scale) {
   auto q_fused = Wave(shape, 0.1f);
