@@ -940,17 +940,6 @@ std::vector<DeviceMismatch> CheckOnDevice(const Case &test, Device device) {
   return mismatches;
 }
 
-double ProjectInDouble(const TensorPtr &output,
-                       const std::vector<scalar_t> &weights) {
-  output->to(Device::CPU);
-  std::span<const scalar_t> values = output->data();
-  double total = 0.0;
-  for (size_t i = 0; i < weights.size(); i++) {
-    total += static_cast<double>(weights[i]) * static_cast<double>(values[i]);
-  }
-  return total;
-}
-
 std::vector<micrograd::GradCheckMismatch> SampledGradCheck(const Case &test) {
   std::vector<std::vector<size_t>> shapes;
   std::vector<std::vector<scalar_t>> values;
@@ -968,10 +957,10 @@ std::vector<micrograd::GradCheckMismatch> SampledGradCheck(const Case &test) {
       const size_t j = ((2 * s + 1) * count) / (2 * test.samples);
       const scalar_t original = values[i][j];
       values[i][j] = original + options.eps;
-      const double up = ProjectInDouble(
+      const double up = micrograd::internal::Project(
           test.function(MakeGradCheckLeaves(shapes, values)), weights);
       values[i][j] = original - options.eps;
-      const double down = ProjectInDouble(
+      const double down = micrograd::internal::Project(
           test.function(MakeGradCheckLeaves(shapes, values)), weights);
       values[i][j] = original;
 

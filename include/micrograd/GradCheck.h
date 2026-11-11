@@ -55,8 +55,8 @@ inline std::vector<scalar_t> ProjectionWeights(size_t count) {
   return weights;
 }
 
-inline scalar_t Project(const std::shared_ptr<Tensor> &output,
-                        const std::vector<scalar_t> &weights) {
+inline double Project(const std::shared_ptr<Tensor> &output,
+                      const std::vector<scalar_t> &weights) {
   if (output->size() != weights.size()) {
     throw std::invalid_argument(
         "gradcheck function returned a different output size");
@@ -64,9 +64,9 @@ inline scalar_t Project(const std::shared_ptr<Tensor> &output,
 
   output->to(Backend::CPU);
   std::span<const scalar_t> values = output->data();
-  scalar_t total = 0.0f;
+  double total = 0.0;
   for (size_t i = 0; i < weights.size(); i++) {
-    total += weights[i] * values[i];
+    total += static_cast<double>(weights[i]) * static_cast<double>(values[i]);
   }
   return total;
 }
@@ -106,16 +106,17 @@ inline std::vector<GradCheckMismatch> GradCheck(
       const scalar_t original = values[i][j];
 
       values[i][j] = original + options.eps;
-      const scalar_t up = internal::Project(
+      const double up = internal::Project(
           function(internal::MakeGradCheckLeaves(shapes, values)), weights);
 
       values[i][j] = original - options.eps;
-      const scalar_t down = internal::Project(
+      const double down = internal::Project(
           function(internal::MakeGradCheckLeaves(shapes, values)), weights);
 
       values[i][j] = original;
 
-      const scalar_t numeric = (up - down) / (2.0f * options.eps);
+      const auto numeric = static_cast<scalar_t>(
+          (up - down) / (2.0 * static_cast<double>(options.eps)));
       const scalar_t difference = std::abs(analytic[i][j] - numeric);
       const scalar_t scale =
           std::max(std::abs(analytic[i][j]), std::abs(numeric));

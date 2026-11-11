@@ -31,7 +31,7 @@ class TrainOptimizer {
   size_t decayed_count() const {
     size_t count = 0;
     for (size_t i = 0; i < parameters_.size(); i++) {
-      count += decay_[i] && !muon_[i] ? 1 : 0;
+      count += decay_[i] && !muon_[i] ? 1u : 0u;
     }
     return count;
   }

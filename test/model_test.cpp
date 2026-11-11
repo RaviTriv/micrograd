@@ -194,8 +194,8 @@ TEST_P(ModelVariantTest, AccumulatedMicroBatchesMatchFullBatch) {
 
 INSTANTIATE_TEST_SUITE_P(Archs, ModelVariantTest,
                          ::testing::ValuesIn(Variants()),
-                         [](const ::testing::TestParamInfo<Variant> &info) {
-                           return info.param.name;
+                         [](const ::testing::TestParamInfo<Variant> &param) {
+                           return param.param.name;
                          });
 
 TEST(ModelTest, OverfitsOneBatch) {
