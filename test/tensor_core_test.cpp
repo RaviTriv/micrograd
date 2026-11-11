@@ -142,6 +142,28 @@ TEST(TensorIndexing, GradAtUsesTheSameChecks) {
   EXPECT_THROW(t->grad_at({0, 3}), std::out_of_range);
 }
 
+TEST(TensorGrad, ConstReadsDoNotAllocateAGradient) {
+  auto t = Make({2, 3}, Arange(6));
+  const Tensor &view = *t;
+
+  EXPECT_FALSE(view.grad_if_present().has_value());
+  EXPECT_EQ(view.grad_at({1, 2}), 0.0f);
+  EXPECT_THROW(static_cast<void>(view.grad_at({0, 3})), std::out_of_range);
+  EXPECT_FALSE(t->has_grad());
+}
+
+TEST(TensorGrad, GradIfPresentSeesAnExistingGradient) {
+  auto t = Make({2, 3}, Arange(6));
+  t->grad_at({1, 2}) = 7.0f;
+  const Tensor &view = *t;
+
+  const auto grad = view.grad_if_present();
+  ASSERT_TRUE(grad.has_value());
+  EXPECT_EQ(grad->size(), 6U);
+  EXPECT_EQ((*grad)[5], 7.0f);
+  EXPECT_EQ(view.grad_at({1, 2}), 7.0f);
+}
+
 TEST(TensorReshaping, Reshape) {
   auto t = Make({12}, Arange(12));
 
@@ -347,4 +369,52 @@ TEST(TensorClamp, GradientPassesInsideRangeAndAtBounds) {
 
 TEST(TensorClamp, RejectsMinGreaterThanMax) {
   EXPECT_THROW(Make({1}, {0.0f})->clamp(1.0f, 0.0f), std::invalid_argument);
+}
+
+TEST(TensorReductions, MaxOverZeroLengthDimensionThrows) {
+  auto t = Tensor::zeros({2, 0});
+
+  EXPECT_THROW(t->max(1), std::invalid_argument);
+  EXPECT_THROW(t->max(-1, true), std::invalid_argument);
+  EXPECT_THROW(t->argmax(1), std::invalid_argument);
+  EXPECT_EQ(t->max(0)->shape(), (std::vector<size_t>{0}));
+}
+
+TEST(TensorPow, ZeroExponentHasZeroGradientAtZero) {
+  auto x = leaf({3}, {0.0f, 2.0f, -1.5f});
+  x->pow(0.0f)->sum()->backward();
+
+  const std::vector<scalar_t> grad(x->grad().begin(), x->grad().end());
+  EXPECT_EQ(grad, (std::vector<scalar_t>{0.0f, 0.0f, 0.0f}));
+}
+
+TEST(TensorAddBias, RowLoopMatchesPerElementReferenceExactly) {
+  const size_t rows = 5;
+  const size_t cols = 7;
+  std::vector<scalar_t> x_values(rows * cols);
+  std::vector<scalar_t> b_values(cols);
+  std::vector<scalar_t> seed(rows * cols);
+  for (size_t i = 0; i < x_values.size(); i++) {
+    x_values[i] = 0.1f * static_cast<scalar_t>(i) - 1.3f;
+    seed[i] = 0.37f * static_cast<scalar_t>(i % 11) + 0.01f;
+  }
+  for (size_t c = 0; c < cols; c++) {
+    b_values[c] = 0.7f - 0.3f * static_cast<scalar_t>(c);
+  }
+
+  auto x = leaf({rows, cols}, x_values);
+  auto b = leaf({cols}, b_values);
+  auto out = x->add_bias(b);
+  out->backward(*Tensor::from_values({rows, cols}, seed));
+
+  std::vector<scalar_t> expected_out(rows * cols);
+  std::vector<scalar_t> expected_b_grad(cols, 0.0f);
+  for (size_t i = 0; i < expected_out.size(); i++) {
+    expected_out[i] = x_values[i] + b_values[i % cols];
+    expected_b_grad[i % cols] += seed[i];
+  }
+  EXPECT_EQ(Values(out), expected_out);
+  EXPECT_EQ(std::vector<scalar_t>(x->grad().begin(), x->grad().end()), seed);
+  EXPECT_EQ(std::vector<scalar_t>(b->grad().begin(), b->grad().end()),
+            expected_b_grad);
 }

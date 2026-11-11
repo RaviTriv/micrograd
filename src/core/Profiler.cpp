@@ -4,7 +4,9 @@
 #include <chrono>
 #include <cstdio>
 #include <map>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -41,6 +43,7 @@ struct PendingGpu {
 struct State {
   bool enabled = false;
   int depth = 0;
+  std::thread::id owner;
   double wall_start_ms = 0.0;
   double busy_ms = 0.0;
   std::map<std::pair<std::string, std::string>, Totals> totals;
@@ -53,6 +56,16 @@ struct State {
 State &GetState() {
   static State state;
   return state;
+}
+
+void CheckOwnerThread([[maybe_unused]] const State &state) {
+#ifndef NDEBUG
+  if (state.owner != std::this_thread::get_id()) {
+    throw std::logic_error(
+        "profiler is single-threaded, use it only from the thread that "
+        "called Enable");
+  }
+#endif
 }
 
 void AddTiming(State &state, const char *name, const char *phase,
@@ -93,6 +106,7 @@ cudaEvent_t AcquireEvent(State &state) {
 
 void Enable() {
   State &state = GetState();
+  state.owner = std::this_thread::get_id();
   Flush();
   SynchronizeDevices();
   state.totals.clear();
@@ -102,6 +116,7 @@ void Enable() {
 }
 
 void Disable() {
+  CheckOwnerThread(GetState());
   Flush();
   GetState().enabled = false;
 }
@@ -128,6 +143,7 @@ void Flush() {
 }
 
 Summary Collect() {
+  CheckOwnerThread(GetState());
   Flush();
   SynchronizeDevices();
   State &state = GetState();
@@ -191,6 +207,7 @@ Scope::Scope(const char *name, const char *phase, Device device)
   if (!state.enabled) {
     return;
   }
+  CheckOwnerThread(state);
   active_ = true;
   top_level_ = state.depth == 0;
   state.depth++;

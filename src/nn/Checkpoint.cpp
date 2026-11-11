@@ -8,6 +8,23 @@
 #include "micrograd/Tensor.h"
 
 namespace micrograd {
+namespace {
+
+template <typename F>
+class ScopeExit {
+ public:
+  explicit ScopeExit(F on_exit) : on_exit_(std::move(on_exit)) {}
+  ~ScopeExit() { on_exit_(); }
+  ScopeExit(const ScopeExit &) = delete;
+  ScopeExit &operator=(const ScopeExit &) = delete;
+  ScopeExit(ScopeExit &&) = delete;
+  ScopeExit &operator=(ScopeExit &&) = delete;
+
+ private:
+  F on_exit_;
+};
+
+}  // namespace
 
 std::shared_ptr<Tensor> Tensor::checkpoint(
     const std::shared_ptr<Tensor> &input,
@@ -20,7 +37,7 @@ std::shared_ptr<Tensor> Tensor::checkpoint(
     output = recompute(input);
   }
 
-  output->requires_grad_ = GradEnabled() && input->requires_grad_;
+  output->requires_grad_ = GradEnabled();
   if (output->requires_grad_) {
     output->children_ = {input};
     Tensor *out = output.get();
@@ -30,16 +47,23 @@ std::shared_ptr<Tensor> Tensor::checkpoint(
       std::function<void()> saved_backward_fn = std::move(input->backward_fn_);
       input->children_.clear();
       input->backward_fn_ = nullptr;
+      const ScopeExit restore_input([&] {
+        input->children_ = std::move(saved_children);
+        input->backward_fn_ = std::move(saved_backward_fn);
+      });
 
-      const std::mt19937_64 backward_rng = global_rng();
-      global_rng() = forward_rng;
-      std::shared_ptr<Tensor> recomputed = recompute(input);
-      global_rng() = backward_rng;
+      std::shared_ptr<Tensor> recomputed;
+      {
+        const std::mt19937_64 backward_rng = global_rng();
+        const ScopeExit restore_rng([&] { global_rng() = backward_rng; });
+        global_rng() = forward_rng;
+        recomputed = recompute(input);
+      }
+      if (!recomputed->requires_grad_) {
+        return;
+      }
       recomputed->propagate_gradients(
           out->grad_.copy_to(recomputed->backend()), false);
-
-      input->children_ = std::move(saved_children);
-      input->backward_fn_ = std::move(saved_backward_fn);
     };
   }
 

@@ -1,6 +1,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "micrograd/Broadcast.h"
@@ -42,12 +43,18 @@ std::shared_ptr<Tensor> Tensor::mean(int64_t dim, bool keepdim) {
 
 std::shared_ptr<Tensor> Tensor::max(int64_t dim, bool keepdim) {
   size_t axis = NormalizeDim(dim, shape_.size());
+  if (shape_[axis] == 0) {
+    throw std::invalid_argument("max over a zero-length dimension");
+  }
   return apply(OpId::kMax, ReducedShape(shape_, axis, keepdim),
                {.lhs = shared_from_this(), .dim = static_cast<int64_t>(axis)});
 }
 
 std::shared_ptr<Tensor> Tensor::argmax(int64_t dim) {
   size_t axis = NormalizeDim(dim, shape_.size());
+  if (shape_[axis] == 0) {
+    throw std::invalid_argument("argmax over a zero-length dimension");
+  }
   auto result = Tensor::zeros(ReducedShape(shape_, axis, false), backend());
   DispatchOp(
       OpId::kArgmax, backend(),

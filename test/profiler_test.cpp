@@ -3,7 +3,9 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "micrograd/Tensor.h"
@@ -104,4 +106,24 @@ TEST(Profiler, ReportNamesOpsAndSteps) {
 
   EXPECT_NE(report.find("profile over 1 steps"), std::string::npos);
   EXPECT_NE(report.find("add"), std::string::npos);
+}
+
+TEST(Profiler, ScopeFromAnotherThreadThrowsInDebugBuilds) {
+#ifdef NDEBUG
+  GTEST_SKIP() << "the owner-thread check is compiled out with NDEBUG";
+#else
+  profiler::Enable();
+  bool threw = false;
+  std::thread worker([&threw] {
+    try {
+      const profiler::Scope scope("worker", "-", Device::CPU);
+    } catch (const std::logic_error &) {
+      threw = true;
+    }
+  });
+  worker.join();
+  profiler::Disable();
+
+  EXPECT_TRUE(threw);
+#endif
 }

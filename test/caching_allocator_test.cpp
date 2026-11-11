@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <thread>
 #include <unordered_map>
 
 #include "micrograd/CachingAllocator.h"
@@ -170,4 +172,58 @@ TEST(CachingAllocator, ReleaseAllReturnsEverySegment) {
 
   EXPECT_EQ(device.used, 0u);
   EXPECT_EQ(device.frees, device.allocations);
+}
+
+TEST(CachingAllocator, DoubleFreeThrows) {
+  FakeDevice device(64 * kMiB);
+  auto allocator = MakeAllocator(device);
+
+  void *a = allocator->allocate(100);
+  allocator->deallocate(a);
+
+  EXPECT_THROW(allocator->deallocate(a), std::invalid_argument);
+}
+
+TEST(CachingAllocator, UnknownPointerThrows) {
+  FakeDevice device(64 * kMiB);
+  auto allocator = MakeAllocator(device);
+  void *a = allocator->allocate(100);
+  int local = 0;
+
+  EXPECT_THROW(allocator->deallocate(&local), std::invalid_argument);
+  EXPECT_THROW(allocator->deallocate(Bytes(a) + 1), std::invalid_argument);
+  EXPECT_EQ(allocator->stats().allocated_bytes,
+            CachingAllocator::RoundSize(100));
+}
+
+TEST(CachingAllocator, FreeOfABlockLiveAtReleaseAllIsAcceptedOnce) {
+  FakeDevice device(64 * kMiB);
+  auto allocator = MakeAllocator(device);
+  void *a = allocator->allocate(100);
+  allocator->releaseAll();
+
+  EXPECT_NO_THROW(allocator->deallocate(a));
+  EXPECT_THROW(allocator->deallocate(a), std::invalid_argument);
+  EXPECT_EQ(device.used, 0u);
+}
+
+TEST(CachingAllocator, UseFromAnotherThreadThrowsInDebugBuilds) {
+#ifdef NDEBUG
+  GTEST_SKIP() << "the owner-thread check is compiled out with NDEBUG";
+#else
+  FakeDevice device(64 * kMiB);
+  auto allocator = MakeAllocator(device);
+  bool threw = false;
+  std::thread worker([&threw, &allocator] {
+    try {
+      allocator->allocate(100);
+    } catch (const std::logic_error &) {
+      threw = true;
+    }
+  });
+  worker.join();
+
+  EXPECT_TRUE(threw);
+  EXPECT_EQ(allocator->stats().allocated_bytes, 0u);
+#endif
 }

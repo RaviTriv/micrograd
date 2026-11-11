@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <stdexcept>
 #include <utility>
-#include <vector>
 
 namespace micrograd {
 
@@ -18,7 +18,9 @@ bool CachingAllocator::BlockLess::operator()(const Block *a,
 }
 
 CachingAllocator::CachingAllocator(RawAlloc raw_alloc, RawFree raw_free)
-    : raw_alloc_(std::move(raw_alloc)), raw_free_(std::move(raw_free)) {}
+    : raw_alloc_(std::move(raw_alloc)),
+      raw_free_(std::move(raw_free)),
+      owner_(std::this_thread::get_id()) {}
 
 CachingAllocator::~CachingAllocator() { releaseAll(); }
 
@@ -39,9 +41,28 @@ size_t CachingAllocator::SegmentSize(size_t rounded) {
   return kRoundLarge * ((rounded + kRoundLarge - 1) / kRoundLarge);
 }
 
+void CachingAllocator::CheckOwnerThread() const {
+#ifndef NDEBUG
+  if (owner_ != std::this_thread::get_id()) {
+    throw std::logic_error(
+        "CachingAllocator is single-threaded, use it only from the thread "
+        "that created it");
+  }
+#endif
+}
+
 CachingAllocator::Pool &CachingAllocator::PoolFor(const Block &block) {
   return block.small ? small_free_ : large_free_;
 }
+
+CachingAllocator::Block *CachingAllocator::NewBlock(const Block &value) {
+  auto owned = std::make_unique<Block>(value);
+  Block *block = owned.get();
+  blocks_.emplace(block, std::move(owned));
+  return block;
+}
+
+void CachingAllocator::DeleteBlock(Block *block) { blocks_.erase(block); }
 
 void *CachingAllocator::NewSegment(size_t size) {
   void *ptr = raw_alloc_(size);
@@ -54,6 +75,7 @@ void *CachingAllocator::NewSegment(size_t size) {
 }
 
 void *CachingAllocator::allocate(size_t bytes) {
+  CheckOwnerThread();
   const size_t size = RoundSize(bytes);
   const bool small = size <= kSmallSize;
   Pool &pool = small ? small_free_ : large_free_;
@@ -72,7 +94,12 @@ void *CachingAllocator::allocate(size_t bytes) {
       stats_.out_of_memory++;
       return nullptr;
     }
-    block = new Block{.ptr = ptr, .size = segment, .small = small};
+    try {
+      block = NewBlock({.ptr = ptr, .size = segment, .small = small});
+    } catch (...) {
+      raw_free_(ptr);
+      throw;
+    }
     stats_.reserved_bytes += segment;
     stats_.peak_reserved_bytes =
         std::max(stats_.peak_reserved_bytes, stats_.reserved_bytes);
@@ -83,11 +110,11 @@ void *CachingAllocator::allocate(size_t bytes) {
   const bool split =
       small ? remaining >= kMinBlockSize : remaining > kSmallSize;
   if (split) {
-    auto *rest = new Block{.ptr = static_cast<char *>(block->ptr) + size,
-                           .size = remaining,
-                           .small = small,
-                           .prev = block,
-                           .next = block->next};
+    Block *rest = NewBlock({.ptr = static_cast<char *>(block->ptr) + size,
+                            .size = remaining,
+                            .small = small,
+                            .prev = block,
+                            .next = block->next});
     if (block->next != nullptr) {
       block->next->prev = rest;
     }
@@ -105,12 +132,18 @@ void *CachingAllocator::allocate(size_t bytes) {
 }
 
 void CachingAllocator::deallocate(void *ptr) {
+  CheckOwnerThread();
   if (ptr == nullptr) {
     return;
   }
   auto it = active_.find(ptr);
   if (it == active_.end()) {
-    return;
+    if (retired_.erase(ptr) > 0) {
+      return;
+    }
+    throw std::invalid_argument(
+        "CachingAllocator::deallocate got a pointer it does not own or that "
+        "was already freed");
   }
   Block *block = it->second;
   active_.erase(it);
@@ -126,7 +159,7 @@ void CachingAllocator::deallocate(void *ptr) {
     if (block->next != nullptr) {
       block->next->prev = prev;
     }
-    delete block;
+    DeleteBlock(block);
     block = prev;
   }
   if (block->next != nullptr && !block->next->allocated) {
@@ -137,7 +170,7 @@ void CachingAllocator::deallocate(void *ptr) {
     if (next->next != nullptr) {
       next->next->prev = block;
     }
-    delete next;
+    DeleteBlock(next);
   }
   pool.insert(block);
 }
@@ -150,7 +183,7 @@ void CachingAllocator::ReleasePool(Pool &pool) {
       stats_.reserved_bytes -= block->size;
       stats_.segments--;
       it = pool.erase(it);
-      delete block;
+      DeleteBlock(block);
     } else {
       ++it;
     }
@@ -158,38 +191,25 @@ void CachingAllocator::ReleasePool(Pool &pool) {
 }
 
 void CachingAllocator::releaseCached() {
+  CheckOwnerThread();
   ReleasePool(small_free_);
   ReleasePool(large_free_);
 }
 
 void CachingAllocator::releaseAll() {
-  std::vector<Block *> heads;
-  const auto collect = [&heads](Block *block) {
+  CheckOwnerThread();
+  for (const auto &[block, owned] : blocks_) {
     if (block->prev == nullptr) {
-      heads.push_back(block);
+      raw_free_(block->ptr);
     }
-  };
-  for (Block *block : small_free_) {
-    collect(block);
-  }
-  for (Block *block : large_free_) {
-    collect(block);
   }
   for (const auto &[ptr, block] : active_) {
-    collect(block);
-  }
-
-  for (Block *head : heads) {
-    raw_free_(head->ptr);
-    for (Block *block = head; block != nullptr;) {
-      Block *next = block->next;
-      delete block;
-      block = next;
-    }
+    retired_.insert(ptr);
   }
   small_free_.clear();
   large_free_.clear();
   active_.clear();
+  blocks_.clear();
   stats_.allocated_bytes = 0;
   stats_.reserved_bytes = 0;
   stats_.segments = 0;

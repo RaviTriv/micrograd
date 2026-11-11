@@ -15,6 +15,7 @@ add_executable(micrograd_tests
     attention_test.cpp
     autograd_test.cpp
     caching_allocator_test.cpp
+    checkpoint_test.cpp
     dataloader_test.cpp
     dataset_test.cpp
     dtype_test.cpp

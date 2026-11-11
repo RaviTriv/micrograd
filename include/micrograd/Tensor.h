@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -140,6 +141,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::span<const scalar_t> data() const;
   std::span<scalar_t> grad();
   std::span<const scalar_t> grad() const;
+  std::optional<std::span<const scalar_t>> grad_if_present() const;
   void to(Backend device);
   Backend backend() const;
   DType dtype() const;

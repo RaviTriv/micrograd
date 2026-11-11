@@ -117,8 +117,12 @@ void AddBias(const OpArgs &args) {
   auto bias = args.rhs->data();
   auto out = args.out->data();
   const size_t cols = bias.size();
-  for (size_t i = 0; i < lhs.size(); i++) {
-    out[i] = lhs[i] + bias[i % cols];
+  const size_t rows = cols == 0 ? 0 : lhs.size() / cols;
+  for (size_t r = 0; r < rows; r++) {
+    const size_t row = r * cols;
+    for (size_t c = 0; c < cols; c++) {
+      out[row + c] = lhs[row + c] + bias[c];
+    }
   }
 }
 
@@ -128,9 +132,13 @@ std::function<void()> AddBiasBackward(const GradArgs &args) {
     auto b_grad = rhs->grad();
     auto out_grad = out->grad();
     const size_t cols = b_grad.size();
-    for (size_t i = 0; i < a_grad.size(); i++) {
-      a_grad[i] += out_grad[i];
-      b_grad[i % cols] += out_grad[i];
+    const size_t rows = cols == 0 ? 0 : a_grad.size() / cols;
+    for (size_t r = 0; r < rows; r++) {
+      const size_t row = r * cols;
+      for (size_t c = 0; c < cols; c++) {
+        a_grad[row + c] += out_grad[row + c];
+        b_grad[c] += out_grad[row + c];
+      }
     }
   };
 }
@@ -217,6 +225,9 @@ std::function<void()> DivScalarBackward(const GradArgs &args) {
 
 std::function<void()> PowBackward(const GradArgs &args) {
   return [out = args.out, lhs = args.lhs, exponent = args.scalar]() {
+    if (exponent == 0.0f) {
+      return;
+    }
     auto a_data = lhs->data();
     auto a_grad = lhs->grad();
     auto out_grad = out->grad();

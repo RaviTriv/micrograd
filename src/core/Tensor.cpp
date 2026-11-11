@@ -148,7 +148,9 @@ scalar_t &Tensor::grad_at(const std::vector<size_t> &indices) {
 }
 
 scalar_t Tensor::grad_at(const std::vector<size_t> &indices) const {
-  return grad()[flat_index(indices)];
+  const size_t index = flat_index(indices);
+  const auto grad = grad_if_present();
+  return grad ? (*grad)[index] : 0.0f;
 }
 
 size_t Tensor::flat_index(const std::vector<size_t> &indices) const {
@@ -191,6 +193,15 @@ std::span<const scalar_t> Tensor::grad() const {
   require_float32();
   ensure_grad();
   return {static_cast<const scalar_t *>(grad_.data()), size()};
+}
+
+std::optional<std::span<const scalar_t>> Tensor::grad_if_present() const {
+  require_float32();
+  if (!has_grad()) {
+    return std::nullopt;
+  }
+  return std::span<const scalar_t>{static_cast<const scalar_t *>(grad_.data()),
+                                   size()};
 }
 
 void Tensor::require_float32() const {

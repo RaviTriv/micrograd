@@ -2,9 +2,12 @@
 
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <set>
 #include <string>
+#include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace micrograd {
 
@@ -64,15 +67,21 @@ class CachingAllocator {
   using Pool = std::set<Block *, BlockLess>;
 
   Pool &PoolFor(const Block &block);
+  Block *NewBlock(const Block &value);
+  void DeleteBlock(Block *block);
   void *NewSegment(size_t size);
   void ReleasePool(Pool &pool);
+  void CheckOwnerThread() const;
 
   RawAlloc raw_alloc_;
   RawFree raw_free_;
   Pool small_free_;
   Pool large_free_;
   std::unordered_map<void *, Block *> active_;
+  std::unordered_map<Block *, std::unique_ptr<Block>> blocks_;
+  std::unordered_set<void *> retired_;
   Stats stats_;
+  [[maybe_unused]] std::thread::id owner_;
 };
 
 }  // namespace micrograd
