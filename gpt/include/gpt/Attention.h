@@ -27,6 +27,8 @@ class CausalSelfAttention : public nn::Module {
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;
 
+  std::shared_ptr<Linear> out_proj() const { return out_proj_; }
+
  private:
   size_t n_embd_;
   size_t n_head_;

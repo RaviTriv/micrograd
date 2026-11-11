@@ -1,14 +1,21 @@
 #include "gpt/Model.h"
 
+#include <algorithm>
+#include <cmath>
+#include <span>
 #include <stdexcept>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "gpt/Block.h"
+#include "micrograd/Init.h"
 
 namespace micrograd::gpt {
 
 namespace {
+
+constexpr scalar_t kInitStd = 0.02f;
 
 std::shared_ptr<Tensor> position_ids(size_t seq_len, Backend backend) {
   std::vector<scalar_t> values(seq_len);
@@ -33,11 +40,15 @@ Model::Model(size_t vocab_size, const GPTConfig &config) : config_(config) {
   }
 
   std::vector<std::shared_ptr<nn::Module>> layers;
+  std::unordered_set<const Tensor *> residual_weights;
   for (size_t i = 0; i < config_.n_layer; i++) {
-    layers.push_back(std::make_shared<Block>(config_.n_embd, config_.n_head,
-                                             config_.dropout,
-                                             config_.recompute_activations,
-                                             config_.arch));
+    auto block =
+        std::make_shared<Block>(config_.n_embd, config_.n_head, config_.dropout,
+                                config_.recompute_activations, config_.arch);
+    for (const auto &projection : block->residual_projections()) {
+      residual_weights.insert(projection->weights().get());
+    }
+    layers.push_back(std::move(block));
   }
   blocks_ = std::make_shared<Sequential>(std::move(layers));
 
@@ -51,6 +62,18 @@ Model::Model(size_t vocab_size, const GPTConfig &config) : config_(config) {
   register_module("h", blocks_);
   register_module("ln_f", ln_f_);
   register_module("lm_head", lm_head_);
+
+  const scalar_t residual_std =
+      kInitStd / std::sqrt(2.0f * static_cast<scalar_t>(config_.n_layer));
+  for (const auto &parameter : parameters()) {
+    if (parameter->shape().size() == 2) {
+      const bool residual = residual_weights.contains(parameter.get());
+      init::normal_(parameter, 0.0f, residual ? residual_std : kInitStd);
+    }
+  }
+  std::ranges::fill(
+      token_embedding_->weight()->data().subspan(vocab_size * config_.n_embd),
+      0.0f);
 }
 
 std::shared_ptr<Tensor> Model::forward(const std::shared_ptr<Tensor> &input) {

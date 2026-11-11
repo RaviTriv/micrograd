@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -215,7 +216,7 @@ TEST(ModelTest, OverfitsOneBatch) {
   EXPECT_LT(loss, 0.05f);
 }
 
-TEST(ModelTest, DISABLED_InitialLossIsNearLogVocab) {
+TEST(ModelTest, InitialLossIsNearLogVocab) {
   manual_seed(2);
   GPTConfig config = TinyConfig();
   config.n_layer = 1;
@@ -225,4 +226,78 @@ TEST(ModelTest, DISABLED_InitialLossIsNearLogVocab) {
   const scalar_t loss = Loss(model, TokenIds(4, 0))->at({});
   const scalar_t expected = std::log(static_cast<scalar_t>(kVocab));
   EXPECT_NEAR(loss, expected, 0.05f * expected);
+}
+
+TEST(ModelTest, InitMatchesGpt2Statistics) {
+  constexpr size_t kStatsVocab = 1000;
+  constexpr size_t kPaddedVocab = 1024;
+  constexpr size_t kEmbd = 128;
+  manual_seed(4);
+  GPTConfig config = TinyConfig();
+  config.n_layer = 4;
+  config.n_embd = kEmbd;
+  config.n_head = 4;
+  config.block_size = 64;
+  config.padded_vocab_size = kPaddedVocab;
+  config.arch.qk_norm = true;
+  Model model(kStatsVocab, config);
+
+  std::map<std::string, std::vector<scalar_t>> groups;
+  for (const auto &[name, parameter] : model.named_parameters()) {
+    const auto values = parameter->data();
+    if (name == "token_embedding.weight") {
+      const size_t used = kStatsVocab * kEmbd;
+      groups["embedding"].insert(groups["embedding"].end(), values.begin(),
+                                 values.begin() + used);
+      groups["padded_rows"].insert(groups["padded_rows"].end(),
+                                   values.begin() + used, values.end());
+      continue;
+    }
+    std::string group;
+    if (name == "position_embedding.weight") {
+      group = "embedding";
+    } else if (name.ends_with("out_proj.weight") ||
+               name.ends_with("mlp_proj.weight")) {
+      group = "residual";
+    } else if (name.ends_with(".weight")) {
+      group = "linear";
+    } else if (name.ends_with(".bias")) {
+      group = "bias";
+    } else if (name.ends_with(".gain")) {
+      group = "gain";
+    } else {
+      FAIL() << "unclassified parameter " << name;
+    }
+    groups[group].insert(groups[group].end(), values.begin(), values.end());
+  }
+
+  const auto expect_normal = [&](const std::string &group, double std) {
+    const std::vector<scalar_t> &values = groups[group];
+    ASSERT_FALSE(values.empty()) << group;
+    const auto n = static_cast<double>(values.size());
+    double sum = 0.0;
+    double sum_sq = 0.0;
+    for (const scalar_t value : values) {
+      sum += value;
+      sum_sq += static_cast<double>(value) * value;
+    }
+    const double mean = sum / n;
+    const double sample_std = std::sqrt((sum_sq / n) - (mean * mean));
+    EXPECT_NEAR(mean, 0.0, 5.0 * std / std::sqrt(n)) << group;
+    EXPECT_NEAR(sample_std, std, 5.0 * std / std::sqrt(2.0 * n)) << group;
+  };
+  const auto expect_all = [&](const std::string &group, scalar_t expected) {
+    const std::vector<scalar_t> &values = groups[group];
+    ASSERT_FALSE(values.empty()) << group;
+    EXPECT_EQ(std::ranges::count(values, expected), std::ssize(values))
+        << group;
+  };
+
+  expect_normal("embedding", 0.02);
+  expect_normal("linear", 0.02);
+  expect_normal("residual",
+                0.02 / std::sqrt(2.0 * static_cast<double>(config.n_layer)));
+  expect_all("bias", 0.0f);
+  expect_all("gain", 1.0f);
+  expect_all("padded_rows", 0.0f);
 }

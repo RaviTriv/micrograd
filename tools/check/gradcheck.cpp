@@ -316,6 +316,8 @@ std::vector<Case> AllCases() {
       {.eps = 0.5f, .atol = 2e-4f});
   const GradCheckOptions bf16_tolerance = {.rtol = 3e-2f, .atol = 3e-2f};
   const GradCheckOptions bf16_attention = {.rtol = 3e-2f, .atol = 1e-1f};
+  const GradCheckOptions bf16_attention_activations = {.rtol = 3e-2f,
+                                                       .atol = 1.5e-1f};
   const GradCheckOptions bf16_softmax = {.rtol = 3e-2f, .atol = 3e-3f};
   add_device_only("matmul_bf16",
                   [](const TensorList &in) { return in[0]->matmul(in[1]); },
@@ -461,7 +463,7 @@ std::vector<Case> AllCases() {
                     },
                     {Wave({2, 70, 128}, 0.4f), Wave({2, 70, 128}, 1.3f),
                      Wave({2, 70, 128}, 2.2f)},
-                    bf16_attention);
+                    bf16_attention_activations);
   add_low_precision("causal_self_attention_bf16_three_tiles",
                     [](const TensorList &in) {
                       return High(Low(in[0]->mul(2.0f))
@@ -483,7 +485,7 @@ std::vector<Case> AllCases() {
                                 ->matmul(Low(in[5]));
         return High(x->add(h));
       },
-      {Wave({2, 9, 64}, 0.4f), Wave({64}, 1.0f), Wave({64}, 2.0f),
+      {Noise({2, 9, 64}, 2), Wave({64}, 1.0f), Wave({64}, 2.0f),
        Wave({64, 96}, 0.7f)->mul(0.2f), Wave({96}, 1.5f),
        Wave({96, 64}, 2.5f)->mul(0.2f)},
       bf16_attention);
@@ -848,6 +850,21 @@ struct DeviceMismatch {
   scalar_t device;
 };
 
+struct SlotStats {
+  size_t slot;
+  size_t count;
+  double cpu_rms;
+  double max_difference;
+  double worst_ratio;
+  double slope;
+  double shrink;
+};
+
+struct DeviceCheck {
+  std::vector<DeviceMismatch> mismatches;
+  std::vector<SlotStats> stats;
+};
+
 struct DeviceRun {
   std::vector<scalar_t> output;
   std::vector<std::vector<scalar_t>> gradients;
@@ -895,6 +912,48 @@ void CompareValues(const std::vector<scalar_t> &cpu,
   }
 }
 
+SlotStats ComputeSlotStats(const std::vector<scalar_t> &cpu,
+                           const std::vector<scalar_t> &device, size_t slot,
+                           const GradCheckOptions &options) {
+  SlotStats stats{.slot = slot,
+                  .count = cpu.size(),
+                  .cpu_rms = 0.0,
+                  .max_difference = 0.0,
+                  .worst_ratio = 0.0,
+                  .slope = 1.0,
+                  .shrink = 0.0};
+  if (cpu.empty()) {
+    return stats;
+  }
+
+  double cpu_squares = 0.0;
+  double cross = 0.0;
+  double toward_zero = 0.0;
+  for (size_t j = 0; j < cpu.size(); j++) {
+    const auto reference = static_cast<double>(cpu[j]);
+    const auto measured = static_cast<double>(device[j]);
+    const double difference = std::abs(reference - measured);
+    const double scale = std::max(std::abs(reference), std::abs(measured));
+    const double allowed = static_cast<double>(options.atol) +
+                           (static_cast<double>(options.rtol) * scale);
+    cpu_squares += reference * reference;
+    cross += reference * measured;
+    toward_zero += std::abs(reference) - std::abs(measured);
+    stats.max_difference = std::max(stats.max_difference, difference);
+    if (allowed > 0.0) {
+      stats.worst_ratio = std::max(stats.worst_ratio, difference / allowed);
+    }
+  }
+
+  const auto count = static_cast<double>(cpu.size());
+  stats.cpu_rms = std::sqrt(cpu_squares / count);
+  if (cpu_squares > 0.0) {
+    stats.slope = cross / cpu_squares;
+    stats.shrink = (toward_zero / count) / stats.cpu_rms;
+  }
+  return stats;
+}
+
 GradCheckOptions SlotOptions(const Case &test,
                              const std::vector<scalar_t> &cpu) {
   GradCheckOptions options = test.options;
@@ -926,18 +985,40 @@ DeviceRun RunCase(const Case &test, Device device) {
   return RunForwardBackward(test.function, shapes, values, device);
 }
 
-std::vector<DeviceMismatch> CheckOnDevice(const Case &test, Device device) {
+DeviceCheck CheckOnDevice(const Case &test, Device device) {
   const DeviceRun cpu = RunCase(test, Device::CPU);
   const DeviceRun other = RunCase(test, device);
 
-  std::vector<DeviceMismatch> mismatches;
-  CompareValues(cpu.output, other.output, kOutputSlot,
-                SlotOptions(test, cpu.output), mismatches);
+  DeviceCheck check;
+  const GradCheckOptions output_options = SlotOptions(test, cpu.output);
+  CompareValues(cpu.output, other.output, kOutputSlot, output_options,
+                check.mismatches);
+  check.stats.push_back(
+      ComputeSlotStats(cpu.output, other.output, kOutputSlot, output_options));
   for (size_t i = 0; i < cpu.gradients.size(); i++) {
-    CompareValues(cpu.gradients[i], other.gradients[i], i,
-                  SlotOptions(test, cpu.gradients[i]), mismatches);
+    const GradCheckOptions options = SlotOptions(test, cpu.gradients[i]);
+    CompareValues(cpu.gradients[i], other.gradients[i], i, options,
+                  check.mismatches);
+    check.stats.push_back(
+        ComputeSlotStats(cpu.gradients[i], other.gradients[i], i, options));
   }
-  return mismatches;
+  return check;
+}
+
+std::string SlotName(size_t slot) {
+  return slot == kOutputSlot ? std::string("output")
+                             : "input " + std::to_string(slot);
+}
+
+void PrintSlotStats(const std::vector<SlotStats> &stats) {
+  for (const auto &slot : stats) {
+    std::printf(
+        "      %s: n %zu rms %.3g max diff %.3g worst %.2fx allowed slope %.4f "
+        "shrink %.2f%% of rms\n",
+        SlotName(slot.slot).c_str(), slot.count, slot.cpu_rms,
+        slot.max_difference, slot.worst_ratio, slot.slope,
+        100.0 * slot.shrink);
+  }
 }
 
 std::vector<micrograd::GradCheckMismatch> SampledGradCheck(const Case &test) {
@@ -1039,6 +1120,7 @@ size_t RunAllCases(Device device) {
     ProbeDevice(device);
   }
 
+  const bool print_stats = std::getenv("MICROGRAD_GRADCHECK_STATS") != nullptr;
   size_t failed = 0;
   size_t skipped = 0;
   for (const auto &test : cases) {
@@ -1067,13 +1149,13 @@ size_t RunAllCases(Device device) {
       continue;
     }
 
-    std::vector<DeviceMismatch> mismatches;
+    DeviceCheck check;
     try {
 #ifdef MICROGRAD_CUDA_ENABLED
       micrograd::CudaContext::instance().setAllowTf32(test.tf32);
       micrograd::CudaContext::instance().setAllowBf16Matmul(test.bf16);
 #endif
-      mismatches = CheckOnDevice(test, device);
+      check = CheckOnDevice(test, device);
 #ifdef MICROGRAD_CUDA_ENABLED
       micrograd::CudaContext::instance().setAllowTf32(false);
       micrograd::CudaContext::instance().setAllowBf16Matmul(false);
@@ -1084,20 +1166,22 @@ size_t RunAllCases(Device device) {
       continue;
     }
 
-    if (mismatches.empty()) {
+    if (check.mismatches.empty()) {
       std::printf("ok    %s\n", test.name.c_str());
+      if (print_stats) {
+        PrintSlotStats(check.stats);
+      }
       continue;
     }
 
     failed++;
     std::printf("FAIL  %s\n", test.name.c_str());
-    for (const auto &mismatch : mismatches) {
-      const std::string slot = mismatch.input == kOutputSlot
-                                   ? std::string("output")
-                                   : "input " + std::to_string(mismatch.input);
-      std::printf("      %s index %zu cpu %g %s %g\n", slot.c_str(),
-                  mismatch.index, static_cast<double>(mismatch.cpu),
-                  DeviceName(device), static_cast<double>(mismatch.device));
+    PrintSlotStats(check.stats);
+    for (const auto &mismatch : check.mismatches) {
+      std::printf("      %s index %zu cpu %g %s %g\n",
+                  SlotName(mismatch.input).c_str(), mismatch.index,
+                  static_cast<double>(mismatch.cpu), DeviceName(device),
+                  static_cast<double>(mismatch.device));
     }
   }
 

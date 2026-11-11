@@ -4,6 +4,7 @@
 
 #include "micrograd/DType.h"
 #include "micrograd/Scalar.h"
+#include "micrograd/nn/Serialize.h"
 
 namespace micrograd::gpt {
 
@@ -33,5 +34,10 @@ struct GPTConfig {
 
 GPTConfig config_for_depth(size_t depth);
 GPTConfig gpt2_124m();
+
+StateDictMetadata architecture_metadata(const GPTConfig &config);
+GPTConfig config_from_metadata(const StateDictMetadata &metadata);
+void require_same_architecture(const GPTConfig &checkpoint,
+                               const GPTConfig &flags);
 
 }  // namespace micrograd::gpt

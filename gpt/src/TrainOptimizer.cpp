@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <istream>
 #include <map>
 #include <memory>
@@ -24,19 +23,6 @@
 namespace micrograd::gpt {
 
 namespace {
-
-void write_u64(std::ostream &out, uint64_t value) {
-  out.write(reinterpret_cast<const char *>(&value), sizeof(value));
-}
-
-uint64_t read_u64(std::istream &in) {
-  uint64_t value = 0;
-  in.read(reinterpret_cast<char *>(&value), sizeof(value));
-  if (!in) {
-    throw std::runtime_error("Optimizer state file is truncated");
-  }
-  return value;
-}
 
 bool is_decayed(const std::string &name) {
   const size_t last_dot = name.rfind('.');
@@ -63,6 +49,7 @@ TrainOptimizer::TrainOptimizer(const NamedParameters &named_parameters,
       muon_bf16_(muon_bf16) {
   for (const auto &[name, p] : named_parameters) {
     const bool muon = muon_lr > 0.0f && is_muon_matrix(name, *p);
+    names_.push_back(name);
     parameters_.push_back(p);
     decay_.push_back(is_decayed(name));
     muon_.push_back(muon);
@@ -71,20 +58,19 @@ TrainOptimizer::TrainOptimizer(const NamedParameters &named_parameters,
   }
 }
 
-void TrainOptimizer::write_state(std::ostream &out) const {
-  write_u64(out, static_cast<uint64_t>(step_count_));
+void TrainOptimizer::write_moments(std::ostream &out) const {
   for (size_t i = 0; i < parameters_.size(); i++) {
     write_tensor(out, *m_[i]);
     write_tensor(out, *v_[i]);
   }
 }
 
-void TrainOptimizer::read_state(std::istream &in) {
-  step_count_ = static_cast<size_t>(read_u64(in));
+void TrainOptimizer::read_moments(std::istream &in, size_t step_count) {
   for (size_t i = 0; i < parameters_.size(); i++) {
     read_tensor(in, m_[i]);
     read_tensor(in, v_[i]);
   }
+  step_count_ = step_count;
 }
 
 bool TrainOptimizer::fuses_grad_clip() const {

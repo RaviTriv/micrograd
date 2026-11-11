@@ -160,6 +160,7 @@ add_library(micrograd_gpt
     gpt/src/JsonText.cpp
     gpt/src/KVCache.cpp
     gpt/src/Model.cpp
+    gpt/src/ModelFile.cpp
     gpt/src/SampleOrder.cpp
     gpt/src/TrainConfig.cpp
     gpt/src/TrainOptimizer.cpp
@@ -176,6 +177,10 @@ target_compile_options(train_gpt PRIVATE -Werror)
 add_executable(hellaswag tools/eval/hellaswag.cpp)
 target_link_libraries(hellaswag PRIVATE micrograd_gpt)
 target_compile_options(hellaswag PRIVATE -Werror)
+
+add_executable(gpt_score tools/eval/gpt_score.cpp)
+target_link_libraries(gpt_score PRIVATE micrograd_gpt)
+target_compile_options(gpt_score PRIVATE -Werror)
 
 option(FETCH_MNIST "Download the MNIST dataset" ON)
 if(FETCH_MNIST)
@@ -222,8 +227,13 @@ endif()
 
 option(FETCH_FINEWEB "Download a FineWeb sample as pre-tokenized shards" OFF)
 if(FETCH_FINEWEB)
-    set(FINEWEB_DATA_DIR "${CMAKE_BINARY_DIR}/fineweb-data")
-    set(FINEWEB_TRAIN_SHARD_COUNT 8)
+    set(FINEWEB_DATA_DIR "${CMAKE_BINARY_DIR}/fineweb-data" CACHE PATH
+        "Directory holding FineWeb shards; missing shards are downloaded into it")
+    set(FINEWEB_TRAIN_SHARD_COUNT 8 CACHE STRING "Number of FineWeb train shards")
+    if(NOT FINEWEB_TRAIN_SHARD_COUNT MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR
+            "FINEWEB_TRAIN_SHARD_COUNT must be a positive integer, got '${FINEWEB_TRAIN_SHARD_COUNT}'")
+    endif()
 
     set(FINEWEB_DATA_FILES "${FINEWEB_DATA_DIR}/edufineweb_val_000000.bin")
     foreach(shard RANGE 1 ${FINEWEB_TRAIN_SHARD_COUNT})
@@ -237,6 +247,7 @@ if(FETCH_FINEWEB)
                 -DFINEWEB_TRAIN_SHARD_COUNT=${FINEWEB_TRAIN_SHARD_COUNT}
                 -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchFineWeb.cmake"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchFineWeb.cmake"
+                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/fineweb.sha256"
         COMMENT "Downloading FineWeb sample shards"
         VERBATIM
     )

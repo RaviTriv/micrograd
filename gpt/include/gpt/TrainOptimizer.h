@@ -38,6 +38,14 @@ class TrainOptimizer {
 
   size_t parameter_count() const { return parameters_.size(); }
 
+  const std::string &parameter_name(size_t i) const { return names_[i]; }
+
+  const std::vector<size_t> &parameter_shape(size_t i) const {
+    return parameters_[i]->shape();
+  }
+
+  bool is_muon(size_t i) const { return muon_[i]; }
+
   void zero_grad() {
     for (auto &p : parameters_) {
       p->release_grad();
@@ -46,8 +54,8 @@ class TrainOptimizer {
 
   size_t step_count() const { return step_count_; }
 
-  void write_state(std::ostream &out) const;
-  void read_state(std::istream &in);
+  void write_moments(std::ostream &out) const;
+  void read_moments(std::istream &in, size_t step_count);
 
   bool fuses_grad_clip() const;
 
@@ -65,6 +73,7 @@ class TrainOptimizer {
   static void write_tensor(std::ostream &out, const Tensor &tensor);
   static void read_tensor(std::istream &in, std::shared_ptr<Tensor> &tensor);
 
+  std::vector<std::string> names_;
   std::vector<std::shared_ptr<Tensor>> parameters_;
   std::vector<bool> decay_;
   std::vector<bool> muon_;

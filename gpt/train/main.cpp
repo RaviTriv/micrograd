@@ -18,6 +18,7 @@
 #include "gpt/Dataset.h"
 #include "gpt/GPTConfig.h"
 #include "gpt/Model.h"
+#include "gpt/ModelFile.h"
 #include "gpt/TrainConfig.h"
 #include "gpt/TrainOptimizer.h"
 #include "gpt/TrainState.h"
@@ -52,11 +53,16 @@ namespace distributed = micrograd::distributed;
 using micrograd::load;
 using micrograd::manual_seed;
 using micrograd::NoGradGuard;
-using micrograd::save;
 using micrograd::scalar_t;
 using micrograd::synchronize;
 using micrograd::Tensor;
 using micrograd::gpt::data_state_path;
+using micrograd::gpt::check_train_state;
+using micrograd::gpt::checkpoint_set_path;
+using micrograd::gpt::read_latest_checkpoint;
+using micrograd::gpt::remove_checkpoint_set;
+using micrograd::gpt::resolve_resume_path;
+using micrograd::gpt::write_latest_checkpoint;
 using micrograd::gpt::Dataset;
 using micrograd::gpt::GPTConfig;
 using micrograd::gpt::load_data_state;
@@ -66,10 +72,13 @@ using micrograd::gpt::LrAt;
 using micrograd::gpt::Model;
 using micrograd::gpt::optimizer_state_path;
 using micrograd::gpt::parse_args;
+using micrograd::gpt::read_model_config;
+using micrograd::gpt::require_same_architecture;
 using micrograd::gpt::rng_state_path;
 using micrograd::gpt::sample_token;
 using micrograd::gpt::SampleOrder;
 using micrograd::gpt::save_data_state;
+using micrograd::gpt::save_model;
 using micrograd::gpt::save_optimizer_state;
 using micrograd::gpt::save_rng_state;
 using micrograd::gpt::ShardedDataset;
@@ -88,6 +97,7 @@ GPTConfig build_model_config(const TrainConfig &config, size_t vocab_size) {
   model_config.n_head = config.n_head;
   model_config.n_kv_head = config.n_head;
   model_config.block_size = config.block_size;
+  model_config.vocab_size = vocab_size;
   model_config.dropout = config.dropout;
   model_config.matrix_lr = 0.0f;
   model_config.embedding_lr = 0.0f;
@@ -261,6 +271,8 @@ void run_sample(const TrainConfig &config) {
   for (auto &p : parameters) {
     p->to(config.device);
   }
+  require_same_architecture(read_model_config(config.checkpoint_path),
+                            model_config);
   load(config.checkpoint_path, model);
 
   const NoGradGuard no_grad;
@@ -313,6 +325,25 @@ double seconds_since(std::chrono::steady_clock::time_point start) {
 }
 
 }  // namespace
+
+void save_checkpoint(const TrainConfig &config, Model &model,
+                     const GPTConfig &model_config,
+                     const micrograd::gpt::TrainOptimizer &optimizer,
+                     const SampleOrder &train_order,
+                     std::optional<size_t> &kept_step) {
+  const size_t step = optimizer.step_count();
+  const std::string set = checkpoint_set_path(config.checkpoint_path, step);
+  save_model(set, model, model_config);
+  save_optimizer_state(optimizer_state_path(set), optimizer);
+  save_data_state(data_state_path(set), train_order, step);
+  save_rng_state(rng_state_path(set), step);
+  write_latest_checkpoint(config.checkpoint_path, step);
+  if (kept_step && *kept_step != step) {
+    remove_checkpoint_set(
+        checkpoint_set_path(config.checkpoint_path, *kept_step));
+  }
+  kept_step = step;
+}
 
 void skip_samples(SampleOrder &order, size_t count) {
   for (size_t i = 0; i < count; i++) {
@@ -429,15 +460,23 @@ int main(int argc, char **argv) {
               << undecayed << " not\n";
 
     size_t start_iter = 0;
+    std::optional<size_t> kept_step =
+        read_latest_checkpoint(config.checkpoint_path);
     if (!config.resume_path.empty()) {
-      load(config.resume_path, model);
-      load_optimizer_state(optimizer_state_path(config.resume_path), optimizer);
+      const std::string resume_path = resolve_resume_path(config.resume_path);
+      require_same_architecture(read_model_config(resume_path), model_config);
+      const size_t saved_step = check_train_state(resume_path);
+      load(resume_path, model);
+      load_optimizer_state(optimizer_state_path(resume_path), optimizer,
+                           saved_step);
       start_iter = optimizer.step_count();
       load_data_state(
-          data_state_path(config.resume_path),
+          data_state_path(resume_path),
           start_iter * config.batch_size * config.grad_accum_steps * world,
-          train_order);
-      load_rng_state(rng_state_path(config.resume_path));
+          train_order, saved_step);
+      load_rng_state(rng_state_path(resume_path), saved_step);
+      std::cout << "resuming from " << resume_path << " at step " << saved_step
+                << "\n";
       std::cout << "resuming data order at epoch " << train_order.epoch()
                 << ", sample " << train_order.position() << "\n";
     }
@@ -478,11 +517,8 @@ int main(int argc, char **argv) {
 
       if (distributed::IsMain() && config.checkpoint_interval > 0 && it > 0 &&
           it % config.checkpoint_interval == 0) {
-        save(config.checkpoint_path, model);
-        save_optimizer_state(optimizer_state_path(config.checkpoint_path),
-                             optimizer);
-        save_data_state(data_state_path(config.checkpoint_path), train_order);
-        save_rng_state(rng_state_path(config.checkpoint_path));
+        save_checkpoint(config, model, model_config, optimizer, train_order,
+                        kept_step);
       }
 
       if (config.profile && it == start_iter + kProfileWarmupSteps) {
@@ -585,11 +621,9 @@ int main(int argc, char **argv) {
     std::cout << "final val loss " << final_val_loss << "\n";
 
     if (distributed::IsMain()) {
-      save(config.checkpoint_path, model);
-      save_optimizer_state(optimizer_state_path(config.checkpoint_path),
-                           optimizer);
-      save_data_state(data_state_path(config.checkpoint_path), train_order);
-      save_rng_state(rng_state_path(config.checkpoint_path));
+      save_checkpoint(config, model, model_config, optimizer, train_order,
+                      kept_step);
+      save_model(config.checkpoint_path, model, model_config);
       std::cout << "Saved trained model to " << config.checkpoint_path << "\n";
     }
     distributed::Barrier();

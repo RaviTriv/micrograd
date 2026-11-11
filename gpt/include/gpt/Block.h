@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <vector>
 
 #include "gpt/Attention.h"
 #include "micrograd/NN.h"
@@ -18,6 +19,10 @@ class Block : public nn::Module {
 
   std::shared_ptr<Tensor> forward(
       const std::shared_ptr<Tensor> &input) override;
+
+  std::vector<std::shared_ptr<Linear>> residual_projections() const {
+    return {attn_->out_proj(), mlp_proj_};
+  }
 
  private:
   std::shared_ptr<LayerNorm> ln1_;

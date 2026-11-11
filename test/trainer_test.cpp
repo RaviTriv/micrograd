@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -12,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "gpt/SampleOrder.h"
 #include "gpt/TrainConfig.h"
 #include "gpt/TrainOptimizer.h"
 #include "gpt/TrainState.h"
@@ -23,6 +26,7 @@ using micrograd::gpt::check_finite_loss;
 using micrograd::gpt::format_flags;
 using micrograd::gpt::LrAt;
 using micrograd::gpt::NamedParameters;
+using micrograd::gpt::SampleOrder;
 using micrograd::gpt::TrainConfig;
 using micrograd::gpt::TrainOptimizer;
 
@@ -85,6 +89,27 @@ TrainOptimizer make_optimizer(const NamedParameters &parameters,
   return TrainOptimizer(parameters, 0.1f, 0.9f, 0.99f, 1e-8f, 1e-3f, muon_lr);
 }
 
+std::string temp_path(const std::string &name) {
+  return (std::filesystem::temp_directory_path() / ("trainer_test_" + name))
+      .string();
+}
+
+void remove_set(const std::string &checkpoint) {
+  std::filesystem::remove(micrograd::gpt::optimizer_state_path(checkpoint));
+  std::filesystem::remove(micrograd::gpt::data_state_path(checkpoint));
+  std::filesystem::remove(micrograd::gpt::rng_state_path(checkpoint));
+}
+
+void expect_throw_containing(const std::function<void()> &call,
+                             const std::string &text) {
+  try {
+    call();
+    ADD_FAILURE() << "expected a throw containing: " << text;
+  } catch (const std::runtime_error &e) {
+    EXPECT_NE(std::string(e.what()).find(text), std::string::npos) << e.what();
+  }
+}
+
 }  // namespace
 
 TEST(TrainerSchedule, WarmupCosineDecay) {
@@ -138,6 +163,183 @@ TEST(TrainerOptimizer, StateRoundTripGivesIdenticalNextStep) {
     EXPECT_EQ(values(*original[i].second), values(*copy[i].second))
         << original[i].first;
   }
+}
+
+TEST(TrainerOptimizer, StateRejectsMismatchedOptimizerByName) {
+  const std::string path = temp_path("mismatch.opt");
+  NamedParameters parameters = make_parameters();
+  micrograd::gpt::save_optimizer_state(path, make_optimizer(parameters, 0.02f));
+
+  TrainOptimizer adamw = make_optimizer(parameters, 0.0f);
+  expect_throw_containing(
+      [&] { micrograd::gpt::load_optimizer_state(path, adamw); },
+      "Muon flag of h.0.mlp.c_fc.weight mismatch");
+
+  NamedParameters fewer = make_parameters();
+  fewer.pop_back();
+  TrainOptimizer short_optimizer = make_optimizer(fewer, 0.02f);
+  expect_throw_containing(
+      [&] { micrograd::gpt::load_optimizer_state(path, short_optimizer); },
+      "tensor count mismatch");
+
+  NamedParameters renamed = make_parameters();
+  renamed[1].first = "h.0.mlp.c_proj.bias";
+  TrainOptimizer renamed_optimizer = make_optimizer(renamed, 0.02f);
+  expect_throw_containing(
+      [&] { micrograd::gpt::load_optimizer_state(path, renamed_optimizer); },
+      "name at tensor 1 mismatch");
+
+  NamedParameters reshaped = make_parameters();
+  reshaped[2].second = filled({4, 5}, 0.1f);
+  TrainOptimizer reshaped_optimizer = make_optimizer(reshaped, 0.02f);
+  expect_throw_containing(
+      [&] { micrograd::gpt::load_optimizer_state(path, reshaped_optimizer); },
+      "shape of wte.weight mismatch");
+  std::filesystem::remove(path);
+}
+
+TEST(TrainerOptimizer, StateRejectsHeaderlessFile) {
+  const std::string path = temp_path("headerless.opt");
+  {
+    std::ofstream file(path, std::ios::binary);
+    file << std::string(256, '\0');
+  }
+  NamedParameters parameters = make_parameters();
+  TrainOptimizer optimizer = make_optimizer(parameters, 0.0f);
+  expect_throw_containing(
+      [&] { micrograd::gpt::load_optimizer_state(path, optimizer); },
+      "optimizer state file has the wrong magic number");
+  std::filesystem::remove(path);
+}
+
+TEST(TrainerState, TruncatedSideFilesAreRejected) {
+  const std::string checkpoint = temp_path("truncated");
+  NamedParameters parameters = make_parameters();
+  TrainOptimizer optimizer = make_optimizer(parameters, 0.02f);
+  SampleOrder order({100}, 8, 1);
+  micrograd::gpt::save_optimizer_state(
+      micrograd::gpt::optimizer_state_path(checkpoint), optimizer);
+  micrograd::gpt::save_data_state(micrograd::gpt::data_state_path(checkpoint),
+                                  order);
+  micrograd::gpt::save_rng_state(micrograd::gpt::rng_state_path(checkpoint));
+  const std::vector<std::function<void(const std::string &)>> loads = {
+      [&](const std::string &path) {
+        micrograd::gpt::load_optimizer_state(path, optimizer);
+      },
+      [&](const std::string &path) {
+        micrograd::gpt::load_data_state(path, 0, order);
+      },
+      [&](const std::string &path) { micrograd::gpt::load_rng_state(path); },
+  };
+  const std::vector<std::string> paths = {
+      micrograd::gpt::optimizer_state_path(checkpoint),
+      micrograd::gpt::data_state_path(checkpoint),
+      micrograd::gpt::rng_state_path(checkpoint)};
+  for (size_t i = 0; i < paths.size(); i++) {
+    std::filesystem::resize_file(paths[i],
+                                 std::filesystem::file_size(paths[i]) - 4);
+    EXPECT_THROW(loads[i](paths[i]), std::runtime_error) << paths[i];
+  }
+  remove_set(checkpoint);
+}
+
+TEST(TrainerState, TornSetIsDetected) {
+  const std::string checkpoint = temp_path("torn");
+  NamedParameters parameters = make_parameters();
+  TrainOptimizer optimizer = make_optimizer(parameters, 0.0f);
+  for (int step = 0; step < 2; step++) {
+    set_grads(parameters, 1.0f);
+    optimizer.step(1e-3f);
+  }
+  SampleOrder order({100}, 8, 1);
+  micrograd::gpt::save_optimizer_state(
+      micrograd::gpt::optimizer_state_path(checkpoint), optimizer);
+  micrograd::gpt::save_data_state(micrograd::gpt::data_state_path(checkpoint),
+                                  order, 2);
+  micrograd::gpt::save_rng_state(micrograd::gpt::rng_state_path(checkpoint), 2);
+  EXPECT_EQ(micrograd::gpt::check_train_state(checkpoint), 2u);
+
+  micrograd::gpt::save_rng_state(micrograd::gpt::rng_state_path(checkpoint), 3);
+  expect_throw_containing(
+      [&] { micrograd::gpt::check_train_state(checkpoint); },
+      "optimizer state from step 2, data state from step 2, RNG state from "
+      "step 3");
+  expect_throw_containing(
+      [&] {
+        micrograd::gpt::load_rng_state(
+            micrograd::gpt::rng_state_path(checkpoint), 2);
+      },
+      "is from step 3, expected step 2");
+  expect_throw_containing(
+      [&] {
+        micrograd::gpt::load_optimizer_state(
+            micrograd::gpt::optimizer_state_path(checkpoint), optimizer, 3);
+      },
+      "is from step 2, expected step 3");
+
+  std::filesystem::remove(micrograd::gpt::data_state_path(checkpoint));
+  expect_throw_containing(
+      [&] { micrograd::gpt::check_train_state(checkpoint); },
+      "Could not open file for loading");
+  remove_set(checkpoint);
+}
+
+TEST(TrainerState, ResumePathFollowsLatestPointer) {
+  const std::string checkpoint = temp_path("pointer.bin");
+  std::filesystem::remove(checkpoint + ".latest");
+  EXPECT_FALSE(micrograd::gpt::read_latest_checkpoint(checkpoint).has_value());
+  EXPECT_EQ(micrograd::gpt::resolve_resume_path(checkpoint), checkpoint);
+
+  micrograd::gpt::write_latest_checkpoint(checkpoint, 100);
+  EXPECT_EQ(micrograd::gpt::read_latest_checkpoint(checkpoint), 100u);
+  EXPECT_EQ(micrograd::gpt::resolve_resume_path(checkpoint),
+            checkpoint + ".step100");
+
+  micrograd::gpt::write_latest_checkpoint(checkpoint, 200);
+  EXPECT_EQ(micrograd::gpt::resolve_resume_path(checkpoint),
+            micrograd::gpt::checkpoint_set_path(checkpoint, 200));
+  std::filesystem::remove(checkpoint + ".latest");
+}
+
+TEST(TrainerState, FailedPointerWriteKeepsPreviousStep) {
+  const std::string checkpoint = temp_path("pointer_fail.bin");
+  micrograd::gpt::write_latest_checkpoint(checkpoint, 100);
+  const std::filesystem::path blocker =
+      std::filesystem::path(checkpoint + ".latest.tmp") / "occupied";
+  std::filesystem::create_directories(blocker);
+  EXPECT_THROW(micrograd::gpt::write_latest_checkpoint(checkpoint, 200),
+               std::runtime_error);
+  std::filesystem::remove_all(checkpoint + ".latest.tmp");
+  EXPECT_EQ(micrograd::gpt::read_latest_checkpoint(checkpoint), 100u);
+  std::filesystem::remove(checkpoint + ".latest");
+}
+
+TEST(TrainerState, RemoveCheckpointSetDeletesAllFourFiles) {
+  const std::string set =
+      micrograd::gpt::checkpoint_set_path(temp_path("remove.bin"), 7);
+  const std::string files[] = {set, micrograd::gpt::optimizer_state_path(set),
+                               micrograd::gpt::data_state_path(set),
+                               micrograd::gpt::rng_state_path(set)};
+  for (const std::string &file : files) {
+    std::ofstream(file) << "x";
+  }
+  micrograd::gpt::remove_checkpoint_set(set);
+  for (const std::string &file : files) {
+    EXPECT_FALSE(std::filesystem::exists(file)) << file;
+  }
+  EXPECT_NO_THROW(micrograd::gpt::remove_checkpoint_set(set));
+}
+
+TEST(TrainerState, FailedWriteLeavesPreviousFileIntact) {
+  const std::string path = temp_path("failed_write.rng");
+  micrograd::gpt::save_rng_state(path, 3);
+  const std::filesystem::path blocker =
+      std::filesystem::path(path + ".tmp") / "occupied";
+  std::filesystem::create_directories(blocker);
+  EXPECT_THROW(micrograd::gpt::save_rng_state(path, 5), std::runtime_error);
+  std::filesystem::remove_all(path + ".tmp");
+  EXPECT_NO_THROW(micrograd::gpt::load_rng_state(path, 3));
+  std::filesystem::remove(path);
 }
 
 TEST(TrainerOptimizer, MuonParameterChangesAfterCpuStep) {
