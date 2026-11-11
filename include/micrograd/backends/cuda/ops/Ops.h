@@ -28,8 +28,9 @@ void RegisterRotaryOps();
 void RegisterAttentionOps();
 
 scalar_t GradNormSquared(const Tensor &param);
-void ClipGradNorm(const std::vector<Tensor *> &params, scalar_t max_norm);
+scalar_t ClipGradNorm(const std::vector<Tensor *> &params, scalar_t max_norm);
 const scalar_t *GradNormSquaredTotal(const std::vector<Tensor *> &params);
+scalar_t ReadGradNorm(const scalar_t *total);
 void ScaleGrad(Tensor &param, scalar_t scale);
 
 void AdamWStep(Tensor &param, Tensor &m, Tensor &v, scalar_t lr, scalar_t beta1,

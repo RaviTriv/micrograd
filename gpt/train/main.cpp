@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -19,6 +20,7 @@
 #include "gpt/GPTConfig.h"
 #include "gpt/Model.h"
 #include "gpt/ModelFile.h"
+#include "gpt/RunLog.h"
 #include "gpt/TrainConfig.h"
 #include "gpt/TrainOptimizer.h"
 #include "gpt/TrainState.h"
@@ -76,14 +78,19 @@ using micrograd::gpt::read_model_config;
 using micrograd::gpt::require_same_architecture;
 using micrograd::gpt::rng_state_path;
 using micrograd::gpt::sample_token;
+using micrograd::gpt::RunStart;
 using micrograd::gpt::SampleOrder;
 using micrograd::gpt::save_data_state;
 using micrograd::gpt::save_model;
 using micrograd::gpt::save_optimizer_state;
 using micrograd::gpt::save_rng_state;
 using micrograd::gpt::ShardedDataset;
+using micrograd::gpt::to_json_line;
 using micrograd::gpt::TrainConfig;
 using micrograd::gpt::TrainOptimizer;
+using micrograd::gpt::TrainRecord;
+using micrograd::gpt::unix_seconds;
+using micrograd::gpt::ValRecord;
 
 constexpr size_t kGpt2VocabSize = 50257;
 
@@ -339,8 +346,10 @@ void save_checkpoint(const TrainConfig &config, Model &model,
   save_rng_state(rng_state_path(set), step);
   write_latest_checkpoint(config.checkpoint_path, step);
   if (kept_step && *kept_step != step) {
+    const bool keep_model =
+        config.keep_every > 0 && *kept_step % config.keep_every == 0;
     remove_checkpoint_set(
-        checkpoint_set_path(config.checkpoint_path, *kept_step));
+        checkpoint_set_path(config.checkpoint_path, *kept_step), keep_model);
   }
   kept_step = step;
 }
@@ -490,14 +499,22 @@ int main(int argc, char **argv) {
     if (distributed::IsMain() && !log_file.is_open()) {
       throw std::runtime_error("Could not open log file: " + config.log_path);
     }
-    log_file << "# flags: " << flags << "\n";
-    if (config.resume_path.empty()) {
-      log_file << "step,train_loss,val_loss\n";
-    }
-
     const size_t tokens_per_micro_step = config.batch_size * config.block_size;
     const size_t tokens_per_step =
         tokens_per_micro_step * config.grad_accum_steps * world;
+    const auto write_log = [&](const std::string &line) {
+      if (distributed::IsMain()) {
+        log_file << line << "\n";
+        log_file.flush();
+      }
+    };
+    write_log(to_json_line(
+        RunStart{.step = start_iter,
+                 .time = unix_seconds(),
+                 .world = world,
+                 .tokens_per_step = tokens_per_step,
+                 .device = distributed::DeviceDescription(config.device),
+                 .flags = flags}));
     size_t timed_steps = 0;
     size_t profiled_steps = 0;
     double timed_seconds = 0.0;
@@ -511,8 +528,10 @@ int main(int argc, char **argv) {
             estimate_loss(model, dataset, Dataset::Split::kVal, config);
         std::cout << "step " << it << ": train loss " << train_loss
                   << ", val loss " << val_loss << "\n";
-        log_file << it << "," << train_loss << "," << val_loss << "\n";
-        log_file.flush();
+        write_log(to_json_line(ValRecord{.step = it,
+                                         .time = unix_seconds(),
+                                         .train_loss = train_loss,
+                                         .val_loss = val_loss}));
       }
 
       if (distributed::IsMain() && config.checkpoint_interval > 0 && it > 0 &&
@@ -532,6 +551,7 @@ int main(int argc, char **argv) {
         optimizer.zero_grad();
       }
       double step_data_seconds = 0.0;
+      double step_loss = 0.0;
       for (size_t micro_step = 0; micro_step < config.grad_accum_steps;
            micro_step++) {
         const auto data_start = std::chrono::steady_clock::now();
@@ -555,37 +575,48 @@ int main(int argc, char **argv) {
         scaled_loss->backward();
         loss->to(Device::CPU);
         micrograd::gpt::check_finite_loss(loss->at({}), it);
+        step_loss += static_cast<double>(loss->at({}));
       }
       {
         micrograd::profiler::Scope scope("grad_sync", "step", config.device);
         reducer.finish();
       }
+      const scalar_t lr = LrAt(it, config);
       const bool fused_clip = optimizer.fuses_grad_clip();
+      std::optional<double> grad_norm;
       if (!fused_clip) {
         micrograd::profiler::Scope scope("grad_clip", "step", config.device);
-        micrograd::ops::ClipGradNorm(parameters, config.grad_clip);
+        grad_norm = micrograd::ops::ClipGradNorm(parameters, config.grad_clip);
       }
       {
         micrograd::profiler::Scope scope("optimizer", "step", config.device);
         if (fused_clip) {
-          optimizer.step(LrAt(it, config), config.grad_clip, parameters);
+          grad_norm = optimizer.step(lr, config.grad_clip, parameters);
         } else {
-          optimizer.step(LrAt(it, config));
+          optimizer.step(lr);
         }
       }
       if (micrograd::profiler::Enabled()) {
         micrograd::profiler::Flush();
         profiled_steps++;
       }
-
-      if (config.throughput_interval == 0) {
-        continue;
-      }
       synchronize(config.device);
-      if (it - start_iter < kThroughputWarmupSteps) {
+      const double train_loss =
+          distributed::AllReduceSum(step_loss) /
+          static_cast<double>(config.grad_accum_steps * world);
+      const double step_seconds = seconds_since(step_start);
+      write_log(to_json_line(TrainRecord{.step = it,
+                                         .time = unix_seconds(),
+                                         .loss = train_loss,
+                                         .lr = lr,
+                                         .grad_norm = grad_norm,
+                                         .ms = step_seconds * 1000.0}));
+
+      if (config.throughput_interval == 0 ||
+          it - start_iter < kThroughputWarmupSteps) {
         continue;
       }
-      timed_seconds += seconds_since(step_start);
+      timed_seconds += step_seconds;
       timed_data_seconds += step_data_seconds;
       timed_steps++;
       if (timed_steps == config.throughput_interval) {
@@ -619,6 +650,10 @@ int main(int argc, char **argv) {
     double final_val_loss =
         estimate_loss(model, dataset, Dataset::Split::kVal, config);
     std::cout << "final val loss " << final_val_loss << "\n";
+    write_log(to_json_line(ValRecord{.step = optimizer.step_count(),
+                                     .time = unix_seconds(),
+                                     .train_loss = std::nullopt,
+                                     .val_loss = final_val_loss}));
 
     if (distributed::IsMain()) {
       save_checkpoint(config, model, model_config, optimizer, train_order,

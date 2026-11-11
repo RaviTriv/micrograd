@@ -161,6 +161,7 @@ add_library(micrograd_gpt
     gpt/src/KVCache.cpp
     gpt/src/Model.cpp
     gpt/src/ModelFile.cpp
+    gpt/src/RunLog.cpp
     gpt/src/SampleOrder.cpp
     gpt/src/TrainConfig.cpp
     gpt/src/TrainOptimizer.cpp

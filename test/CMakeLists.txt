@@ -32,6 +32,7 @@ add_executable(micrograd_tests
     optim_test.cpp
     profiler_test.cpp
     resume_test.cpp
+    run_log_test.cpp
     sample_order_test.cpp
     serialization_test.cpp
     stats_test.cpp

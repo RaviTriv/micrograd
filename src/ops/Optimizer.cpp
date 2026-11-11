@@ -160,10 +160,10 @@ scalar_t GradNormSquared(const Tensor &param) {
   return CpuGradNormSquared(param);
 }
 
-void ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &params,
-                  scalar_t max_norm) {
-  if (max_norm <= 0.0f || params.empty()) {
-    return;
+scalar_t ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &params,
+                      scalar_t max_norm) {
+  if (params.empty()) {
+    return 0.0f;
   }
 
   const bool all_cuda =
@@ -177,8 +177,7 @@ void ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &params,
     for (const auto &p : params) {
       raw.push_back(p.get());
     }
-    cuda::ops::ClipGradNorm(raw, max_norm);
-    return;
+    return cuda::ops::ClipGradNorm(raw, max_norm);
 #else
     throw std::runtime_error("CUDA support is not compiled in");
 #endif
@@ -189,13 +188,14 @@ void ClipGradNorm(const std::vector<std::shared_ptr<Tensor>> &params,
     sum_sq += static_cast<double>(GradNormSquared(*p));
   }
   const auto norm = static_cast<scalar_t>(std::sqrt(sum_sq));
-  if (norm <= max_norm) {
-    return;
+  if (max_norm <= 0.0f || norm <= max_norm) {
+    return norm;
   }
   const scalar_t scale = max_norm / (norm + 1e-6f);
   for (const auto &p : params) {
     ScaleGrad(*p, scale);
   }
+  return norm;
 }
 
 void ScaleGrad(Tensor &param, scalar_t scale) {

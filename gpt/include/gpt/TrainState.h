@@ -35,6 +35,6 @@ void write_latest_checkpoint(const std::string &checkpoint_path, size_t step);
 std::optional<size_t> read_latest_checkpoint(
     const std::string &checkpoint_path);
 std::string resolve_resume_path(const std::string &checkpoint_path);
-void remove_checkpoint_set(const std::string &set_path);
+void remove_checkpoint_set(const std::string &set_path, bool keep_model = false);
 
 }  // namespace micrograd::gpt

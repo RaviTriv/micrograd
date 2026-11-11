@@ -27,7 +27,7 @@ TEST(GradClip, ScalesGlobalNormDownToMax) {
   auto a = ParamWithGrad({3.0f, 0.0f});
   auto b = ParamWithGrad({0.0f, 4.0f});
 
-  ops::ClipGradNorm({a, b}, 1.0f);
+  EXPECT_NEAR(ops::ClipGradNorm({a, b}, 1.0f), 5.0f, 1e-6f);
 
   EXPECT_NEAR(a->grad()[0], 0.6f, 1e-6f);
   EXPECT_NEAR(b->grad()[1], 0.8f, 1e-6f);
@@ -40,7 +40,7 @@ TEST(GradClip, LeavesGradsBelowMaxUnchanged) {
   auto a = ParamWithGrad({3.0f, 0.0f});
   auto b = ParamWithGrad({0.0f, 4.0f});
 
-  ops::ClipGradNorm({a, b}, 10.0f);
+  EXPECT_NEAR(ops::ClipGradNorm({a, b}, 10.0f), 5.0f, 1e-6f);
 
   EXPECT_EQ(a->grad()[0], 3.0f);
   EXPECT_EQ(b->grad()[1], 4.0f);
@@ -49,8 +49,12 @@ TEST(GradClip, LeavesGradsBelowMaxUnchanged) {
 TEST(GradClip, NonPositiveMaxDisablesClipping) {
   auto a = ParamWithGrad({30.0f, 40.0f});
 
-  ops::ClipGradNorm({a}, 0.0f);
+  EXPECT_NEAR(ops::ClipGradNorm({a}, 0.0f), 50.0f, 1e-5f);
 
   EXPECT_EQ(a->grad()[0], 30.0f);
   EXPECT_EQ(a->grad()[1], 40.0f);
+}
+
+TEST(GradClip, EmptyParameterListHasZeroNorm) {
+  EXPECT_EQ(ops::ClipGradNorm({}, 1.0f), 0.0f);
 }

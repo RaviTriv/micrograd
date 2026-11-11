@@ -4,6 +4,7 @@
 #ifdef MICROGRAD_CUDA_ENABLED
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -254,9 +255,18 @@ const scalar_t *GradNormSquaredTotal(const std::vector<Tensor *> &params) {
   return total;
 }
 
-void ClipGradNorm(const std::vector<Tensor *> &params, scalar_t max_norm) {
+scalar_t ReadGradNorm(const scalar_t *total) {
+  auto &ctx = CudaContext::instance();
+  scalar_t sum_sq = 0.0f;
+  MICROGRAD_CUDA_CHECK(cudaMemcpyAsync(&sum_sq, total, sizeof(scalar_t),
+                                       cudaMemcpyDeviceToHost, ctx.stream()));
+  ctx.synchronize();
+  return std::sqrt(sum_sq);
+}
+
+scalar_t ClipGradNorm(const std::vector<Tensor *> &params, scalar_t max_norm) {
   if (params.empty()) {
-    return;
+    return 0.0f;
   }
   std::vector<ClipTensor> tensors;
   tensors.reserve(params.size());
@@ -281,10 +291,14 @@ void ClipGradNorm(const std::vector<Tensor *> &params, scalar_t max_norm) {
   MultiGradNormSquaredKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(
       device_tensors, total);
   MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
-  MultiClipScaleKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(device_tensors,
-                                                              total, max_norm);
-  MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  if (max_norm > 0.0f) {
+    MultiClipScaleKernel<<<grid, kBlockSize, 0, ctx.stream()>>>(
+        device_tensors, total, max_norm);
+    MICROGRAD_CUDA_KERNEL_LAUNCH_CHECK();
+  }
+  const scalar_t norm = ReadGradNorm(total);
   ctx.deallocate(total, sizeof(scalar_t));
+  return norm;
 }
 
 void ScaleGrad(Tensor &param, scalar_t scale) {

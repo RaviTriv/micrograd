@@ -309,13 +309,14 @@ std::string resolve_resume_path(const std::string &checkpoint_path) {
   return step ? checkpoint_set_path(checkpoint_path, *step) : checkpoint_path;
 }
 
-void remove_checkpoint_set(const std::string &set_path) {
-  const std::string paths[] = {set_path, optimizer_state_path(set_path),
+void remove_checkpoint_set(const std::string &set_path, bool keep_model) {
+  const std::string paths[] = {optimizer_state_path(set_path),
                                data_state_path(set_path),
-                               rng_state_path(set_path)};
-  for (const std::string &path : paths) {
+                               rng_state_path(set_path), set_path};
+  const size_t count = keep_model ? 3 : 4;
+  for (size_t i = 0; i < count; i++) {
     std::error_code ignored;
-    std::filesystem::remove(path, ignored);
+    std::filesystem::remove(paths[i], ignored);
   }
 }
 

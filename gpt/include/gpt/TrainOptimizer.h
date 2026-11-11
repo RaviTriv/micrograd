@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <istream>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -59,8 +60,9 @@ class TrainOptimizer {
 
   bool fuses_grad_clip() const;
 
-  void step(scalar_t learning_rate, scalar_t grad_clip = 0.0f,
-            const std::vector<std::shared_ptr<Tensor>> &clip_params = {});
+  std::optional<scalar_t> step(
+      scalar_t learning_rate, scalar_t grad_clip = 0.0f,
+      const std::vector<std::shared_ptr<Tensor>> &clip_params = {});
 
  private:
   void step_muon(scalar_t learning_rate, const scalar_t *clip_total = nullptr,

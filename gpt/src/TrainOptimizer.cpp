@@ -6,6 +6,7 @@
 #include <istream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <stdexcept>
 #include <string>
@@ -82,7 +83,7 @@ bool TrainOptimizer::fuses_grad_clip() const {
 #endif
 }
 
-void TrainOptimizer::step(
+std::optional<scalar_t> TrainOptimizer::step(
     scalar_t learning_rate, [[maybe_unused]] scalar_t grad_clip,
     [[maybe_unused]] const std::vector<std::shared_ptr<Tensor>> &clip_params) {
   step_count_++;
@@ -92,15 +93,16 @@ void TrainOptimizer::step(
       1.0f - std::pow(beta2_, static_cast<scalar_t>(step_count_));
 #ifdef MICROGRAD_CUDA_ENABLED
   if (!parameters_.empty() && parameters_.front()->backend() == Device::CUDA) {
-    const scalar_t *clip_total = nullptr;
-    if (grad_clip > 0.0f && !clip_params.empty()) {
+    const scalar_t *norm_total = nullptr;
+    if (!clip_params.empty()) {
       std::vector<Tensor *> raw;
       raw.reserve(clip_params.size());
       for (const auto &p : clip_params) {
         raw.push_back(p.get());
       }
-      clip_total = micrograd::cuda::ops::GradNormSquaredTotal(raw);
+      norm_total = micrograd::cuda::ops::GradNormSquaredTotal(raw);
     }
+    const scalar_t *clip_total = grad_clip > 0.0f ? norm_total : nullptr;
     step_muon(learning_rate, clip_total, grad_clip);
     std::vector<micrograd::cuda::ops::AdamWTensor> tensors;
     tensors.reserve(parameters_.size());
@@ -120,7 +122,10 @@ void TrainOptimizer::step(
     micrograd::cuda::ops::FusedAdamWStep(
         tensors, learning_rate, beta1_, beta2_, eps_, weight_decay_,
         bias_correction1, bias_correction2, clip_total, grad_clip);
-    return;
+    if (norm_total == nullptr) {
+      return std::nullopt;
+    }
+    return micrograd::cuda::ops::ReadGradNorm(norm_total);
   }
 #endif
   step_muon(learning_rate);
@@ -132,6 +137,7 @@ void TrainOptimizer::step(
                               beta1_, beta2_, eps_, weight_decay_, decay_[i],
                               bias_correction1, bias_correction2);
   }
+  return std::nullopt;
 }
 
 void TrainOptimizer::step_muon(scalar_t learning_rate,

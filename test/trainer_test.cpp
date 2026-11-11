@@ -330,6 +330,24 @@ TEST(TrainerState, RemoveCheckpointSetDeletesAllFourFiles) {
   EXPECT_NO_THROW(micrograd::gpt::remove_checkpoint_set(set));
 }
 
+TEST(TrainerState, RemoveCheckpointSetCanKeepTheModelFile) {
+  const std::string set =
+      micrograd::gpt::checkpoint_set_path(temp_path("keep_model.bin"), 9);
+  const std::string sides[] = {micrograd::gpt::optimizer_state_path(set),
+                               micrograd::gpt::data_state_path(set),
+                               micrograd::gpt::rng_state_path(set)};
+  std::ofstream(set) << "x";
+  for (const std::string &file : sides) {
+    std::ofstream(file) << "x";
+  }
+  micrograd::gpt::remove_checkpoint_set(set, true);
+  EXPECT_TRUE(std::filesystem::exists(set));
+  for (const std::string &file : sides) {
+    EXPECT_FALSE(std::filesystem::exists(file)) << file;
+  }
+  std::filesystem::remove(set);
+}
+
 TEST(TrainerState, FailedWriteLeavesPreviousFileIntact) {
   const std::string path = temp_path("failed_write.rng");
   micrograd::gpt::save_rng_state(path, 3);
@@ -348,7 +366,7 @@ TEST(TrainerOptimizer, MuonParameterChangesAfterCpuStep) {
   ASSERT_EQ(optimizer.muon_count(), 1u);
   const std::vector<scalar_t> before = values(*parameters[0].second);
   set_grads(parameters, 1.0f);
-  optimizer.step(1e-3f);
+  EXPECT_FALSE(optimizer.step(1e-3f).has_value());
   EXPECT_NE(values(*parameters[0].second), before);
 }
 
@@ -373,6 +391,8 @@ TEST(TrainerArgs, RejectsInvalidValues) {
       {"--eval-iters", "0"},
       {"--max-iters", "-5"},
       {"--muon-lr", "0.02", "--lr", "0"},
+      {"--keep-every", "1500", "--checkpoint-interval", "1000"},
+      {"--keep-every", "1000", "--checkpoint-interval", "0"},
   };
   for (const auto &args : invalid) {
     EXPECT_THROW(parse(args), std::invalid_argument)
@@ -385,12 +405,16 @@ TEST(TrainerArgs, AcceptsValidValues) {
                               "--n-embd", "32", "--n-head", "2"});
   EXPECT_EQ(config.batch_size, 4u);
   EXPECT_EQ(config.grad_accum_steps, 2u);
+  EXPECT_EQ(parse({"--checkpoint-interval", "1000", "--keep-every", "10000"})
+                .keep_every,
+            10000u);
 }
 
 TEST(TrainerArgs, FormattedFlagsParseBackToSameConfig) {
   TrainConfig config =
       parse({"--batch-size", "8", "--lr", "0.003", "--muon-lr", "0.02",
-             "--rotary", "--no-recompute", "--device", "cpu", "--seed", "7"});
+             "--rotary", "--no-recompute", "--device", "cpu", "--seed", "7",
+             "--checkpoint-interval", "500", "--keep-every", "2000"});
   const std::string flags = format_flags(config);
   EXPECT_EQ(format_flags(parse(split(flags))), flags);
 }

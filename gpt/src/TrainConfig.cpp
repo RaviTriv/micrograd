@@ -42,6 +42,12 @@ void validate(const TrainConfig &config) {
   if (config.n_embd % config.n_head != 0) {
     throw std::invalid_argument("--n-embd must be divisible by --n-head");
   }
+  if (config.keep_every > 0 &&
+      (config.checkpoint_interval == 0 ||
+       config.keep_every % config.checkpoint_interval != 0)) {
+    throw std::invalid_argument(
+        "--keep-every must be a multiple of --checkpoint-interval");
+  }
   if (config.muon_lr > 0.0f && config.learning_rate <= 0.0f) {
     throw std::invalid_argument("--muon-lr needs a positive --lr");
   }
@@ -119,6 +125,8 @@ TrainConfig parse_args(int argc, char **argv, TrainConfig config) {
       config.eval_iters = parse_count(arg, next_value());
     } else if (arg == "--checkpoint-interval") {
       config.checkpoint_interval = parse_count(arg, next_value());
+    } else if (arg == "--keep-every") {
+      config.keep_every = parse_count(arg, next_value());
     } else if (arg == "--throughput-interval") {
       config.throughput_interval = parse_count(arg, next_value());
     } else if (arg == "--grad-bucket-mb") {
@@ -192,7 +200,8 @@ std::string format_flags(const TrainConfig &config) {
       << config.warmup_iters << " --max-iters " << config.max_iters
       << " --eval-interval " << config.eval_interval << " --eval-iters "
       << config.eval_iters << " --checkpoint-interval "
-      << config.checkpoint_interval << " --throughput-interval "
+      << config.checkpoint_interval << " --keep-every " << config.keep_every
+      << " --throughput-interval "
       << config.throughput_interval << " --grad-bucket-mb "
       << config.grad_bucket_mb << " --device "
       << (config.device == Device::CUDA ? "cuda" : "cpu") << " --muon-lr "

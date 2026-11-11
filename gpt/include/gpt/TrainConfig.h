@@ -36,6 +36,7 @@ struct TrainConfig {
   size_t eval_interval = 250;
   size_t eval_iters = 200;
   size_t checkpoint_interval = 250;
+  size_t keep_every = 0;
   size_t throughput_interval = 10;
   size_t grad_bucket_mb = 25;
   bool bf16_grad_reduce = false;
