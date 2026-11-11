@@ -32,6 +32,7 @@ add_executable(micrograd_tests
     stats_test.cpp
     tensor_core_test.cpp
     tensor_empty_test.cpp
+    trainer_test.cpp
     training_test.cpp
 )
 target_link_libraries(micrograd_tests PRIVATE micrograd_gpt GTest::gtest_main)

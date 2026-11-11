@@ -160,6 +160,9 @@ add_library(micrograd_gpt
     gpt/src/KVCache.cpp
     gpt/src/Model.cpp
     gpt/src/SampleOrder.cpp
+    gpt/src/TrainConfig.cpp
+    gpt/src/TrainOptimizer.cpp
+    gpt/src/TrainState.cpp
 )
 target_include_directories(micrograd_gpt PUBLIC gpt/include include)
 target_link_libraries(micrograd_gpt PUBLIC micrograd)

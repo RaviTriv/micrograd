@@ -6,9 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <map>
 #include <memory>
-#include <numbers>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -20,13 +18,15 @@
 #include "gpt/Dataset.h"
 #include "gpt/GPTConfig.h"
 #include "gpt/Model.h"
+#include "gpt/TrainConfig.h"
+#include "gpt/TrainOptimizer.h"
+#include "gpt/TrainState.h"
 #include "micrograd/Autograd.h"
 #include "micrograd/Distributed.h"
 #include "micrograd/NN.h"
 #include "micrograd/Profiler.h"
 #include "micrograd/Random.h"
 #include "micrograd/Scalar.h"
-#include "micrograd/Storage.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/ops/Optimizer.h"
 
@@ -49,198 +49,34 @@ using micrograd::Backend;
 using micrograd::cross_entropy;
 using micrograd::Device;
 namespace distributed = micrograd::distributed;
-using micrograd::global_rng;
 using micrograd::load;
 using micrograd::manual_seed;
 using micrograd::NoGradGuard;
 using micrograd::save;
 using micrograd::scalar_t;
-using micrograd::Storage;
 using micrograd::synchronize;
 using micrograd::Tensor;
+using micrograd::gpt::data_state_path;
 using micrograd::gpt::Dataset;
-using micrograd::gpt::gpt2_124m;
 using micrograd::gpt::GPTConfig;
+using micrograd::gpt::load_data_state;
+using micrograd::gpt::load_optimizer_state;
+using micrograd::gpt::load_rng_state;
+using micrograd::gpt::LrAt;
 using micrograd::gpt::Model;
+using micrograd::gpt::optimizer_state_path;
+using micrograd::gpt::parse_args;
+using micrograd::gpt::rng_state_path;
 using micrograd::gpt::sample_token;
 using micrograd::gpt::SampleOrder;
+using micrograd::gpt::save_data_state;
+using micrograd::gpt::save_optimizer_state;
+using micrograd::gpt::save_rng_state;
 using micrograd::gpt::ShardedDataset;
+using micrograd::gpt::TrainConfig;
+using micrograd::gpt::TrainOptimizer;
 
 constexpr size_t kGpt2VocabSize = 50257;
-
-struct TrainConfig {
-  std::string data_path = CORPUS_DATA_PATH;
-  std::string data_format = "char";
-  std::string fineweb_dir = FINEWEB_DATA_DIR;
-  std::string checkpoint_path = "gpt.bin";
-  std::string resume_path;
-  std::string log_path = "training.log";
-  double val_fraction = 0.1;
-  size_t batch_size = 64;
-  size_t grad_accum_steps = 1;
-  size_t block_size = gpt2_124m().block_size;
-  size_t n_layer = gpt2_124m().n_layer;
-  size_t n_head = gpt2_124m().n_head;
-  size_t n_embd = gpt2_124m().n_embd;
-  scalar_t dropout = 0.0f;
-  scalar_t learning_rate = 1e-3f;
-  scalar_t min_lr = 1e-4f;
-  scalar_t weight_decay = 0.1f;
-  scalar_t beta1 = 0.9f;
-  scalar_t beta2 = 0.99f;
-  scalar_t grad_clip = 1.0f;
-  size_t warmup_iters = 100;
-  size_t max_iters = 5000;
-  size_t eval_interval = 250;
-  size_t eval_iters = 200;
-  size_t checkpoint_interval = 250;
-  size_t throughput_interval = 10;
-  size_t grad_bucket_mb = 25;
-  bool bf16_grad_reduce = false;
-  Device device = Device::CPU;
-  bool tf32 = false;
-  bool bf16_matmul = false;
-  bool bf16 = false;
-  bool pad_vocab = false;
-  bool profile = false;
-  bool recompute = true;
-  micrograd::gpt::ArchOptions arch;
-  scalar_t muon_lr = 0.0f;
-  bool muon_fp32 = false;
-  uint64_t seed = 1337;
-  bool sample = false;
-  std::string prompt = "\n";
-  size_t max_new_tokens = 500;
-  scalar_t temperature = 0.8f;
-  size_t top_k = 200;
-  size_t sample_delay_ms = 20;
-};
-
-Device parse_device(const std::string &value) {
-  if (value == "cpu") {
-    return Device::CPU;
-  }
-  if (value == "cuda") {
-    return Device::CUDA;
-  }
-  throw std::invalid_argument("Unknown device: " + value);
-}
-
-TrainConfig parse_args(int argc, char **argv) {
-  TrainConfig config;
-
-  for (int i = 1; i < argc; i++) {
-    std::string arg = argv[i];
-    auto next_value = [&]() {
-      if (i + 1 >= argc) {
-        throw std::invalid_argument("Missing value for " + arg);
-      }
-      return std::string(argv[++i]);
-    };
-
-    if (arg == "--data") {
-      config.data_path = next_value();
-    } else if (arg == "--data-format") {
-      config.data_format = next_value();
-    } else if (arg == "--fineweb-dir") {
-      config.fineweb_dir = next_value();
-    } else if (arg == "--checkpoint") {
-      config.checkpoint_path = next_value();
-    } else if (arg == "--resume") {
-      config.resume_path = next_value();
-    } else if (arg == "--log") {
-      config.log_path = next_value();
-    } else if (arg == "--val-fraction") {
-      config.val_fraction = std::stod(next_value());
-    } else if (arg == "--batch-size") {
-      config.batch_size = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--grad-accum-steps") {
-      config.grad_accum_steps = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--block-size") {
-      config.block_size = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--n-layer") {
-      config.n_layer = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--n-head") {
-      config.n_head = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--n-embd") {
-      config.n_embd = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--dropout") {
-      config.dropout = std::stof(next_value());
-    } else if (arg == "--lr") {
-      config.learning_rate = std::stof(next_value());
-    } else if (arg == "--min-lr") {
-      config.min_lr = std::stof(next_value());
-    } else if (arg == "--weight-decay") {
-      config.weight_decay = std::stof(next_value());
-    } else if (arg == "--beta1") {
-      config.beta1 = std::stof(next_value());
-    } else if (arg == "--beta2") {
-      config.beta2 = std::stof(next_value());
-    } else if (arg == "--grad-clip") {
-      config.grad_clip = std::stof(next_value());
-    } else if (arg == "--warmup-iters") {
-      config.warmup_iters = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--max-iters") {
-      config.max_iters = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--eval-interval") {
-      config.eval_interval = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--eval-iters") {
-      config.eval_iters = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--checkpoint-interval") {
-      config.checkpoint_interval =
-          static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--throughput-interval") {
-      config.throughput_interval =
-          static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--grad-bucket-mb") {
-      config.grad_bucket_mb = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--bf16-grad-reduce") {
-      config.bf16_grad_reduce = true;
-    } else if (arg == "--device") {
-      config.device = parse_device(next_value());
-    } else if (arg == "--tf32") {
-      config.tf32 = true;
-    } else if (arg == "--bf16-matmul") {
-      config.bf16_matmul = true;
-    } else if (arg == "--bf16") {
-      config.bf16 = true;
-    } else if (arg == "--pad-vocab") {
-      config.pad_vocab = true;
-    } else if (arg == "--profile") {
-      config.profile = true;
-    } else if (arg == "--no-recompute") {
-      config.recompute = false;
-    } else if (arg == "--rotary") {
-      config.arch.rotary = true;
-    } else if (arg == "--qk-norm") {
-      config.arch.qk_norm = true;
-    } else if (arg == "--relu2") {
-      config.arch.relu_squared = true;
-    } else if (arg == "--muon-lr") {
-      config.muon_lr = std::stof(next_value());
-    } else if (arg == "--muon-fp32") {
-      config.muon_fp32 = true;
-    } else if (arg == "--seed") {
-      config.seed = std::stoull(next_value());
-    } else if (arg == "--sample") {
-      config.sample = true;
-    } else if (arg == "--prompt") {
-      config.prompt = next_value();
-    } else if (arg == "--max-new-tokens") {
-      config.max_new_tokens = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--temperature") {
-      config.temperature = std::stof(next_value());
-    } else if (arg == "--top-k") {
-      config.top_k = static_cast<size_t>(std::stoul(next_value()));
-    } else if (arg == "--sample-delay-ms") {
-      config.sample_delay_ms = static_cast<size_t>(std::stoul(next_value()));
-    } else {
-      throw std::invalid_argument("Unknown flag: " + arg);
-    }
-  }
-
-  return config;
-}
 
 constexpr size_t kVocabPadMultiple = 128;
 
@@ -278,342 +114,6 @@ std::shared_ptr<Tensor> token_tensor(const std::vector<size_t> &tokens,
       Tensor::from_values(std::vector<size_t>{rows, cols}, std::move(values));
   tensor->to(device);
   return tensor;
-}
-
-scalar_t LrAt(size_t it, const TrainConfig &config) {
-  if (config.warmup_iters > 0 && it < config.warmup_iters) {
-    return config.learning_rate * static_cast<scalar_t>(it + 1) /
-           static_cast<scalar_t>(config.warmup_iters);
-  }
-  if (it >= config.max_iters) {
-    return config.min_lr;
-  }
-  size_t denom = config.max_iters - config.warmup_iters;
-  scalar_t progress = denom == 0
-                          ? 1.0f
-                          : static_cast<scalar_t>(it - config.warmup_iters) /
-                                static_cast<scalar_t>(denom);
-  scalar_t coeff =
-      0.5f * (1.0f + std::cos(std::numbers::pi_v<scalar_t> * progress));
-  return config.min_lr + (coeff * (config.learning_rate - config.min_lr));
-}
-
-void write_u64(std::ostream &out, uint64_t value) {
-  out.write(reinterpret_cast<const char *>(&value), sizeof(value));
-}
-
-uint64_t read_u64(std::istream &in) {
-  uint64_t value = 0;
-  in.read(reinterpret_cast<char *>(&value), sizeof(value));
-  if (!in) {
-    throw std::runtime_error("Optimizer state file is truncated");
-  }
-  return value;
-}
-
-using NamedParameters =
-    std::vector<std::pair<std::string, std::shared_ptr<Tensor>>>;
-
-bool is_decayed(const std::string &name) {
-  const size_t last_dot = name.rfind('.');
-  const size_t leaf_start = last_dot == std::string::npos ? 0 : last_dot + 1;
-  return name.substr(leaf_start) == "weight";
-}
-
-bool is_muon_matrix(const std::string &name, const Tensor &param) {
-  return name.starts_with("h.") && param.shape().size() == 2;
-}
-
-class TrainOptimizer {
- public:
-  TrainOptimizer(const NamedParameters &named_parameters, scalar_t weight_decay,
-                 scalar_t beta1, scalar_t beta2, scalar_t eps,
-                 scalar_t base_lr = 0.0f, scalar_t muon_lr = 0.0f,
-                 bool muon_bf16 = false)
-      : weight_decay_(weight_decay),
-        beta1_(beta1),
-        beta2_(beta2),
-        eps_(eps),
-        base_lr_(base_lr),
-        muon_lr_(muon_lr),
-        muon_bf16_(muon_bf16) {
-    for (const auto &[name, p] : named_parameters) {
-      const bool muon = muon_lr > 0.0f && is_muon_matrix(name, *p);
-      parameters_.push_back(p);
-      decay_.push_back(is_decayed(name));
-      muon_.push_back(muon);
-      m_.push_back(make_moment(*p));
-      v_.push_back(muon ? Tensor::zeros({1}, p->backend()) : make_moment(*p));
-    }
-  }
-
-  size_t muon_count() const {
-    return static_cast<size_t>(std::count(muon_.begin(), muon_.end(), true));
-  }
-
-  size_t decayed_count() const {
-    return static_cast<size_t>(std::count(decay_.begin(), decay_.end(), true));
-  }
-
-  size_t parameter_count() const { return parameters_.size(); }
-
-  void zero_grad() {
-    for (auto &p : parameters_) {
-      p->release_grad();
-    }
-  }
-
-  size_t step_count() const { return step_count_; }
-
-  void write_state(std::ostream &out) const {
-    write_u64(out, static_cast<uint64_t>(step_count_));
-    for (size_t i = 0; i < parameters_.size(); i++) {
-      write_tensor(out, *m_[i]);
-      write_tensor(out, *v_[i]);
-    }
-  }
-
-  void read_state(std::istream &in) {
-    step_count_ = static_cast<size_t>(read_u64(in));
-    for (size_t i = 0; i < parameters_.size(); i++) {
-      read_tensor(in, m_[i]);
-      read_tensor(in, v_[i]);
-    }
-  }
-
-  bool fuses_grad_clip() const {
-#ifdef MICROGRAD_CUDA_ENABLED
-    return (muon_lr_ <= 0.0f || muon_bf16_) && !parameters_.empty() &&
-           parameters_.front()->backend() == Device::CUDA;
-#else
-    return false;
-#endif
-  }
-
-  void step(scalar_t learning_rate, [[maybe_unused]] scalar_t grad_clip = 0.0f,
-            [[maybe_unused]] const std::vector<std::shared_ptr<Tensor>>
-                &clip_params = {}) {
-    step_count_++;
-    scalar_t bias_correction1 =
-        1.0f - std::pow(beta1_, static_cast<scalar_t>(step_count_));
-    scalar_t bias_correction2 =
-        1.0f - std::pow(beta2_, static_cast<scalar_t>(step_count_));
-#ifdef MICROGRAD_CUDA_ENABLED
-    if (!parameters_.empty() &&
-        parameters_.front()->backend() == Device::CUDA) {
-      const scalar_t *clip_total = nullptr;
-      if (grad_clip > 0.0f && !clip_params.empty()) {
-        std::vector<Tensor *> raw;
-        raw.reserve(clip_params.size());
-        for (const auto &p : clip_params) {
-          raw.push_back(p.get());
-        }
-        clip_total = micrograd::cuda::ops::GradNormSquaredTotal(raw);
-      }
-      step_muon(learning_rate, clip_total, grad_clip);
-      std::vector<micrograd::cuda::ops::AdamWTensor> tensors;
-      tensors.reserve(parameters_.size());
-      for (size_t i = 0; i < parameters_.size(); i++) {
-        if (muon_[i]) {
-          continue;
-        }
-        tensors.push_back(micrograd::cuda::ops::AdamWTensor{
-            static_cast<scalar_t *>(
-                parameters_[i]->data_storage().device_pointer()),
-            static_cast<const scalar_t *>(
-                parameters_[i]->grad_storage().device_pointer()),
-            static_cast<scalar_t *>(m_[i]->data_storage().device_pointer()),
-            static_cast<scalar_t *>(v_[i]->data_storage().device_pointer()),
-            parameters_[i]->size(), decay_[i]});
-      }
-      micrograd::cuda::ops::FusedAdamWStep(
-          tensors, learning_rate, beta1_, beta2_, eps_, weight_decay_,
-          bias_correction1, bias_correction2, clip_total, grad_clip);
-      return;
-    }
-#else
-    step_muon(learning_rate);
-#endif
-    for (size_t i = 0; i < parameters_.size(); i++) {
-      if (muon_[i]) {
-        continue;
-      }
-      micrograd::ops::AdamWStep(*parameters_[i], *m_[i], *v_[i], learning_rate,
-                                beta1_, beta2_, eps_, weight_decay_, decay_[i],
-                                bias_correction1, bias_correction2);
-    }
-  }
-
- private:
-  void step_muon(scalar_t learning_rate,
-                 [[maybe_unused]] const scalar_t *clip_total = nullptr,
-                 [[maybe_unused]] scalar_t max_norm = 0.0f) {
-    if (muon_lr_ <= 0.0f) {
-      return;
-    }
-    const scalar_t lr = muon_lr_ * learning_rate / base_lr_;
-    const auto update_scale = [](const std::vector<size_t> &shape) {
-      const scalar_t fan_in = static_cast<scalar_t>(shape[0]);
-      const scalar_t fan_out = static_cast<scalar_t>(shape[1]);
-      return std::sqrt(std::max(1.0f, fan_out / fan_in));
-    };
-#ifdef MICROGRAD_CUDA_ENABLED
-    if (muon_bf16_ && !parameters_.empty() &&
-        parameters_.front()->backend() == Device::CUDA) {
-      std::map<std::vector<size_t>,
-               std::vector<micrograd::cuda::ops::MuonTensor>>
-          groups;
-      for (size_t i = 0; i < parameters_.size(); i++) {
-        if (!muon_[i]) {
-          continue;
-        }
-        groups[parameters_[i]->shape()].push_back(
-            {static_cast<scalar_t *>(
-                 parameters_[i]->data_storage().device_pointer()),
-             static_cast<const scalar_t *>(
-                 parameters_[i]->grad_storage().device_pointer()),
-             static_cast<scalar_t *>(m_[i]->data_storage().device_pointer())});
-      }
-      for (const auto &[shape, tensors] : groups) {
-        micrograd::cuda::ops::MuonStepBatchedBf16(
-            tensors, shape[0], shape[1], lr, kMuonMomentum, 0.0f, true,
-            kMuonNsSteps, update_scale(shape), clip_total, max_norm);
-      }
-      return;
-    }
-#endif
-    for (size_t i = 0; i < parameters_.size(); i++) {
-      if (!muon_[i]) {
-        continue;
-      }
-      micrograd::ops::MuonStep(*parameters_[i], *m_[i], lr, kMuonMomentum, 0.0f,
-                               true, kMuonNsSteps,
-                               update_scale(parameters_[i]->shape()));
-    }
-  }
-
-  static constexpr scalar_t kMuonMomentum = 0.95f;
-  static constexpr size_t kMuonNsSteps = 5;
-
-  static std::shared_ptr<Tensor> make_moment(const Tensor &param) {
-    auto moment = Tensor::zeros(param.shape());
-    moment->to(param.backend());
-    return moment;
-  }
-
-  static void write_tensor(std::ostream &out, const Tensor &tensor) {
-    Storage host = tensor.data_storage().copy_to(Device::CPU);
-    out.write(static_cast<const char *>(host.data()),
-              static_cast<std::streamsize>(host.bytes()));
-  }
-
-  static void read_tensor(std::istream &in, std::shared_ptr<Tensor> &tensor) {
-    std::vector<scalar_t> values(tensor->size());
-    in.read(reinterpret_cast<char *>(values.data()),
-            static_cast<std::streamsize>(values.size() * sizeof(scalar_t)));
-    if (!in) {
-      throw std::runtime_error("Optimizer state file is truncated");
-    }
-    auto loaded = Tensor::from_values(tensor->shape(), std::move(values));
-    loaded->to(tensor->backend());
-    tensor = loaded;
-  }
-
-  std::vector<std::shared_ptr<Tensor>> parameters_;
-  std::vector<bool> decay_;
-  std::vector<bool> muon_;
-  scalar_t weight_decay_;
-  scalar_t beta1_;
-  scalar_t beta2_;
-  scalar_t eps_;
-  scalar_t base_lr_;
-  scalar_t muon_lr_;
-  [[maybe_unused]] bool muon_bf16_;
-  size_t step_count_ = 0;
-  std::vector<std::shared_ptr<Tensor>> m_;
-  std::vector<std::shared_ptr<Tensor>> v_;
-};
-
-std::string optimizer_state_path(const std::string &checkpoint_path) {
-  return checkpoint_path + ".opt";
-}
-
-void save_optimizer_state(const std::string &path,
-                          const TrainOptimizer &optimizer) {
-  std::ofstream file(path, std::ios::binary);
-  if (!file.is_open()) {
-    throw std::runtime_error("Could not open file for saving: " + path);
-  }
-  optimizer.write_state(file);
-  if (!file) {
-    throw std::runtime_error("Failed while writing optimizer state: " + path);
-  }
-}
-
-std::string data_state_path(const std::string &checkpoint_path) {
-  return checkpoint_path + ".data";
-}
-
-void save_data_state(const std::string &path, const SampleOrder &order) {
-  std::ofstream file(path, std::ios::binary);
-  if (!file.is_open()) {
-    throw std::runtime_error("Could not open file for saving: " + path);
-  }
-  order.write_state(file);
-  if (!file) {
-    throw std::runtime_error("Failed while writing data state: " + path);
-  }
-}
-
-void load_data_state(const std::string &path, size_t samples_from_steps,
-                     SampleOrder &order) {
-  std::ifstream file(path, std::ios::binary);
-  if (!file.is_open()) {
-    std::cout << "no data state at " << path << ", assuming "
-              << samples_from_steps
-              << " samples consumed from the optimizer step count\n";
-    order.seek(samples_from_steps);
-    return;
-  }
-  order.read_state(file);
-}
-
-std::string rng_state_path(const std::string &checkpoint_path) {
-  return checkpoint_path + ".rng";
-}
-
-void save_rng_state(const std::string &path) {
-  std::ofstream file(path);
-  if (!file.is_open()) {
-    throw std::runtime_error("Could not open file for saving: " + path);
-  }
-  file << global_rng();
-  if (!file) {
-    throw std::runtime_error("Failed while writing RNG state: " + path);
-  }
-}
-
-void load_rng_state(const std::string &path) {
-  std::ifstream file(path);
-  if (!file.is_open()) {
-    std::cout << "no RNG state at " << path
-              << ", dropout will not match the original run\n";
-    return;
-  }
-  std::mt19937_64 rng;
-  file >> rng;
-  if (!file) {
-    throw std::runtime_error("Could not read RNG state: " + path);
-  }
-  global_rng() = rng;
-}
-
-void load_optimizer_state(const std::string &path, TrainOptimizer &optimizer) {
-  std::ifstream file(path, std::ios::binary);
-  if (!file.is_open()) {
-    throw std::runtime_error("Could not open file for loading: " + path);
-  }
-  optimizer.read_state(file);
 }
 
 std::vector<std::string> find_shards(const std::string &dir,
@@ -832,7 +332,10 @@ void broadcast_parameters(
 
 int main(int argc, char **argv) {
   try {
-    TrainConfig config = parse_args(argc, argv);
+    TrainConfig defaults;
+    defaults.data_path = CORPUS_DATA_PATH;
+    defaults.fineweb_dir = FINEWEB_DATA_DIR;
+    TrainConfig config = parse_args(argc, argv, defaults);
     distributed::Initialize(distributed::FromEnvironment());
     const auto rank = static_cast<size_t>(distributed::Rank());
     const auto world = static_cast<size_t>(distributed::WorldSize());
@@ -867,6 +370,9 @@ int main(int argc, char **argv) {
     if (config.bf16 && config.device != Device::CUDA) {
       throw std::invalid_argument("--bf16 requires --device cuda");
     }
+
+    const std::string flags = micrograd::gpt::format_flags(config);
+    std::cout << "flags: " << flags << "\n";
 
     TrainingData dataset(config);
     SampleOrder train_order(dataset.train_span_tokens(), config.block_size,
@@ -945,6 +451,7 @@ int main(int argc, char **argv) {
     if (distributed::IsMain() && !log_file.is_open()) {
       throw std::runtime_error("Could not open log file: " + config.log_path);
     }
+    log_file << "# flags: " << flags << "\n";
     if (config.resume_path.empty()) {
       log_file << "step,train_loss,val_loss\n";
     }
@@ -1010,6 +517,8 @@ int main(int argc, char **argv) {
         auto scaled_loss =
             loss->div(static_cast<scalar_t>(config.grad_accum_steps * world));
         scaled_loss->backward();
+        loss->to(Device::CPU);
+        micrograd::gpt::check_finite_loss(loss->at({}), it);
       }
       {
         micrograd::profiler::Scope scope("grad_sync", "step", config.device);
