@@ -395,7 +395,8 @@ namespace {
 
 scalar_t *StoragePointer(Storage &storage) {
   if (storage.dtype() != DType::kFloat32) {
-    throw std::invalid_argument("distributed: collectives support float32 only");
+    throw std::invalid_argument(
+        "distributed: collectives support float32 only");
   }
   return static_cast<scalar_t *>(storage.device() == Device::CUDA
                                      ? storage.device_pointer()
@@ -431,8 +432,8 @@ void AllReduceSum(std::span<Storage *const> storages) {
         continue;
       }
       scalar_t *data = StoragePointer(*storage);
-      CheckNccl(ncclAllReduce(data, data, count, ncclFloat, ncclSum,
-                              state.comm, CudaContext::instance().stream()),
+      CheckNccl(ncclAllReduce(data, data, count, ncclFloat, ncclSum, state.comm,
+                              CudaContext::instance().stream()),
                 "ncclAllReduce");
     }
     CheckNccl(ncclGroupEnd(), "ncclGroupEnd");
@@ -558,8 +559,8 @@ struct GradientReducer::Impl {
     }
     CheckNccl(ncclGroupStart(), "ncclGroupStart");
     for (const auto &[data, count] : grads) {
-      CheckNccl(ncclAllReduce(data, data, count, ncclFloat, ncclSum,
-                              state.comm, stream),
+      CheckNccl(ncclAllReduce(data, data, count, ncclFloat, ncclSum, state.comm,
+                              stream),
                 "ncclAllReduce");
     }
     CheckNccl(ncclGroupEnd(), "ncclGroupEnd");
@@ -623,8 +624,8 @@ GradientReducer::GradientReducer(
     size_t offset = 0;
     for (size_t index : bucket.params) {
       bucket.offsets.push_back(offset);
-      offset += (impl.parameters[index]->size() + kPackAlign - 1) /
-                kPackAlign * kPackAlign;
+      offset += (impl.parameters[index]->size() + kPackAlign - 1) / kPackAlign *
+                kPackAlign;
     }
     bucket.offsets.push_back(offset);
     bucket.packed = Storage(offset * 2, Device::CUDA, DType::kBFloat16);

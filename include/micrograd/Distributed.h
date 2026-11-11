@@ -49,8 +49,7 @@ class GradientReducer {
   static constexpr size_t kDefaultBucketBytes = size_t{25} << 20;
 
   GradientReducer(std::vector<std::shared_ptr<Tensor>> parameters,
-                  size_t bucket_bytes = kDefaultBucketBytes,
-                  bool bf16 = false);
+                  size_t bucket_bytes = kDefaultBucketBytes, bool bf16 = false);
   ~GradientReducer();
 
   GradientReducer(const GradientReducer &) = delete;

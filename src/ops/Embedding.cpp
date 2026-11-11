@@ -101,7 +101,8 @@ std::shared_ptr<Tensor> Tensor::gather_per_row(
 std::shared_ptr<Tensor> Tensor::cross_entropy_rows(
     const std::vector<size_t> &targets, size_t classes) {
   if (shape_.size() < 2) {
-    throw std::invalid_argument("cross_entropy expects logits of rank 2 or more");
+    throw std::invalid_argument(
+        "cross_entropy expects logits of rank 2 or more");
   }
   if (classes > shape_.back()) {
     throw std::invalid_argument(

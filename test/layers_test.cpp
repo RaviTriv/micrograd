@@ -1,3 +1,5 @@
+#include "micrograd/nn/Layers.h"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -9,7 +11,6 @@
 #include <vector>
 
 #include "micrograd/Random.h"
-#include "micrograd/nn/Layers.h"
 #include "test_helpers.h"
 
 using namespace micrograd;
@@ -323,9 +324,9 @@ TEST(Mode, ModulesStartInTraining) {
 
 TEST(Mode, EvalAndTrainReachNestedChildren) {
   auto dropout = std::make_shared<Dropout>(0.5f);
-  auto inner = std::make_shared<Sequential>(
-      std::vector<std::shared_ptr<nn::Module>>{std::make_shared<Linear>(4, 4),
-                                               dropout});
+  auto inner =
+      std::make_shared<Sequential>(std::vector<std::shared_ptr<nn::Module>>{
+          std::make_shared<Linear>(4, 4), dropout});
   Sequential outer({inner});
 
   outer.eval();

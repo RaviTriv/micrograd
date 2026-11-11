@@ -79,8 +79,8 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
   std::shared_ptr<Tensor> gather_per_row(
       const std::shared_ptr<Tensor> &indices);
   std::shared_ptr<Tensor> gather_per_row(const std::vector<size_t> &indices);
-  std::shared_ptr<Tensor> cross_entropy_rows(
-      const std::vector<size_t> &targets, size_t classes = 0);
+  std::shared_ptr<Tensor> cross_entropy_rows(const std::vector<size_t> &targets,
+                                             size_t classes = 0);
   std::shared_ptr<Tensor> layer_norm(
       const std::vector<size_t> &normalized_shape,
       const std::shared_ptr<Tensor> &gain, const std::shared_ptr<Tensor> &bias,

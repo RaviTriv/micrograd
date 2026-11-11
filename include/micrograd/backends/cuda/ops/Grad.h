@@ -12,9 +12,9 @@ struct GradTarget {
 
 inline GradTarget GradForWrite(Tensor *t) {
   const bool accumulate = t->has_grad();
-  return {static_cast<scalar_t *>(
-              t->grad_storage_for_overwrite().device_pointer()),
-          accumulate};
+  return {
+      static_cast<scalar_t *>(t->grad_storage_for_overwrite().device_pointer()),
+      accumulate};
 }
 
 inline bool MoveGrad(Tensor *from, Tensor *to) {

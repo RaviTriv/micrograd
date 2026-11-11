@@ -35,8 +35,7 @@ TrainConfig parse(std::vector<std::string> args) {
   for (auto &arg : args) {
     argv.push_back(arg.data());
   }
-  return micrograd::gpt::parse_args(static_cast<int>(argv.size()),
-                                    argv.data());
+  return micrograd::gpt::parse_args(static_cast<int>(argv.size()), argv.data());
 }
 
 std::vector<std::string> split(const std::string &text) {

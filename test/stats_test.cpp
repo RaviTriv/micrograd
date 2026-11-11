@@ -1,10 +1,11 @@
+#include "micrograd/nn/Stats.h"
+
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <vector>
 
 #include "micrograd/nn/Layers.h"
-#include "micrograd/nn/Stats.h"
 
 using namespace micrograd;
 

@@ -24,7 +24,8 @@ void require_cpu(const Tensor &tensor, const char *what) {
   }
 }
 
-std::vector<size_t> with_leading(size_t count, const std::vector<size_t> &shape) {
+std::vector<size_t> with_leading(size_t count,
+                                 const std::vector<size_t> &shape) {
   std::vector<size_t> full{count};
   full.insert(full.end(), shape.begin(), shape.end());
   return full;
@@ -57,15 +58,15 @@ TensorDataset::TensorDataset(const Tensor &inputs, const Tensor &targets) {
 Example TensorDataset::get(size_t index) const {
   if (index >= count_) {
     throw std::out_of_range("TensorDataset index " + std::to_string(index) +
-                            " out of range for size " +
-                            std::to_string(count_));
+                            " out of range for size " + std::to_string(count_));
   }
-  auto input = inputs_.begin() + static_cast<std::ptrdiff_t>(index * input_size_);
+  auto input =
+      inputs_.begin() + static_cast<std::ptrdiff_t>(index * input_size_);
   auto target =
       targets_.begin() + static_cast<std::ptrdiff_t>(index * target_size_);
-  return {.input = {input, input + static_cast<std::ptrdiff_t>(input_size_)},
-          .target = {target,
-                     target + static_cast<std::ptrdiff_t>(target_size_)}};
+  return {
+      .input = {input, input + static_cast<std::ptrdiff_t>(input_size_)},
+      .target = {target, target + static_cast<std::ptrdiff_t>(target_size_)}};
 }
 
 DataLoader::DataLoader(const Dataset &dataset, size_t batch_size, bool shuffle,
@@ -123,8 +124,7 @@ Batch DataLoader::batch(size_t index) const {
                                " does not match the dataset shapes");
     }
     inputs.insert(inputs.end(), example.input.begin(), example.input.end());
-    targets.insert(targets.end(), example.target.begin(),
-                   example.target.end());
+    targets.insert(targets.end(), example.target.begin(), example.target.end());
   }
 
   return {.inputs = Tensor::from_values(with_leading(count, input_shape),

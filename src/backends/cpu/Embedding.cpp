@@ -97,8 +97,8 @@ void CrossEntropy(const OpArgs &args) {
   for (size_t i = 0; i < rows; i++) {
     auto row = values.subspan(i * width, cols);
     auto target = static_cast<size_t>(std::lround(targets[i]));
-    out_values[i] =
-        static_cast<scalar_t>(RowLogSumExp(row) - static_cast<double>(row[target]));
+    out_values[i] = static_cast<scalar_t>(RowLogSumExp(row) -
+                                          static_cast<double>(row[target]));
   }
 }
 

@@ -143,9 +143,7 @@ class Reader {
     }
   }
 
-  bool at_end() {
-    return file_.peek() == std::ifstream::traits_type::eof();
-  }
+  bool at_end() { return file_.peek() == std::ifstream::traits_type::eof(); }
 
   size_t size() const { return size_; }
 
@@ -205,8 +203,8 @@ DType read_dtype(Reader &in, uint32_t version, const std::string &name) {
     case kBFloat16Code:
       return DType::kBFloat16;
     default:
-      in.fail("Unknown dtype code " + std::to_string(code) +
-              " for parameter " + name);
+      in.fail("Unknown dtype code " + std::to_string(code) + " for parameter " +
+              name);
   }
 }
 
@@ -275,8 +273,8 @@ std::vector<Storage> stage_parameters(
     const StoredTensor &entry = it->second;
     if (entry.shape != tensor->shape()) {
       in.fail("State dict shape mismatch for parameter " + name +
-              ": model has " + format_shape(tensor->shape()) +
-              ", file has " + format_shape(entry.shape));
+              ": model has " + format_shape(tensor->shape()) + ", file has " +
+              format_shape(entry.shape));
     }
     if (entry.dtype != tensor->dtype()) {
       in.fail("State dict dtype mismatch for parameter " + name +

@@ -1,3 +1,5 @@
+#include "micrograd/data/DataLoader.h"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -8,10 +10,9 @@
 #include <vector>
 
 #include "micrograd/Tensor.h"
-#include "micrograd/data/DataLoader.h"
 
-using micrograd::Tensor;
 using micrograd::scalar_t;
+using micrograd::Tensor;
 using micrograd::data::Batch;
 using micrograd::data::class_indices;
 using micrograd::data::DataLoader;

@@ -190,7 +190,8 @@ void CausalAttentionProbs(const OpArgs &args) {
     for (size_t h = 0; h < heads; h++) {
       for (size_t t = 0; t < seq; t++) {
         scalar_t *row = out.data() + ((((b * heads) + h) * seq) + t) * seq;
-        const scalar_t *q_row = q.data() + (((b * seq) + t) * embed) + (h * head_dim);
+        const scalar_t *q_row =
+            q.data() + (((b * seq) + t) * embed) + (h * head_dim);
         scalar_t row_max = kNegInf;
         for (size_t s = 0; s <= t; s++) {
           const scalar_t *k_row =

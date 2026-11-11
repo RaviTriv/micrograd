@@ -44,12 +44,13 @@ std::shared_ptr<Tensor> mse_loss(const std::shared_ptr<Tensor> &prediction,
   return mean;
 }
 
-std::shared_ptr<Tensor> cross_entropy(
-    const std::shared_ptr<Tensor> &logits,
-    const std::vector<size_t> &target_indices, size_t classes) {
+std::shared_ptr<Tensor> cross_entropy(const std::shared_ptr<Tensor> &logits,
+                                      const std::vector<size_t> &target_indices,
+                                      size_t classes) {
   const std::vector<size_t> &shape = logits->shape();
   if (shape.size() < 2) {
-    throw std::invalid_argument("cross_entropy expects logits of rank 2 or more");
+    throw std::invalid_argument(
+        "cross_entropy expects logits of rank 2 or more");
   }
 
   size_t rows = 1;

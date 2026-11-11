@@ -1,3 +1,5 @@
+#include "gpt/Dataset.h"
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -9,7 +11,6 @@
 #include <string>
 #include <vector>
 
-#include "gpt/Dataset.h"
 #include "gpt/SampleOrder.h"
 
 using micrograd::gpt::Dataset;
@@ -22,8 +23,7 @@ std::filesystem::path temp_path(const std::string &name) {
   return std::filesystem::temp_directory_path() / ("micrograd_" + name);
 }
 
-std::string write_shard(const std::string &name, uint16_t first,
-                        size_t count) {
+std::string write_shard(const std::string &name, uint16_t first, size_t count) {
   std::array<int32_t, 256> header{};
   header[0] = 20240520;
   header[1] = 1;
@@ -79,8 +79,7 @@ TEST(Dataset, ValBatchesWalkTheValSplitInOrder) {
       const size_t start = val_start + (((b * batch_size) + row) * block);
       for (size_t col = 0; col < block; col++) {
         EXPECT_EQ(batch.inputs[(row * block) + col], encoded[start + col]);
-        EXPECT_EQ(batch.targets[(row * block) + col],
-                  encoded[start + col + 1]);
+        EXPECT_EQ(batch.targets[(row * block) + col], encoded[start + col + 1]);
       }
     }
   }

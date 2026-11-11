@@ -119,13 +119,12 @@ TEST(Serialization, LoadsVersion1File) {
 
 TEST(Serialization, Bfloat16RoundTrip) {
   const std::string path = ::testing::TempDir() + "bf16.bin";
-  Pair saved(Tensor::from_values({2}, {1.5f, -2.0f}),
-             Tensor::from_values({3}, {0.1f, 7.0f, -3.25f})
-                 ->cast(DType::kBFloat16));
+  Pair saved(
+      Tensor::from_values({2}, {1.5f, -2.0f}),
+      Tensor::from_values({3}, {0.1f, 7.0f, -3.25f})->cast(DType::kBFloat16));
   save(path, saved);
 
-  Pair loaded(Tensor::zeros({2}),
-              Tensor::zeros({3})->cast(DType::kBFloat16));
+  Pair loaded(Tensor::zeros({2}), Tensor::zeros({3})->cast(DType::kBFloat16));
   load(path, loaded);
 
   EXPECT_EQ(loaded.named_parameters()[1].second->dtype(), DType::kBFloat16);

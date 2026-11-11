@@ -71,8 +71,8 @@ TEST(GptArch, QkNormAddsPerHeadGains) {
 TEST(GptArch, RotaryScoresDependOnlyOnOffset) {
   constexpr size_t kSeq = 6;
   constexpr size_t kDim = 8;
-  std::vector<scalar_t> row = {0.3f, -1.2f, 0.7f, 2.0f,
-                               -0.4f, 0.9f, 1.5f, -0.8f};
+  std::vector<scalar_t> row = {0.3f,  -1.2f, 0.7f, 2.0f,
+                               -0.4f, 0.9f,  1.5f, -0.8f};
   std::vector<scalar_t> values;
   for (size_t t = 0; t < kSeq; t++) {
     values.insert(values.end(), row.begin(), row.end());

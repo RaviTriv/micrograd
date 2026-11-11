@@ -315,8 +315,8 @@ void Muon::step() {
     const scalar_t fan_in = static_cast<scalar_t>(p->shape()[0]);
     const scalar_t fan_out = static_cast<scalar_t>(p->shape()[1]);
     const scalar_t scale = std::sqrt(std::max(1.0f, fan_out / fan_in));
-    ops::MuonStep(*p, *buf, learning_rate_, momentum_, weight_decay_,
-                  nesterov_, ns_steps_, scale);
+    ops::MuonStep(*p, *buf, learning_rate_, momentum_, weight_decay_, nesterov_,
+                  ns_steps_, scale);
   }
   step_count_++;
 }

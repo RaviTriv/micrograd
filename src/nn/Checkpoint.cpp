@@ -62,8 +62,8 @@ std::shared_ptr<Tensor> Tensor::checkpoint(
       if (!recomputed->requires_grad_) {
         return;
       }
-      recomputed->propagate_gradients(
-          out->grad_.copy_to(recomputed->backend()), false);
+      recomputed->propagate_gradients(out->grad_.copy_to(recomputed->backend()),
+                                      false);
     };
   }
 

@@ -1,3 +1,5 @@
+#include "gpt/Model.h"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -8,11 +10,10 @@
 #include <vector>
 
 #include "gpt/GPTConfig.h"
-#include "gpt/Model.h"
-#include "micrograd/nn/Loss.h"
-#include "micrograd/nn/Optim.h"
 #include "micrograd/Random.h"
 #include "micrograd/Tensor.h"
+#include "micrograd/nn/Loss.h"
+#include "micrograd/nn/Optim.h"
 
 using namespace micrograd;
 using micrograd::gpt::ArchOptions;
@@ -176,7 +177,8 @@ TEST_P(ModelVariantTest, AccumulatedMicroBatchesMatchFullBatch) {
     const std::vector<size_t> micro(
         ids.begin() + static_cast<std::ptrdiff_t>(m * micro_size),
         ids.begin() + static_cast<std::ptrdiff_t>((m + 1) * micro_size));
-    Loss(model, micro)->mul(1.0f / static_cast<scalar_t>(kMicroBatches))
+    Loss(model, micro)
+        ->mul(1.0f / static_cast<scalar_t>(kMicroBatches))
         ->backward();
   }
 
@@ -190,11 +192,11 @@ TEST_P(ModelVariantTest, AccumulatedMicroBatchesMatchFullBatch) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    Archs, ModelVariantTest, ::testing::ValuesIn(Variants()),
-    [](const ::testing::TestParamInfo<Variant> &info) {
-      return info.param.name;
-    });
+INSTANTIATE_TEST_SUITE_P(Archs, ModelVariantTest,
+                         ::testing::ValuesIn(Variants()),
+                         [](const ::testing::TestParamInfo<Variant> &info) {
+                           return info.param.name;
+                         });
 
 TEST(ModelTest, OverfitsOneBatch) {
   manual_seed(1);

@@ -1,10 +1,11 @@
+#include "micrograd/Init.h"
+
 #include <gtest/gtest.h>
 
 #include <cmath>
 #include <cstddef>
 #include <vector>
 
-#include "micrograd/Init.h"
 #include "micrograd/Random.h"
 #include "test_helpers.h"
 

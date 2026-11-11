@@ -103,14 +103,13 @@ std::shared_ptr<Tensor> Run(const Problem &p,
 }
 
 void CheckAgainstNaive(const Problem &p) {
-  SCOPED_TRACE("batch=" + std::to_string(p.batch) + " m=" +
-               std::to_string(p.m) + " k=" + std::to_string(p.k) +
+  SCOPED_TRACE("batch=" + std::to_string(p.batch) +
+               " m=" + std::to_string(p.m) + " k=" + std::to_string(p.k) +
                " n=" + std::to_string(p.n));
   const auto lhs_shape = LhsShape(p);
   const auto rhs_shape = RhsShape(p);
-  const auto lhs_values = Uniform(lhs_shape.size() == 3 ? p.batch * p.m * p.k
-                                                        : p.m * p.k,
-                                  1);
+  const auto lhs_values =
+      Uniform(lhs_shape.size() == 3 ? p.batch * p.m * p.k : p.m * p.k, 1);
   const auto rhs_values =
       Uniform(rhs_shape.size() == 3 ? p.batch * p.k * p.n : p.k * p.n, 2);
   const auto seed_values = Uniform(p.batch * p.m * p.n, 3);
@@ -129,28 +128,53 @@ void CheckAgainstNaive(const Problem &p) {
 }
 
 Problem TwoD(size_t m, size_t k, size_t n) {
-  return {.batch = 1, .m = m, .k = k, .n = n, .lhs_batched = false,
-          .rhs_batched = false, .rhs_transposed = false};
+  return {.batch = 1,
+          .m = m,
+          .k = k,
+          .n = n,
+          .lhs_batched = false,
+          .rhs_batched = false,
+          .rhs_transposed = false};
 }
 
 Problem Batched(size_t batch, size_t m, size_t k, size_t n) {
-  return {.batch = batch, .m = m, .k = k, .n = n, .lhs_batched = true,
-          .rhs_batched = true, .rhs_transposed = false};
+  return {.batch = batch,
+          .m = m,
+          .k = k,
+          .n = n,
+          .lhs_batched = true,
+          .rhs_batched = true,
+          .rhs_transposed = false};
 }
 
 Problem FoldRows(size_t batch, size_t m, size_t k, size_t n) {
-  return {.batch = batch, .m = m, .k = k, .n = n, .lhs_batched = true,
-          .rhs_batched = false, .rhs_transposed = false};
+  return {.batch = batch,
+          .m = m,
+          .k = k,
+          .n = n,
+          .lhs_batched = true,
+          .rhs_batched = false,
+          .rhs_transposed = false};
 }
 
 Problem BroadcastLhs(size_t batch, size_t m, size_t k, size_t n) {
-  return {.batch = batch, .m = m, .k = k, .n = n, .lhs_batched = false,
-          .rhs_batched = true, .rhs_transposed = false};
+  return {.batch = batch,
+          .m = m,
+          .k = k,
+          .n = n,
+          .lhs_batched = false,
+          .rhs_batched = true,
+          .rhs_transposed = false};
 }
 
 Problem NT(size_t batch, size_t m, size_t k, size_t n) {
-  return {.batch = batch, .m = m, .k = k, .n = n, .lhs_batched = batch > 1,
-          .rhs_batched = false, .rhs_transposed = true};
+  return {.batch = batch,
+          .m = m,
+          .k = k,
+          .n = n,
+          .lhs_batched = batch > 1,
+          .rhs_batched = false,
+          .rhs_transposed = true};
 }
 
 }  // namespace
@@ -163,9 +187,9 @@ TEST(Matmul, TwoDMatchesNaiveBelowThreshold) {
 }
 
 TEST(Matmul, TwoDMatchesNaiveAboveThreshold) {
-  for (const auto &p : {TwoD(200, 150, 97), TwoD(2, 600, 700),
-                        TwoD(1, 300, 1000), TwoD(1000, 1, 300),
-                        TwoD(700, 400, 1)}) {
+  for (const auto &p :
+       {TwoD(200, 150, 97), TwoD(2, 600, 700), TwoD(1, 300, 1000),
+        TwoD(1000, 1, 300), TwoD(700, 400, 1)}) {
     CheckAgainstNaive(p);
   }
 }
@@ -179,23 +203,24 @@ TEST(Matmul, BatchedMatchesNaive) {
 }
 
 TEST(Matmul, FoldedRowsMatchNaive) {
-  for (const auto &p : {FoldRows(2, 3, 4, 5), FoldRows(3, 50, 40, 70),
-                        FoldRows(4, 1, 1, 1)}) {
+  for (const auto &p :
+       {FoldRows(2, 3, 4, 5), FoldRows(3, 50, 40, 70), FoldRows(4, 1, 1, 1)}) {
     CheckAgainstNaive(p);
   }
 }
 
 TEST(Matmul, BroadcastLhsMatchesNaive) {
-  for (const auto &p : {BroadcastLhs(3, 2, 4, 5), BroadcastLhs(6, 40, 50, 60)}) {
+  for (const auto &p :
+       {BroadcastLhs(3, 2, 4, 5), BroadcastLhs(6, 40, 50, 60)}) {
     CheckAgainstNaive(p);
   }
 }
 
 TEST(Matmul, TransposedRhsMatchesNaive) {
-  for (const auto &p : {NT(1, 1, 1, 1), NT(1, 3, 5, 7), NT(1, 1, 300, 9),
-                        NT(1, 130, 90, 70), NT(1, 300, 1, 400),
-                        NT(2, 40, 65, 50), NT(3, 5, 6, 7),
-                        NT(1, 64, 513, 65)}) {
+  for (const auto &p :
+       {NT(1, 1, 1, 1), NT(1, 3, 5, 7), NT(1, 1, 300, 9), NT(1, 130, 90, 70),
+        NT(1, 300, 1, 400), NT(2, 40, 65, 50), NT(3, 5, 6, 7),
+        NT(1, 64, 513, 65)}) {
     CheckAgainstNaive(p);
   }
 }

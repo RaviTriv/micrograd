@@ -44,8 +44,7 @@ __device__ inline void StoreBf16x8(bf16 *ptr, const Bf16x8 &values) {
   uint4 raw;
   auto *pairs = reinterpret_cast<__nv_bfloat162 *>(&raw);
   for (int i = 0; i < kBf16Vector / 2; i++) {
-    pairs[i] =
-        __floats2bfloat162_rn(values.v[2 * i], values.v[(2 * i) + 1]);
+    pairs[i] = __floats2bfloat162_rn(values.v[2 * i], values.v[(2 * i) + 1]);
   }
   *reinterpret_cast<uint4 *>(ptr) = raw;
 }
@@ -76,8 +75,8 @@ inline Bf16GradTarget Bf16GradForWrite(Tensor *t) {
 template <typename Op>
 __global__ void Bf16MapKernel(size_t n, Op op) {
   const size_t stride = static_cast<size_t>(blockDim.x) * gridDim.x;
-  for (size_t v = (blockIdx.x * blockDim.x) + threadIdx.x;
-       v * kBf16Vector < n; v += stride) {
+  for (size_t v = (blockIdx.x * blockDim.x) + threadIdx.x; v * kBf16Vector < n;
+       v += stride) {
     const size_t base = v * kBf16Vector;
     if (base + kBf16Vector <= n) {
       op.vector(base);
@@ -89,8 +88,7 @@ __global__ void Bf16MapKernel(size_t n, Op op) {
   }
 }
 
-void Bf16BiasGrad(const bf16 *grad, float *bias_grad, size_t rows,
-                  size_t cols);
+void Bf16BiasGrad(const bf16 *grad, float *bias_grad, size_t rows, size_t cols);
 
 template <typename Op>
 void LaunchBf16Map(size_t n, const Op &op) {

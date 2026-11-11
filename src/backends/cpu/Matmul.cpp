@@ -123,8 +123,7 @@ void RowsTN(const scalar_t *a, const scalar_t *d, scalar_t *out, size_t depth,
 }
 
 void Matmul(const OpArgs &args) {
-  const MatmulDims d =
-      ResolveMatmulDims(args.lhs->shape(), args.rhs->shape());
+  const MatmulDims d = ResolveMatmulDims(args.lhs->shape(), args.rhs->shape());
   const scalar_t *lhs = args.lhs->data().data();
   const scalar_t *rhs = args.rhs->data().data();
   scalar_t *out = args.out->data().data();
@@ -147,13 +146,12 @@ std::function<void()> MatmulBackward(const GradArgs &args) {
     if (lhs->requires_grad()) {
       const scalar_t *rhs_data = rhs->data().data();
       scalar_t *lhs_grad = lhs->grad().data();
-      ParallelRows(d.batch, d.m, d.n * d.k,
-                   [&](size_t bidx, size_t row_begin, size_t row_end) {
-                     RowsNT(out_grad + (bidx * d.m * d.n),
-                            rhs_data + (bidx * d.k * d.n),
-                            lhs_grad + (bidx * d.m * d.k), d.n, d.k, row_begin,
-                            row_end);
-                   });
+      ParallelRows(
+          d.batch, d.m, d.n * d.k,
+          [&](size_t bidx, size_t row_begin, size_t row_end) {
+            RowsNT(out_grad + (bidx * d.m * d.n), rhs_data + (bidx * d.k * d.n),
+                   lhs_grad + (bidx * d.m * d.k), d.n, d.k, row_begin, row_end);
+          });
     }
 
     if (rhs->requires_grad()) {
@@ -187,12 +185,11 @@ void MatmulNT(const OpArgs &args) {
   const scalar_t *rhs = args.rhs->data().data();
   scalar_t *out = args.out->data().data();
 
-  ParallelRows(1, d.m, d.k * d.n,
-               [&](size_t, size_t row_begin, size_t row_end) {
-                 std::fill(out + (row_begin * d.n), out + (row_end * d.n),
-                           0.0f);
-                 RowsNT(lhs, rhs, out, d.k, d.n, row_begin, row_end);
-               });
+  ParallelRows(
+      1, d.m, d.k * d.n, [&](size_t, size_t row_begin, size_t row_end) {
+        std::fill(out + (row_begin * d.n), out + (row_end * d.n), 0.0f);
+        RowsNT(lhs, rhs, out, d.k, d.n, row_begin, row_end);
+      });
 }
 
 std::function<void()> MatmulNTBackward(const GradArgs &args) {
@@ -203,11 +200,10 @@ std::function<void()> MatmulNTBackward(const GradArgs &args) {
     if (lhs->requires_grad()) {
       const scalar_t *rhs_data = rhs->data().data();
       scalar_t *lhs_grad = lhs->grad().data();
-      ParallelRows(1, d.m, d.n * d.k,
-                   [&](size_t, size_t row_begin, size_t row_end) {
-                     RowsNN(out_grad, rhs_data, lhs_grad, d.n, d.k, row_begin,
-                            row_end);
-                   });
+      ParallelRows(
+          1, d.m, d.n * d.k, [&](size_t, size_t row_begin, size_t row_end) {
+            RowsNN(out_grad, rhs_data, lhs_grad, d.n, d.k, row_begin, row_end);
+          });
     }
 
     if (rhs->requires_grad()) {

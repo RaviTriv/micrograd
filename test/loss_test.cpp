@@ -1,3 +1,5 @@
+#include "micrograd/nn/Loss.h"
+
 #include <gtest/gtest.h>
 
 #include <cmath>
@@ -6,7 +8,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "micrograd/nn/Loss.h"
 #include "test_helpers.h"
 
 using namespace micrograd;
@@ -24,8 +25,8 @@ scalar_t Scalar(const std::shared_ptr<Tensor> &tensor) {
 }  // namespace
 
 TEST(Loss, MseKnownValue) {
-  auto loss = mse_loss(Make({3}, {1.0f, 2.0f, 3.0f}),
-                       Make({3}, {1.5f, 2.5f, 2.8f}));
+  auto loss =
+      mse_loss(Make({3}, {1.0f, 2.0f, 3.0f}), Make({3}, {1.5f, 2.5f, 2.8f}));
   EXPECT_NEAR(Scalar(loss), 0.18f, kTolerance);
 }
 
@@ -95,7 +96,7 @@ TEST(Loss, CrossEntropyRejectsEmptyBatch) {
 }
 
 TEST(Loss, CrossEntropyFlattensLeadingDimensions) {
-  const std::vector<scalar_t> values = {0.0f, 1.0f, 2.0f, 3.0f, 1.0f, 0.5f,
+  const std::vector<scalar_t> values = {0.0f,  1.0f, 2.0f, 3.0f, 1.0f, 0.5f,
                                         -1.0f, 2.0f, 0.0f, 4.0f, 4.0f, 4.0f};
   const std::vector<size_t> targets = {2, 0, 1, 1};
   auto rank3 = cross_entropy(Make({2, 2, 3}, values), targets);
@@ -104,7 +105,7 @@ TEST(Loss, CrossEntropyFlattensLeadingDimensions) {
 }
 
 TEST(Loss, CrossEntropyRank3GradientMatchesRank2) {
-  const std::vector<scalar_t> values = {0.0f, 1.0f, 2.0f, 3.0f, 1.0f, 0.5f,
+  const std::vector<scalar_t> values = {0.0f,  1.0f, 2.0f, 3.0f, 1.0f, 0.5f,
                                         -1.0f, 2.0f, 0.0f, 4.0f, 4.0f, 4.0f};
   const std::vector<size_t> targets = {2, 0, 1, 1};
   auto rank3 = leaf({2, 2, 3}, values);
@@ -135,21 +136,21 @@ TEST(Loss, BinaryCrossEntropyKnownValue) {
 }
 
 TEST(Loss, BinaryCrossEntropyUniformPredictionGivesLogTwo) {
-  auto loss = binary_cross_entropy(Make({2}, {0.5f, 0.5f}),
-                                   Make({2}, {1.0f, 0.0f}));
+  auto loss =
+      binary_cross_entropy(Make({2}, {0.5f, 0.5f}), Make({2}, {1.0f, 0.0f}));
   EXPECT_NEAR(Scalar(loss), std::log(2.0f), kTolerance);
 }
 
 TEST(Loss, BinaryCrossEntropyPerfectPredictionIsFiniteAndNearZero) {
-  auto loss = binary_cross_entropy(Make({2}, {1.0f, 0.0f}),
-                                   Make({2}, {1.0f, 0.0f}));
+  auto loss =
+      binary_cross_entropy(Make({2}, {1.0f, 0.0f}), Make({2}, {1.0f, 0.0f}));
   EXPECT_TRUE(std::isfinite(Scalar(loss)));
   EXPECT_LT(Scalar(loss), 0.01f);
 }
 
 TEST(Loss, BinaryCrossEntropyWorstPredictionIsFiniteAndLarge) {
-  auto loss = binary_cross_entropy(Make({2}, {0.0f, 1.0f}),
-                                   Make({2}, {1.0f, 0.0f}));
+  auto loss =
+      binary_cross_entropy(Make({2}, {0.0f, 1.0f}), Make({2}, {1.0f, 0.0f}));
   EXPECT_TRUE(std::isfinite(Scalar(loss)));
   EXPECT_GT(Scalar(loss), 5.0f);
 }
@@ -162,9 +163,9 @@ TEST(Loss, BinaryCrossEntropyHasNoPredictionGradientWhereClamped) {
 }
 
 TEST(Loss, BinaryCrossEntropyRejectsMismatchedShapes) {
-  EXPECT_THROW(binary_cross_entropy(Make({2, 1}, {0.5f, 0.5f}),
-                                    Make({2}, {1.0f, 0.0f})),
-               std::invalid_argument);
+  EXPECT_THROW(
+      binary_cross_entropy(Make({2, 1}, {0.5f, 0.5f}), Make({2}, {1.0f, 0.0f})),
+      std::invalid_argument);
 }
 
 TEST(Loss, BinaryCrossEntropyRejectsEmptyInput) {
@@ -176,12 +177,11 @@ TEST(Loss, BinaryCrossEntropyRejectsValuesOutsideUnitInterval) {
   auto targets = Make({2}, {1.0f, 0.0f});
   EXPECT_THROW(binary_cross_entropy(Make({2}, {1.5f, 0.5f}), targets),
                std::invalid_argument);
-  EXPECT_THROW(binary_cross_entropy(Make({2}, {0.5f, 0.5f}),
-                                    Make({2}, {-0.1f, 0.0f})),
-               std::invalid_argument);
   EXPECT_THROW(
-      binary_cross_entropy(Make({2}, {std::nanf(""), 0.5f}), targets),
+      binary_cross_entropy(Make({2}, {0.5f, 0.5f}), Make({2}, {-0.1f, 0.0f})),
       std::invalid_argument);
+  EXPECT_THROW(binary_cross_entropy(Make({2}, {std::nanf(""), 0.5f}), targets),
+               std::invalid_argument);
 }
 
 TEST(Loss, LogSoftmaxStaysFiniteAsLogitsGrow) {

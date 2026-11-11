@@ -163,9 +163,9 @@ std::shared_ptr<Tensor> Tensor::apply(OpId op, std::vector<size_t> out_shape,
   const bool overwrites =
       backend() == Device::CUDA && cuda::ops::ForwardOverwritesOutput(op);
   const DType out_dtype = inputs.dtype.value_or(dtype());
-  auto result =
-      overwrites ? Tensor::empty(std::move(out_shape), backend(), out_dtype)
-                 : Tensor::zeros(std::move(out_shape), backend(), out_dtype);
+  auto result = overwrites
+                    ? Tensor::empty(std::move(out_shape), backend(), out_dtype)
+                    : Tensor::zeros(std::move(out_shape), backend(), out_dtype);
   DispatchOp(op, backend(),
              {.lhs = inputs.lhs.get(),
               .rhs = inputs.rhs.get(),

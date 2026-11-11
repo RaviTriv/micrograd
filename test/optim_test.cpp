@@ -1,3 +1,5 @@
+#include "micrograd/nn/Optim.h"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -10,7 +12,6 @@
 #include <vector>
 
 #include "micrograd/Tensor.h"
-#include "micrograd/nn/Optim.h"
 #include "micrograd/ops/Optimizer.h"
 
 using namespace micrograd;
@@ -35,9 +36,8 @@ std::shared_ptr<Tensor> Pattern(std::vector<size_t> shape, size_t seed) {
 }
 
 std::shared_ptr<Tensor> Copy(const Tensor &t) {
-  return Tensor::from_values(t.shape(),
-                             std::vector<scalar_t>(t.data().begin(),
-                                                   t.data().end()));
+  return Tensor::from_values(
+      t.shape(), std::vector<scalar_t>(t.data().begin(), t.data().end()));
 }
 
 void FillGrad(Tensor &p, size_t seed) {
@@ -263,15 +263,15 @@ TEST(Optim, SetLearningRateOnEveryOptimizer) {
   AdamW adamw({Tensor::from_values({1}, {1.0f})}, 0.1f);
   Muon muon({matrix}, 0.1f);
 
-  for (Optimizer *optimizer : std::vector<Optimizer *>{&sgd, &adam, &adamw,
-                                                       &muon}) {
+  for (Optimizer *optimizer :
+       std::vector<Optimizer *>{&sgd, &adam, &adamw, &muon}) {
     EXPECT_FLOAT_EQ(optimizer->learning_rate(), 0.1f);
     optimizer->set_learning_rate(0.5f);
     EXPECT_FLOAT_EQ(optimizer->learning_rate(), 0.5f);
     EXPECT_THROW(optimizer->set_learning_rate(-1.0f), std::invalid_argument);
-    EXPECT_THROW(
-        optimizer->set_learning_rate(std::numeric_limits<scalar_t>::quiet_NaN()),
-        std::invalid_argument);
+    EXPECT_THROW(optimizer->set_learning_rate(
+                     std::numeric_limits<scalar_t>::quiet_NaN()),
+                 std::invalid_argument);
     EXPECT_FLOAT_EQ(optimizer->learning_rate(), 0.5f);
   }
 

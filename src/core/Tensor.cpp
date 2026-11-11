@@ -68,14 +68,14 @@ std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape) {
   return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape));
 }
 
-std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape,
-                                      Backend device, DType dtype) {
+std::shared_ptr<Tensor> Tensor::zeros(std::vector<size_t> shape, Backend device,
+                                      DType dtype) {
   return std::make_shared<Tensor>(ConstructorKey{}, std::move(shape), device,
                                   dtype);
 }
 
-std::shared_ptr<Tensor> Tensor::empty(std::vector<size_t> shape,
-                                      Backend device, DType dtype) {
+std::shared_ptr<Tensor> Tensor::empty(std::vector<size_t> shape, Backend device,
+                                      DType dtype) {
   Storage data(ElementCount(shape) * dtype_size(dtype), device, dtype);
   if (PoisonEmptyTensors()) {
     FillBytes(data, 0xFF, "poison_fill");
@@ -243,8 +243,7 @@ void Tensor::set_requires_grad(bool requires_grad) {
   requires_grad_ = requires_grad;
 }
 
-void Tensor::set_post_accumulate_grad_hook(
-    std::function<void(Tensor &)> hook) {
+void Tensor::set_post_accumulate_grad_hook(std::function<void(Tensor &)> hook) {
   post_accumulate_grad_hook_ = std::move(hook);
 }
 

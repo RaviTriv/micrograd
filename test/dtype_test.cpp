@@ -13,8 +13,7 @@ using namespace micrograd::test_helpers;
 
 TEST(DType, Bfloat16RoundsToNearestEven) {
   EXPECT_EQ(float_to_bfloat16_bits(1.0f), 0x3f80);
-  EXPECT_EQ(bfloat16_bits_to_float(float_to_bfloat16_bits(1.00390625f)),
-            1.0f);
+  EXPECT_EQ(bfloat16_bits_to_float(float_to_bfloat16_bits(1.00390625f)), 1.0f);
   EXPECT_EQ(bfloat16_bits_to_float(float_to_bfloat16_bits(1.01171875f)),
             1.015625f);
   EXPECT_EQ(bfloat16_bits_to_float(float_to_bfloat16_bits(-3.0f)), -3.0f);
@@ -63,9 +62,11 @@ TEST(DType, MixedDtypeArithmeticThrows) {
   auto x = Make({2}, {1, 2});
   auto y = Make({2}, {1, 2})->cast(DType::kBFloat16);
   EXPECT_THROW(static_cast<void>(x->add(y)), std::invalid_argument);
-  EXPECT_THROW(static_cast<void>(Make({2, 2}, {1, 2, 3, 4})->matmul(
-                   Make({2, 2}, {1, 2, 3, 4})->cast(DType::kBFloat16))),
-               std::invalid_argument);
+  EXPECT_THROW(
+      static_cast<void>(
+          Make({2, 2}, {1, 2, 3, 4})
+              ->matmul(Make({2, 2}, {1, 2, 3, 4})->cast(DType::kBFloat16))),
+      std::invalid_argument);
 }
 
 TEST(DType, Bfloat16OpsWithoutKernelsThrowOnCpu) {
@@ -74,8 +75,8 @@ TEST(DType, Bfloat16OpsWithoutKernelsThrowOnCpu) {
 }
 
 TEST(Loss, CrossEntropyIgnoresPaddedClasses) {
-  auto padded = leaf({2, 5}, {0.5f, -1.0f, 2.0f, 9.0f, 9.0f, 1.0f, 0.0f,
-                              -2.0f, 9.0f, 9.0f});
+  auto padded = leaf(
+      {2, 5}, {0.5f, -1.0f, 2.0f, 9.0f, 9.0f, 1.0f, 0.0f, -2.0f, 9.0f, 9.0f});
   auto narrow = leaf({2, 3}, {0.5f, -1.0f, 2.0f, 1.0f, 0.0f, -2.0f});
 
   auto padded_loss = cross_entropy(padded, {2, 0}, 3);
