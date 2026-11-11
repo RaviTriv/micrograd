@@ -7,7 +7,10 @@
 
 #include "gpt/GPTConfig.h"
 #include "gpt/Model.h"
+#include "micrograd/Random.h"
 #include "micrograd/Tensor.h"
+#include "micrograd/nn/Loss.h"
+#include "micrograd/nn/Optim.h"
 
 using namespace micrograd;
 using micrograd::gpt::GPTConfig;
@@ -169,18 +172,36 @@ TEST(GptArch, ReluSquaredMatchesReluThenSquare) {
 TEST(GptArch, AllSwitchesTrainEndToEnd) {
   GPTConfig config = TinyConfig();
   config.arch = {.rotary = true, .qk_norm = true, .relu_squared = true};
+  manual_seed(4);
   Model model(11, config);
-  auto logits = model.forward(Tokens(2, 8));
-  ASSERT_EQ(logits->shape(), (std::vector<size_t>{2, 8, 11}));
-  logits->pow(2.0f)->sum()->backward();
-  for (const auto &[name, tensor] : model.named_parameters()) {
-    if (name.find("q_norm") == std::string::npos) {
-      continue;
+  AdamW optimizer(model.parameters(), 1e-2f);
+  const auto tokens = Tokens(2, 8);
+  std::vector<size_t> targets(16);
+  for (size_t i = 0; i < targets.size(); i++) {
+    targets[i] = (i * 5 + 2) % 11;
+  }
+
+  std::vector<scalar_t> losses;
+  for (size_t step = 0; step < 5; step++) {
+    auto logits = model.forward(tokens);
+    ASSERT_EQ(logits->shape(), (std::vector<size_t>{2, 8, 11}));
+    auto loss = cross_entropy(logits, targets);
+    losses.push_back(loss->at({}));
+    optimizer.zero_grad();
+    loss->backward();
+    if (step == 0) {
+      for (const auto &[name, tensor] : model.named_parameters()) {
+        double total = 0.0;
+        for (scalar_t g : tensor->grad()) {
+          ASSERT_TRUE(std::isfinite(g)) << name;
+          total += std::abs(g);
+        }
+        EXPECT_GT(total, 0.0) << name;
+      }
     }
-    double total = 0.0;
-    for (scalar_t g : tensor->grad()) {
-      total += std::abs(g);
-    }
-    EXPECT_GT(total, 0.0) << name;
+    optimizer.step();
+  }
+  for (size_t step = 1; step < losses.size(); step++) {
+    EXPECT_LT(losses[step], losses[step - 1]) << "step " << step;
   }
 }

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -48,6 +49,8 @@ struct Case {
   bool device_only = false;
   bool tf32 = false;
   bool bf16 = false;
+  bool slot_scaled_atol = false;
+  size_t samples = 0;
 };
 
 TensorPtr Ramp(std::vector<size_t> shape, scalar_t start, scalar_t step) {
@@ -82,6 +85,21 @@ TensorPtr Wave(std::vector<size_t> shape, scalar_t phase) {
   return Tensor::from_values(std::move(shape), std::move(values));
 }
 
+TensorPtr Noise(std::vector<size_t> shape, uint32_t seed) {
+  size_t count = 1;
+  for (auto dim : shape) {
+    count *= dim;
+  }
+
+  std::vector<scalar_t> values(count);
+  uint32_t state = seed;
+  for (size_t i = 0; i < count; i++) {
+    state = (state * 1664525u) + 1013904223u;
+    values[i] = (static_cast<scalar_t>(state >> 8) / 8388608.0f) - 1.0f;
+  }
+  return Tensor::from_values(std::move(shape), std::move(values));
+}
+
 std::vector<Case> AllCases() {
   std::vector<Case> cases;
   auto add = [&cases](std::string name, GradCheckFunction function,
@@ -102,6 +120,28 @@ std::vector<Case> AllCases() {
                      .device_only = true,
                      .tf32 = tf32,
                      .bf16 = bf16});
+  };
+  auto add_low_precision = [&cases](std::string name,
+                                    GradCheckFunction function,
+                                    TensorList inputs, GradCheckOptions options,
+                                    bool tf32 = false, bool bf16 = false) {
+    cases.push_back({.name = std::move(name),
+                     .function = std::move(function),
+                     .inputs = std::move(inputs),
+                     .options = options,
+                     .device_only = true,
+                     .tf32 = tf32,
+                     .bf16 = bf16,
+                     .slot_scaled_atol = true});
+  };
+  auto add_sampled = [&cases](std::string name, GradCheckFunction function,
+                              TensorList inputs, GradCheckOptions options,
+                              size_t samples) {
+    cases.push_back({.name = std::move(name),
+                     .function = std::move(function),
+                     .inputs = std::move(inputs),
+                     .options = options,
+                     .samples = samples});
   };
 
   const auto signed_matrix = [] { return Ramp({2, 3}, -1.25f, 0.5f); };
@@ -275,6 +315,8 @@ std::vector<Case> AllCases() {
       {Wave({37, 20}, 0.3f), Wave({33, 20}, 1.1f)},
       {.eps = 0.5f, .atol = 2e-4f});
   const GradCheckOptions bf16_tolerance = {.rtol = 3e-2f, .atol = 3e-2f};
+  const GradCheckOptions bf16_attention = {.rtol = 3e-2f, .atol = 1e-1f};
+  const GradCheckOptions bf16_softmax = {.rtol = 3e-2f, .atol = 3e-3f};
   add_device_only("matmul_bf16",
                   [](const TensorList &in) { return in[0]->matmul(in[1]); },
                   {Wave({2, 37, 20}, 0.3f), Wave({20, 33}, 1.1f)},
@@ -291,14 +333,14 @@ std::vector<Case> AllCases() {
                   },
                   {Wave({2, 37, 20}, 0.3f), Wave({33, 20}, 1.1f)},
                   bf16_tolerance, false, true);
-  add_device_only("causal_self_attention_bf16",
-                  [](const TensorList &in) {
-                    return in[0]->causal_self_attention(in[1], in[2], 2,
-                                                        0.125f);
-                  },
-                  {Wave({2, 70, 128}, 0.4f), Wave({2, 70, 128}, 1.3f),
-                   Wave({2, 70, 128}, 2.2f)},
-                  bf16_tolerance, false, true);
+  add_low_precision("causal_self_attention_bf16",
+                    [](const TensorList &in) {
+                      return in[0]->causal_self_attention(in[1], in[2], 2,
+                                                          0.125f);
+                    },
+                    {Wave({2, 70, 128}, 0.4f), Wave({2, 70, 128}, 1.3f),
+                     Wave({2, 70, 128}, 2.2f)},
+                    bf16_attention, false, true);
   const GradCheckOptions bf16_activations = {.rtol = 3e-2f, .atol = 2e-2f};
   const GradCheckOptions bf16_row_sums = {.rtol = 3e-2f, .atol = 6e-2f};
   add_device_only("cast_bf16_roundtrip",
@@ -400,37 +442,37 @@ std::vector<Case> AllCases() {
                   },
                   {Wave({2, 37, 20}, 0.3f), Wave({33, 20}, 1.1f)},
                   bf16_activations);
-  add_device_only("cross_entropy_bf16",
-                  [](const TensorList &in) {
-                    return micrograd::cross_entropy(
-                        Low(in[0]->mul(3.0f)), {0, 5, 36, 12, 1, 20});
-                  },
-                  {Wave({6, 37}, 0.3f)}, bf16_activations);
-  add_device_only("cross_entropy_bf16_padded",
-                  [](const TensorList &in) {
-                    return micrograd::cross_entropy(
-                        Low(in[0]->mul(3.0f)), {0, 5, 36, 12, 1, 20}, 37);
-                  },
-                  {Wave({6, 40}, 0.3f)}, bf16_activations);
-  add_device_only("causal_self_attention_bf16_activations",
-                  [](const TensorList &in) {
-                    return High(Low(in[0])->causal_self_attention(
-                        Low(in[1]), Low(in[2]), 2, 0.125f));
-                  },
-                  {Wave({2, 70, 128}, 0.4f), Wave({2, 70, 128}, 1.3f),
-                   Wave({2, 70, 128}, 2.2f)},
-                  bf16_activations);
-  add_device_only("causal_self_attention_bf16_three_tiles",
-                  [](const TensorList &in) {
-                    return High(Low(in[0]->mul(2.0f))
-                                    ->causal_self_attention(
-                                        Low(in[1]->mul(2.0f)), Low(in[2]), 3,
-                                        0.125f));
-                  },
-                  {Wave({1, 150, 192}, 0.4f), Wave({1, 150, 192}, 1.3f),
-                   Wave({1, 150, 192}, 2.2f)},
-                  bf16_activations);
-  add_device_only(
+  add_low_precision("cross_entropy_bf16",
+                    [](const TensorList &in) {
+                      return micrograd::cross_entropy(
+                          Low(in[0]->mul(3.0f)), {0, 5, 36, 12, 1, 20});
+                    },
+                    {Wave({6, 37}, 0.3f)}, bf16_softmax);
+  add_low_precision("cross_entropy_bf16_padded",
+                    [](const TensorList &in) {
+                      return micrograd::cross_entropy(
+                          Low(in[0]->mul(3.0f)), {0, 5, 36, 12, 1, 20}, 37);
+                    },
+                    {Wave({6, 40}, 0.3f)}, bf16_softmax);
+  add_low_precision("causal_self_attention_bf16_activations",
+                    [](const TensorList &in) {
+                      return High(Low(in[0])->causal_self_attention(
+                          Low(in[1]), Low(in[2]), 2, 0.125f));
+                    },
+                    {Wave({2, 70, 128}, 0.4f), Wave({2, 70, 128}, 1.3f),
+                     Wave({2, 70, 128}, 2.2f)},
+                    bf16_attention);
+  add_low_precision("causal_self_attention_bf16_three_tiles",
+                    [](const TensorList &in) {
+                      return High(Low(in[0]->mul(2.0f))
+                                      ->causal_self_attention(
+                                          Low(in[1]->mul(2.0f)), Low(in[2]), 3,
+                                          0.125f));
+                    },
+                    {Noise({1, 150, 192}, 1), Noise({1, 150, 192}, 2),
+                     Noise({1, 150, 192}, 3)},
+                    bf16_attention);
+  add_low_precision(
       "gpt_block_bf16",
       [](const TensorList &in) {
         const TensorPtr x = Low(in[0]);
@@ -444,7 +486,7 @@ std::vector<Case> AllCases() {
       {Wave({2, 9, 64}, 0.4f), Wave({64}, 1.0f), Wave({64}, 2.0f),
        Wave({64, 96}, 0.7f)->mul(0.2f), Wave({96}, 1.5f),
        Wave({96, 64}, 2.5f)->mul(0.2f)},
-      bf16_row_sums);
+      bf16_attention);
   add_device_only(
       "rms_norm_bf16_head_width",
       [](const TensorList &in) {
@@ -517,6 +559,32 @@ std::vector<Case> AllCases() {
         return in[0]->layer_norm({3}, in[1], in[2], 1e-5f);
       },
       {signed_matrix(), positive_row(), row_vector()});
+  add("layer_norm_varied_rows",
+      [](const TensorList &in) {
+        return in[0]->layer_norm({5}, in[1], in[2], 1e-5f);
+      },
+      {Wave({4, 5}, 0.3f), Wave({5}, 1.1f), Wave({5}, 2.0f)}, {.eps = 2e-3f});
+
+  const auto token_ids = [](std::vector<size_t> shape,
+                            std::vector<scalar_t> ids, Device device) {
+    auto tensor = Tensor::from_values(std::move(shape), std::move(ids));
+    tensor->to(device);
+    return tensor;
+  };
+  add("embedding_lookup_repeated_ids",
+      [token_ids](const TensorList &in) {
+        return in[0]->embedding_lookup(
+            token_ids({3}, {0.0f, 0.0f, 2.0f}, in[0]->backend()));
+      },
+      {Wave({4, 3}, 0.5f)});
+  add("embedding_tied_lm_head",
+      [token_ids](const TensorList &in) {
+        const TensorPtr hidden = in[0]->embedding_lookup(token_ids(
+            {1, 4}, {3.0f, 1.0f, 3.0f, 0.0f}, in[0]->backend()));
+        return micrograd::cross_entropy(hidden->tanh()->matmul_nt(in[0]),
+                                        {1, 3, 0, 2});
+      },
+      {Wave({5, 3}, 0.5f)});
 
   add("rms_norm",
       [](const TensorList &in) { return in[0]->rms_norm({3}, in[1], 1e-5f); },
@@ -625,9 +693,20 @@ std::vector<Case> AllCases() {
                     return in[0]->causal_self_attention(in[1], in[2], 3,
                                                         0.125f);
                   },
-                  {Wave({1, 200, 192}, 0.4f), Wave({1, 200, 192}, 1.3f),
-                   Wave({1, 200, 192}, 2.2f)},
+                  {Noise({1, 200, 192}, 1), Noise({1, 200, 192}, 2),
+                   Noise({1, 200, 192}, 3)},
                   {.rtol = 1e-2f, .atol = 2e-3f}, true);
+  add_sampled("causal_self_attention_70x128_sampled", flash_case,
+              {Noise({2, 70, 128}, 4), Noise({2, 70, 128}, 5),
+               Noise({2, 70, 128}, 6)},
+              {.rtol = 1e-2f, .atol = 1e-4f}, 32);
+  add_sampled("causal_self_attention_200x192_sampled",
+              [](const TensorList &in) {
+                return in[0]->causal_self_attention(in[1], in[2], 3, 0.125f);
+              },
+              {Noise({1, 200, 192}, 7), Noise({1, 200, 192}, 8),
+               Noise({1, 200, 192}, 9)},
+              {.rtol = 1e-2f, .atol = 1e-4f}, 24);
   add("residual_block_chain",
       [](const TensorList &in) {
         auto x = in[0]->add(0.0f);
@@ -816,28 +895,148 @@ void CompareValues(const std::vector<scalar_t> &cpu,
   }
 }
 
-std::vector<DeviceMismatch> CheckOnDevice(const GradCheckFunction &function,
-                                          const TensorList &inputs,
-                                          const GradCheckOptions &options,
-                                          Device device) {
-  std::vector<std::vector<size_t>> shapes;
-  std::vector<std::vector<scalar_t>> values;
+GradCheckOptions SlotOptions(const Case &test,
+                             const std::vector<scalar_t> &cpu) {
+  GradCheckOptions options = test.options;
+  if (test.slot_scaled_atol && !cpu.empty()) {
+    double sum_squares = 0.0;
+    for (scalar_t value : cpu) {
+      sum_squares += static_cast<double>(value) * static_cast<double>(value);
+    }
+    options.atol *= static_cast<scalar_t>(
+        std::sqrt(sum_squares / static_cast<double>(cpu.size())));
+  }
+  return options;
+}
+
+void Snapshot(const TensorList &inputs,
+              std::vector<std::vector<size_t>> &shapes,
+              std::vector<std::vector<scalar_t>> &values) {
   for (const auto &input : inputs) {
     std::span<const scalar_t> span = input->data();
     shapes.push_back(input->shape());
     values.emplace_back(span.begin(), span.end());
   }
+}
 
-  const DeviceRun cpu =
-      RunForwardBackward(function, shapes, values, Device::CPU);
-  const DeviceRun other = RunForwardBackward(function, shapes, values, device);
+DeviceRun RunCase(const Case &test, Device device) {
+  std::vector<std::vector<size_t>> shapes;
+  std::vector<std::vector<scalar_t>> values;
+  Snapshot(test.inputs, shapes, values);
+  return RunForwardBackward(test.function, shapes, values, device);
+}
+
+std::vector<DeviceMismatch> CheckOnDevice(const Case &test, Device device) {
+  const DeviceRun cpu = RunCase(test, Device::CPU);
+  const DeviceRun other = RunCase(test, device);
 
   std::vector<DeviceMismatch> mismatches;
-  CompareValues(cpu.output, other.output, kOutputSlot, options, mismatches);
+  CompareValues(cpu.output, other.output, kOutputSlot,
+                SlotOptions(test, cpu.output), mismatches);
   for (size_t i = 0; i < cpu.gradients.size(); i++) {
-    CompareValues(cpu.gradients[i], other.gradients[i], i, options, mismatches);
+    CompareValues(cpu.gradients[i], other.gradients[i], i,
+                  SlotOptions(test, cpu.gradients[i]), mismatches);
   }
   return mismatches;
+}
+
+double ProjectInDouble(const TensorPtr &output,
+                       const std::vector<scalar_t> &weights) {
+  output->to(Device::CPU);
+  std::span<const scalar_t> values = output->data();
+  double total = 0.0;
+  for (size_t i = 0; i < weights.size(); i++) {
+    total += static_cast<double>(weights[i]) * static_cast<double>(values[i]);
+  }
+  return total;
+}
+
+std::vector<micrograd::GradCheckMismatch> SampledGradCheck(const Case &test) {
+  std::vector<std::vector<size_t>> shapes;
+  std::vector<std::vector<scalar_t>> values;
+  Snapshot(test.inputs, shapes, values);
+  const DeviceRun analytic =
+      RunForwardBackward(test.function, shapes, values, Device::CPU);
+  const std::vector<scalar_t> weights =
+      ProjectionWeights(analytic.output.size());
+  const GradCheckOptions &options = test.options;
+
+  std::vector<micrograd::GradCheckMismatch> mismatches;
+  for (size_t i = 0; i < values.size(); i++) {
+    const size_t count = values[i].size();
+    for (size_t s = 0; s < test.samples; s++) {
+      const size_t j = ((2 * s + 1) * count) / (2 * test.samples);
+      const scalar_t original = values[i][j];
+      values[i][j] = original + options.eps;
+      const double up = ProjectInDouble(
+          test.function(MakeGradCheckLeaves(shapes, values)), weights);
+      values[i][j] = original - options.eps;
+      const double down = ProjectInDouble(
+          test.function(MakeGradCheckLeaves(shapes, values)), weights);
+      values[i][j] = original;
+
+      const auto numeric = static_cast<scalar_t>(
+          (up - down) / (2.0 * static_cast<double>(options.eps)));
+      const scalar_t expected = analytic.gradients[i][j];
+      const scalar_t scale = std::max(std::abs(expected), std::abs(numeric));
+      const scalar_t allowed = options.atol + (options.rtol * scale);
+      if (std::abs(expected - numeric) > allowed) {
+        mismatches.push_back({.input = i,
+                              .index = j,
+                              .analytic = expected,
+                              .numeric = numeric});
+      }
+    }
+  }
+  return mismatches;
+}
+
+constexpr double kMaxZeroPassShare = 0.3;
+
+double ZeroPassShare(const Case &test, const std::vector<scalar_t> &cpu) {
+  const size_t nonzero = static_cast<size_t>(
+      std::ranges::count_if(cpu, [](scalar_t value) { return value != 0.0f; }));
+  if (nonzero == 0) {
+    return 0.0;
+  }
+  std::vector<DeviceMismatch> mismatches;
+  CompareValues(cpu, std::vector<scalar_t>(cpu.size(), 0.0f), 0,
+                SlotOptions(test, cpu), mismatches);
+  return static_cast<double>(nonzero - mismatches.size()) /
+         static_cast<double>(nonzero);
+}
+
+size_t RunZeroGradientSelfCheck(const std::vector<Case> &cases) {
+  size_t failed = 0;
+  size_t checked = 0;
+  for (const auto &test : cases) {
+    if (!test.device_only) {
+      continue;
+    }
+    checked++;
+    const DeviceRun cpu = RunCase(test, Device::CPU);
+    std::vector<std::pair<std::string, double>> shares;
+    shares.emplace_back("output", ZeroPassShare(test, cpu.output));
+    for (size_t i = 0; i < cpu.gradients.size(); i++) {
+      shares.emplace_back("input " + std::to_string(i),
+                          ZeroPassShare(test, cpu.gradients[i]));
+    }
+
+    const bool ok = std::ranges::all_of(shares, [](const auto &entry) {
+      return entry.second <= kMaxZeroPassShare;
+    });
+    std::printf("%s  zero %s:", ok ? "ok  " : "FAIL", test.name.c_str());
+    for (const auto &[slot, share] : shares) {
+      std::printf(" %s %.0f%%", slot.c_str(), 100.0 * share);
+    }
+    std::printf("\n");
+    if (!ok) {
+      failed++;
+    }
+  }
+  std::printf("%zu of %zu zero-result self-checks passed\n", checked - failed,
+              checked);
+  return failed;
 }
 
 void ProbeDevice(Device device) {
@@ -860,7 +1059,9 @@ size_t RunAllCases(Device device) {
     }
     if (device == Device::CPU) {
       const auto mismatches =
-          GradCheck(test.function, test.inputs, test.options);
+          test.samples > 0
+              ? SampledGradCheck(test)
+              : GradCheck(test.function, test.inputs, test.options);
       if (mismatches.empty()) {
         std::printf("ok    %s\n", test.name.c_str());
         continue;
@@ -883,8 +1084,7 @@ size_t RunAllCases(Device device) {
       micrograd::CudaContext::instance().setAllowTf32(test.tf32);
       micrograd::CudaContext::instance().setAllowBf16Matmul(test.bf16);
 #endif
-      mismatches =
-          CheckOnDevice(test.function, test.inputs, test.options, device);
+      mismatches = CheckOnDevice(test, device);
 #ifdef MICROGRAD_CUDA_ENABLED
       micrograd::CudaContext::instance().setAllowTf32(false);
       micrograd::CudaContext::instance().setAllowBf16Matmul(false);
@@ -915,7 +1115,7 @@ size_t RunAllCases(Device device) {
   std::printf("%zu of %zu gradient checks passed on %s\n",
               cases.size() - skipped - failed, cases.size() - skipped,
               DeviceName(device));
-  return failed;
+  return failed + RunZeroGradientSelfCheck(cases);
 }
 
 }  // namespace
