@@ -1,67 +1,61 @@
 # micrograd
 
-A small automatic differentiation engine.
+Deep learning framework
 
-```c++
-#include "micrograd/Tensor.h"
-#include <iostream>
-using namespace micrograd;
+| Model | Params | Training tokens | Time to train | Compute | HellaSwag `acc_norm` |
+|---|---|---|---|---|---|
+| taby-mm | 124M | 14.9B | 3 h 38 min | 8x A100 40 GB | 34.53% |
 
-int main() {
-  auto a = Tensor::from_values(std::vector<size_t>{1}, std::vector<scalar_t>{2});
-  auto b = Tensor::from_values(std::vector<size_t>{1}, std::vector<scalar_t>{1});
-  a->set_requires_grad(true);
-  b->set_requires_grad(true);
+**Prompt:** The cat and dog went on a walk
 
-  auto c = a->add(b);       // 3
-  auto d = b->add(1.0f);    // 2
-  auto e = c->mul(d);       // 6
-  e->backward();
+**Response:**
 
-  std::cout << e->at({0}) << "\n";                                  // 6
-  std::cout << a->grad_at({0}) << " " << b->grad_at({0}) << "\n";   // 2 5
-}
-```
+> “Oh,” he said, “that was the most wonderful sight I’ve ever seen,” and I saw the cat.
+>
+> “But you are wrong. You are wrong. I don’t like dogs. That cat is the most wonderful sight I’ve ever seen. I love my cat. I love his company. I love how he has a pet for me. He is the best pet I’ve ever seen. I love how he has a pet for my wife. My wife is the best pet I’ve ever
 
-## Demo
-![Computational Graph](images/computation-graph.svg)
+![HellaSwag score: taby-mm 34.53%, GPT-2 124M 31.14%](images/gpt2-hellaswag.svg)
 
-## Build & Run
+![Loss: train and validation loss over 14.9B tokens, ending at 2.992](images/gpt2-loss.svg)
+
+![Learning rate over the run](images/gpt2-learning-rate.svg)
+
+## Building and Running
+
+### Build
 
 ```bash
-cmake -S . -B build
-cmake --build build
-./build/main
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON -DFETCH_MNIST=OFF
+cmake --build build -j 8
 ```
 
-`main` trains a small network on MNIST.
-
-![MNIST Training](./images/mnist-training.svg)
-## Tests
+On a machine with CUDA:
 
 ```bash
-cmake -S . -B build -DBUILD_TESTING=ON
-cmake --build build
-ctest --test-dir build --output-on-failure
+cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DENABLE_CUDA=ON -DENABLE_CUBLAS=ON -DENABLE_NCCL=ON -DCMAKE_CUDA_ARCHITECTURES=native -DFETCH_MNIST=OFF -DBUILD_TESTING=ON
+cmake --build build-cuda -j "$(nproc)" --target micrograd_tests gradcheck dist_check train_gpt
 ```
 
-## Cross-entropy memory
+### Run
 
-Computed from the tensor shapes and the op graph in `src/nn/Loss.cpp`, not measured.
-For logits of shape `[N, C]` in float32, each buffer is `N * C * 4` bytes, and all of
-them stay allocated until the step ends.
+Fetch 150 FineWeb-Edu shards (15B tokens, 29 GB), then train taby-mm on 8 GPUs:
 
-| Buffer | Rank-2 logits | Rank-3 logits |
-|---|---|---|
-| Logits, data and grad | 2 | 2 |
-| Reshape copy to `[N, C]`, data and grad | 0 | 2 |
-| `log_softmax` output, data and grad | 2 | 2 |
-| Total | 4 | 6 |
+```bash
+tools/fetch_fineweb.sh ~/fineweb-data 150
+tools/launch.sh 8 build-cuda/train_gpt --data-format fineweb --fineweb-dir ~/fineweb-data --checkpoint runs/long.bin --log runs/long.jsonl --batch-size 16 --grad-accum-steps 1 --block-size 1024 --n-layer 12 --n-head 12 --n-embd 768 --dropout 0 --lr 6e-4 --min-lr 6e-5 --weight-decay 0.1 --beta1 0.9 --beta2 0.99 --grad-clip 1 --warmup-iters 2000 --max-iters 114000 --eval-interval 1000 --eval-iters 100 --checkpoint-interval 1000 --keep-every 10000 --device cuda --seed 1337 --bf16 --pad-vocab --no-recompute
+```
 
-| Config | N | C | One buffer | All buffers |
-|---|---|---|---|---|
-| MNIST, batch 64 | 64 | 10 | 2,560 B | 10,240 B |
-| GPT on FineWeb, defaults (batch 64, block 1024, GPT-2 vocab) | 65,536 | 50,257 | 13.17 GB | 79.05 GB |
-
-At the GPT-2 vocab this is 1.21 MB per token, so the loss buffers grow linearly with
-`batch * block`.
+| Argument | Value | Description |
+|----------|-------|-------------|
+| `--batch-size` | 16 | Sequences per GPU per step |
+| `--block-size` | 1024 | Context length |
+| `--n-layer`, `--n-head`, `--n-embd` | 12, 12, 768 | Model shape |
+| `--lr`, `--min-lr` | 6e-4, 6e-5 | Peak and final learning rate, cosine decay |
+| `--warmup-iters` | 2000 | Linear warmup steps |
+| `--max-iters` | 114000 | Total steps |
+| `--checkpoint-interval` | 1000 | Steps between resumable checkpoints |
+| `--keep-every` | 10000 | Steps between kept model files |
+| `--resume` | path | Continue from a checkpoint |
+| `--bf16` | | bf16 activations, fp32 master weights |
+| `--pad-vocab` | | Pad the vocabulary to 50,304 rows for speed |
+| `--no-recompute` | | Keep activations instead of recomputing them |

@@ -1,10 +1,6 @@
-"""Convert a micrograd GPT checkpoint into a Hugging Face GPT-2 model folder.
+"""Export a micrograd checkpoint to Hugging Face.
 
-Writes config.json, model.safetensors (float32) and GPT-2's tokenizer files,
-loadable with transformers.GPT2LMHeadModel.from_pretrained.
-
-Usage:
-    python export_hf.py <checkpoint.bin> <output dir>
+Usage: python export_hf.py <checkpoint.bin> <output dir>
 """
 
 import argparse
