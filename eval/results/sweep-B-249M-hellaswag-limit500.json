@@ -1,5 +1,5 @@
 {
-  "checkpoint": "/Users/ravtrive/Development/micrograd/thunder-results/readiness-l40x2-20261111/checkpoint-B249M/sweep-B-32k-lr6e-4.bin",
+  "checkpoint": "thunder-results/readiness-l40x2-20261111/checkpoint-B249M/sweep-B-32k-lr6e-4.bin",
   "checkpoint_sha256": "719740f2cc193165441e61575025ae913d254d2836d1f0847e091aed1e2b98a0",
   "repo_commit": "63dde09a1e5bc847a242fdd5f790d99e36dca5fa",
   "repo_dirty": true,
@@ -7,7 +7,7 @@
   "tiktoken_version": "0.14.0",
   "device": "cpu",
   "scorer_command": [
-    "/private/tmp/claude-501/-Users-ravtrive-Development-micrograd/143cf993-4a21-4405-875c-df6e75455ff1/scratchpad/build-rel/gpt_score",
+    "<outside-repo>/gpt_score",
     "--checkpoint",
     "../thunder-results/readiness-l40x2-20261111/checkpoint-B249M/sweep-B-32k-lr6e-4.bin",
     "--device",
@@ -74,7 +74,7 @@
         "should_decontaminate": false,
         "metadata": {
           "version": 1.0,
-          "config_source": "/Users/ravtrive/Development/micrograd/.claude/worktrees/r5-eval-harness-5464e2/eval/.venv/lib/python3.12/site-packages/lm_eval/tasks/hellaswag/hellaswag.yaml"
+          "config_source": "lm_eval/tasks/hellaswag/hellaswag.yaml"
         }
       }
     },

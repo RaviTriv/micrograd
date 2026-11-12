@@ -58,7 +58,7 @@
         "version": 1.0,
         "pretrained": "gpt2",
         "dtype": "float32",
-        "config_source": "/Users/ravtrive/Development/micrograd/.claude/worktrees/r5-eval-harness-5464e2/eval/.venv/lib/python3.12/site-packages/lm_eval/tasks/hellaswag/hellaswag.yaml"
+        "config_source": "lm_eval/tasks/hellaswag/hellaswag.yaml"
       }
     }
   },

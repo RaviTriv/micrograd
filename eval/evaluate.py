@@ -20,6 +20,27 @@ import lm_eval
 
 from micrograd_lm import MicrogradLM
 
+REPO = Path(__file__).resolve().parent.parent
+SITE_PACKAGES = Path(lm_eval.__file__).resolve().parent.parent
+
+
+def recorded_path(path):
+    resolved = Path(path).resolve()
+    if resolved.is_relative_to(REPO):
+        return str(resolved.relative_to(REPO))
+    return f"<outside-repo>/{resolved.name}"
+
+
+def portable(value):
+    if isinstance(value, dict):
+        return {key: portable(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [portable(item) for item in value]
+    if isinstance(value, str):
+        for prefix, replacement in ((SITE_PACKAGES, ""), (REPO, ""), (Path.home(), "~/")):
+            value = value.replace(f"{prefix}/", replacement)
+    return value
+
 
 def sha256(path):
     digest = hashlib.sha256()
@@ -48,14 +69,20 @@ def main():
 
     command = [args.scorer, "--checkpoint", args.checkpoint, "--device", args.device]
     record = {
-        "checkpoint": str(Path(args.checkpoint).resolve()),
+        "checkpoint": recorded_path(args.checkpoint),
         "checkpoint_sha256": sha256(args.checkpoint),
         "repo_commit": git("rev-parse", "HEAD"),
         "repo_dirty": bool(git("status", "--porcelain")),
         "lm_eval_version": version("lm_eval"),
         "tiktoken_version": version("tiktoken"),
         "device": args.device,
-        "scorer_command": command,
+        "scorer_command": [
+            recorded_path(args.scorer),
+            "--checkpoint",
+            recorded_path(args.checkpoint),
+            "--device",
+            args.device,
+        ],
         "block_size": args.block_size,
         "limit": args.limit,
     }
@@ -67,7 +94,7 @@ def main():
     )
     lm.close()
     record["wall_time_seconds"] = round(time.time() - start, 1)
-    record["harness"] = results
+    record["harness"] = portable(json.loads(json.dumps(results, default=str)))
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w") as f:

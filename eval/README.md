@@ -12,7 +12,8 @@ pass, over a line-based JSON protocol on stdin/stdout.
 | `evaluate.py` | Runs the harness through `MicrogradLM` and writes one results JSON with provenance |
 | `run.sh` | Entry point for evaluating a checkpoint |
 | `crosscheck.py` | Compares `MicrogradLM` against the harness's built-in `hf` backend, per log-likelihood |
-| `tests/` | Protocol and wrapper tests against the fake scorer |
+| `export_hf.py` | Converts a checkpoint into a Hugging Face GPT-2 model folder |
+| `tests/` | Protocol and wrapper tests against the fake scorer, and the exporter test against `gpt_score` |
 | `results/gpt2-hellaswag-reference.json` | OpenAI GPT-2 124M on full HellaSwag, the bar to beat |
 
 ## Setup
@@ -64,6 +65,24 @@ eval/run.sh path/to/gpt.bin cpu
 Arguments: checkpoint, device (`cpu` or `cuda`), optional comma-separated tasks
 (default `hellaswag`). `GPT_SCORE` overrides the scorer path (default
 `build/gpt_score`); `LIMIT=N` evaluates only the first N examples per task.
+
+## Exporting to Hugging Face
+
+```bash
+cd eval && HF_HOME=$PWD/.cache/huggingface .venv/bin/python export_hf.py path/to/gpt.bin path/to/out
+```
+
+Writes `config.json`, `model.safetensors` (float32) and GPT-2's tokenizer
+files, loadable with `GPT2LMHeadModel.from_pretrained("path/to/out")` or the
+harness's `hf` backend (`--model_args pretrained=path/to/out`). Query, key and
+value become `c_attn` in that order, a padded vocabulary is cut back to 50257
+rows, and GELU is `gelu_new`. The exporter refuses other file versions,
+non-float32 parameters, and checkpoints with `rotary`, `qk_norm` or
+`relu_squared` on, which GPT-2 cannot express.
+
+`tests/test_export_hf.py` checks the exported model's log-probs against
+`gpt_score` on a small random checkpoint. It uses `build/gpt_score` (or
+`GPT_SCORE`) and skips if that is missing.
 
 ## Results file
 
