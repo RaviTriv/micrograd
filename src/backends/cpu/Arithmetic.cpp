@@ -55,15 +55,13 @@ void Pow(const OpArgs &args) {
 }
 
 void ClampMin(const OpArgs &args) {
-  ElementwiseScalar(args, [](scalar_t x, scalar_t bound) {
-    return x < bound ? bound : x;
-  });
+  ElementwiseScalar(
+      args, [](scalar_t x, scalar_t bound) { return x < bound ? bound : x; });
 }
 
 void ClampMax(const OpArgs &args) {
-  ElementwiseScalar(args, [](scalar_t x, scalar_t bound) {
-    return x > bound ? bound : x;
-  });
+  ElementwiseScalar(
+      args, [](scalar_t x, scalar_t bound) { return x > bound ? bound : x; });
 }
 
 std::function<void()> AddBackward(const GradArgs &args) {

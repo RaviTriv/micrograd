@@ -2,10 +2,10 @@
 #include <functional>
 #include <vector>
 
+#include "AxisLayout.h"
 #include "micrograd/Tensor.h"
 #include "micrograd/backends/cpu/Ops.h"
 #include "micrograd/ops/Dispatch.h"
-#include "AxisLayout.h"
 
 namespace micrograd::ops::cpu {
 namespace {

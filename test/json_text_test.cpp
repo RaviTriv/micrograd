@@ -1,11 +1,11 @@
-#include "gpt/JsonText.h"
-
 #include <gtest/gtest.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
+
+#include "gpt/JsonText.h"
 
 using micrograd::gpt::append_utf8;
 using micrograd::gpt::parse_json_string;
