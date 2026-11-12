@@ -4,7 +4,7 @@ Deep learning framework
 
 | Model | Params | Training tokens | Time to train | Compute | HellaSwag `acc_norm` |
 |---|---|---|---|---|---|
-| taby-mm | 124M | 14.9B | 3 h 38 min | 8x A100 40 GB | 34.53% |
+| [taby-mm](https://huggingface.co/ravit21/taby-mm) | 124M | 14.9B | 3 h 38 min | 8x A100 40 GB | 34.53% |
 
 **Prompt:** The cat and dog went on a walk
 
