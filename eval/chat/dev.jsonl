@@ -1,0 +1,30 @@
+{"id": "d001", "group": "definition", "question": "What is a dog?", "reference": "A dog is a domesticated mammal descended from an ancient population of wolves, kept as a pet or working animal. Dogs are known for their loyalty, keen sense of smell and barking."}
+{"id": "d002", "group": "definition", "question": "What is an island?", "reference": "An island is a piece of land that is completely surrounded by water and is smaller than a continent."}
+{"id": "d003", "group": "definition", "question": "What is an adjective?", "reference": "An adjective is a word that describes a noun, such as \"red\", \"tall\" or \"happy\"."}
+{"id": "d004", "group": "definition", "question": "What is the internet?", "reference": "The internet is a worldwide network of connected computers that lets people share information, send messages and use services such as websites and email."}
+{"id": "d005", "group": "definition", "question": "What is a desert?", "reference": "A desert is an area of land that gets very little rain, so few plants and animals can live there. Deserts can be hot, like the Sahara, or cold, like Antarctica."}
+{"id": "d006", "group": "definition", "question": "What is a calendar?", "reference": "A calendar is a system or chart for organising days into weeks, months and years, used to keep track of dates."}
+{"id": "d007", "group": "fact", "question": "What is the capital of Italy?", "reference": "The capital of Italy is Rome."}
+{"id": "d008", "group": "fact", "question": "How many hours are in a day?", "reference": "A day has 24 hours."}
+{"id": "d009", "group": "fact", "question": "Who developed the theory of relativity?", "reference": "Albert Einstein developed the theory of relativity."}
+{"id": "d010", "group": "fact", "question": "What is the chemical formula for water?", "reference": "The chemical formula for water is H2O."}
+{"id": "d011", "group": "fact", "question": "What is the longest river in Africa?", "reference": "The Nile is the longest river in Africa."}
+{"id": "d012", "group": "fact", "question": "How many planets are in our solar system?", "reference": "There are eight planets in our solar system."}
+{"id": "d013", "group": "howto", "question": "How do I fry an egg?", "reference": "Heat a little oil or butter in a frying pan over medium heat, crack the egg into the pan and cook it for about 2 to 3 minutes until the white is set. Flip it briefly if you want the yolk firmer."}
+{"id": "d014", "group": "howto", "question": "How do I make toast?", "reference": "Put a slice of bread in a toaster and toast it until it is golden brown, usually 1 to 3 minutes. You can also grill it in an oven, turning it once."}
+{"id": "d015", "group": "howto", "question": "How do I wrap a present?", "reference": "Put the gift on a sheet of wrapping paper big enough to cover it, fold the paper around it and tape it in place. Fold the ends in neatly, tape them, and add a ribbon or tag if you like."}
+{"id": "d016", "group": "howto", "question": "How do I water a houseplant?", "reference": "Water when the top few centimetres of soil feel dry, pouring slowly until water drains out of the bottom of the pot. Empty the saucer so the roots do not sit in water."}
+{"id": "d017", "group": "howto", "question": "How do I calculate an average?", "reference": "Add all the numbers together and divide the total by how many numbers there are. For example, the average of 2, 4 and 6 is 12 divided by 3, which is 4."}
+{"id": "d018", "group": "howto", "question": "How do I sharpen a pencil?", "reference": "Put the pencil's tip into a pencil sharpener and turn the pencil, or the handle, until the tip is pointed."}
+{"id": "d019", "group": "reasoning", "question": "If I have 5 oranges and give away 2, how many oranges do I have left?", "reference": "You have 3 oranges left."}
+{"id": "d020", "group": "reasoning", "question": "A film starts at 7 pm and lasts 2 hours. When does it end?", "reference": "It ends at 9 pm."}
+{"id": "d021", "group": "reasoning", "question": "What number comes next in the sequence 5, 10, 15, 20?", "reference": "The next number is 25, because each number is 5 more than the one before."}
+{"id": "d022", "group": "reasoning", "question": "If today is Friday, what day was it yesterday?", "reference": "Yesterday was Thursday."}
+{"id": "d023", "group": "reasoning", "question": "How many legs do 3 dogs have in total?", "reference": "Three dogs have 12 legs, because each dog has 4 legs."}
+{"id": "d024", "group": "reasoning", "question": "Which is larger, 3/4 or 1/2?", "reference": "3/4 is larger than 1/2."}
+{"id": "d025", "group": "unanswerable", "question": "Who was the first president of the Sun?", "reference": "The Sun has never had a president. It is a star, and nobody lives on it or governs it."}
+{"id": "d026", "group": "unanswerable", "question": "What colour is Tuesday?", "reference": "Days of the week do not have colours, so the question has no real answer."}
+{"id": "d027", "group": "unanswerable", "question": "What did Cleopatra post on social media?", "reference": "Cleopatra never posted on social media. She died in 30 BC, about 2,000 years before social media existed."}
+{"id": "d028", "group": "unanswerable", "question": "How much does a shadow weigh?", "reference": "A shadow weighs nothing. It is just an area where light is blocked, not an object with mass."}
+{"id": "d029", "group": "unanswerable", "question": "Which planet did Abraham Lincoln visit?", "reference": "Abraham Lincoln never visited another planet. No person has ever been to another planet."}
+{"id": "d030", "group": "unanswerable", "question": "What will the weather be in Paris on 1 January 2100?", "reference": "Nobody can know that. Weather can only be forecast about a week or two ahead."}
