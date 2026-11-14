@@ -10,9 +10,19 @@ Deep learning framework
 
 **Response:**
 
-> “Oh,” he said, “that was the most wonderful sight I’ve ever seen,” and I saw the cat.
+> This time they were both very friendly.
 >
-> “But you are wrong. You are wrong. I don’t like dogs. That cat is the most wonderful sight I’ve ever seen. I love my cat. I love his company. I love how he has a pet for me. He is the best pet I’ve ever seen. I love how he has a pet for my wife. My wife is the best pet I’ve ever
+> "I was so happy that we had the chance to go on that walk. I feel so lucky."
+>
+> The cat and dog had a good time.
+>
+> "What a great time!" the cat was smiling.
+>
+> They had seen the wolf.
+>
+> "I like it." the dog said.
+>
+> "I just like it, too."
 
 ![HellaSwag score: taby-mm 34.53%, GPT-2 124M 31.14%](images/gpt2-hellaswag.svg)
 
